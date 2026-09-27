@@ -213,7 +213,7 @@ async def target_application_developer_mock(stop_event):
                 if intent_json["event"] == "INTENT_SELECT":
                     # Line 5: Route clean intent direct to internal application logic functions
                     print(
-                        f"🚀 [Client App Action Triggered!] Event: {intent_json['event']} | "
+                        f"[Client App Action Triggered!] Event: {intent_json['event']} | "
                         f"Confidence: {intent_json['confidence']*100:.2f}% | "
                         f"Timestamp: {intent_json['timestamp_ms']} ms"
                     )
