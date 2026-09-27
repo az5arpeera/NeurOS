@@ -1,5 +1,6 @@
-Week 1 MVP: Hardware-Agnostic LSL Data Ingestion Bridge
 """
+Week 1 MVP: Hardware-Agnostic LSL Data Ingestion Bridge
+
 Zero-Calibration BCI Universal Layer - Week 1 MVP Ingestion Bridge
 Target: Option B - Software Playback Ingestion Suite
 
