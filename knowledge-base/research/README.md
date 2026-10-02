@@ -28,12 +28,24 @@ Start with **[`synthesis.md`](synthesis.md)**: the cross-cutting conclusions and
 ## Layer 1
 See [`layer-1-references.md`](layer-1-references.md): 25 references across alignment/UDA, backbones, contrastive/CLAP decoding and datasets, each with its read depth.
 
+## Found 2026-10-02 (while answering round-2 questions)
+
+| Source | Why it matters | Depth |
+|---|---|---|
+| Jiang et al., **LEAF**: language-EEG aligned foundation model ([arXiv 2509.24302](https://arxiv.org/abs/2509.24302); Sep 2025, rev. Mar 2026) | Prior art for the text-anchored head: aligns EEG with textual label embeddings; SOTA on 12/16 datasets (incl. MI) | Abstract only |
+| J. Hassan, **harmonized multi-dataset EEG benchmark for cross-hardware generalization** ([Zenodo](https://zenodo.org/records/20727886), June 2026, CC-BY 4.0) | Prior art for "hardware-agnostic"; possible Day-1 cross-check of LODO numbers ([datasets](../datasets.md)) | Record page only |
+| Kline et al. 2015, *J. Neural Eng.*: gait-related movement artifacts | Evidence that walking "EEG" is largely artifact ([beyond LEFT/RIGHT](../explainers/beyond-left-right-any-action.md)) | Abstract level |
+| Jeong et al. 2020, *GigaScience*: 11 upper-limb movement tasks, 25 people | Post-MVP dataset for richer actions | Abstract level |
+| Cho et al. 2017, *GigaScience* | Confirms the real-movement and non-task artifact recordings we use to tune the artifact gate | Abstract level |
+
 ## Reading backlog (high priority)
 - [ ] Han, Wei & Faisal 2023: GNN transfer across heterogeneous electrode configurations (JNE). Directly on the "any headset" claim.
 - [ ] Kobler et al. 2022: mine the full text for SPDDSMBN numbers and what target data it needs online.
 - [ ] Banville et al. 2025: scaling laws for brain decoding. Needed before any "scales with data" claim.
-- [ ] OpenMIIR and MAD-EEG dataset papers: imagined music and music attention (CLAP track).
+- [ ] LEAF full text: does language alignment itself raise cross-subject accuracy? Feeds the P-1 decision.
+- [ ] Wimpff 2024 full text, re-read for implementation details of entropy-minimisation stability (needed for the architecture §7 watchdog).
 - [ ] Neural-data privacy law status (US states, federal proposals): one paragraph for the application.
+- [ ] ~~OpenMIIR and MAD-EEG dataset papers~~: deferred with the music-CLAP track (D-018).
 
 ## How papers were accessed
 - Open-access PDFs: fetched, then text extracted locally (`pdfplumber`) so full text could be searched.

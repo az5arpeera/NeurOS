@@ -2,6 +2,8 @@
 
 *Answers open question Q1 (founder asked 2026-10-01): "use CLAP or contrastive learning frameworks to increase generalizability. If training on text commands/labels, how is this better, and how does it move toward generalizing brain state from personal EEG vs actual thoughts, computations and actions?"*
 
+*Follow-up (2026-10-02): the text-anchored head is explained step by step in [text-anchored-head.md](text-anchored-head.md). The music-CLAP research track is deferred until after 1 Nov (D-018).*
+
 ## 1. What "generalizing" means here
 ```
 raw EEG(person, moment) ≈ person signature          + state / intent           + noise
@@ -64,9 +66,15 @@ Live: alignment (rest-seeded) → AdaBN → entropy-min on the text-anchored sco
 |---|---|---|---|
 | **Brain states** | rest vs focus, mental workload, drowsiness | Robust across people | **MVP** (EEGMAT: rest vs mental arithmetic) |
 | **Action intents** with strong cortical signatures | imagine left/right hand, feet | Moderate (77–83% binary across people) | **MVP** (motor imagery) |
-| **Attention / perception of known stimuli** | which sound or image you're attending to; coarse semantics of music or pictures | Moderate *when the candidates are known* | Research track (CLAP audio) → Phase 2 |
+| **Attention / perception of known stimuli** | which sound or image you're attending to; coarse semantics of music or pictures | Moderate *when the candidates are known* | Research track (CLAP audio): deferred until after 1 Nov (D-018) → Phase 2 |
 | **Inner speech, arbitrary thoughts** | "jump over the wall", sentences | Not reliable today | Vision only |
 
 ## 6. How we'll know it worked (experiments to run)
-- **E1, ablation ladder** on leave-one-subject-out *and* leave-one-dataset-out: baseline → + text anchor (multi-dataset) → + cross-subject contrastive → + DANN. Each step must earn its place.
-- **E2, honest zero-shot test:** hold out one label entirely (e.g. "both feet") and test whether the text-anchored model recognises it from related trained labels ("feet" from BNCI, "both fists" from PhysioNet). If it works, that's a real, measurable zero-shot claim. If not, we say so.
+*Experiment IDs now follow [architecture v1 §8.5](../architecture/mvp-architecture.md).*
+- **Ablation ladder (architecture E1 + E4)**, on never-seen people *and* leave-one-dataset-out. Each step must earn its place:
+  1. baseline;
+  2. \+ pooled multi-dataset training;
+  3. \+ text anchor;
+  4. \+ cross-subject contrastive;
+  5. \+ DANN / CORAL (side experiments, D-019).
+- **Honest zero-shot test (architecture E4-zs):** hold out one label entirely (e.g. "feet"). Then test whether the text-anchored model recognises it from related trained labels ("both feet" from PhysioNet). If it works, that's a real, measurable zero-shot claim. If not, we say so.

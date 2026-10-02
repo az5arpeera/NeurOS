@@ -26,3 +26,13 @@
 | **LSL (Lab Streaming Layer)** | The de-facto open protocol for streaming time-synced biosignals between devices and software. |
 | **MOABB** | "Mother of All BCI Benchmarks": a Python library with standard loaders and evaluation protocols for public BCI datasets. |
 | **Foundation model (EFM)** | A large model pretrained on many hours of unlabeled EEG, then adapted to tasks (e.g. CBraMod, INCEPT). |
+| **Encoder / embedding / head** | The encoder turns an EEG window into a short list of numbers (the embedding). The head turns the embedding into a decision. |
+| **Text-anchored head** | A head whose per-command reference vectors come from a frozen text model reading a description of each command ("imagine squeezing your left hand"), plus a small learned adapter. It's CLIP/CLAP-style, and it gives all datasets one shared vocabulary. See [explainer](explainers/text-anchored-head.md). |
+| **SupCon (supervised contrastive loss)** | Pulls together embeddings with the same label. We make the positives come from *different people*, which teaches person-invariance. |
+| **AdaBN / domain-specific BN** | Batch-norm statistics computed per person (domain). AdaBN swaps in the new user's statistics at test time. |
+| **LODO** | Leave-one-dataset-out: train on all recording setups but one, then test on that one. Our "any setup" test. |
+| **Virtual headset** | Public data cut down to a specific headset's channels and replayed as a live stream, so we can test a headset before owning it. |
+| **Train–serve parity** | The same preprocessing code runs on training data and on the live stream, so the model never sees a mismatch. |
+| **SSVEP** | Steady-state visually evoked potential: looking at a target flickering at a fixed frequency makes the visual cortex oscillate at that frequency. Decodable with no training (CCA). |
+| **Weak supervision** | Labels that arrive for free from context (an accelerometer, app events) instead of from a person labelling data. |
+| **Artifact** | Signal not from the brain: eye blinks (EOG), muscle activity (EMG), electrode or cable motion. |

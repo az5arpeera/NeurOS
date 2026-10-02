@@ -14,6 +14,8 @@ A **command** is one of the outputs the decoder can produce. Apps map each comma
 
 `HOLD` is like a voice assistant ignoring audio that isn't clearly its wake word. It prevents false triggers. It's the "confidence-gated" output from the founder notes, and it makes a demo look calm instead of jittery.
 
+*Update 2026-10-02:* `HOLD` also fires, with a reason code, when the quality gate detects movement or muscle artifacts. Why we don't decode whole-body actions (walking, punching) is covered in [beyond LEFT/RIGHT](beyond-left-right-any-action.md).
+
 **Why so few commands?** Accuracy falls as the number of choices rises: about 77–83% for 2 commands across people, about 66–68% for 4. What users feel is throughput, measured by the **information transfer rate (ITR)**:
 
 ITR per decision (bits) = log₂N + P·log₂P + (1−P)·log₂((1−P)/(N−1)), for N commands at accuracy P.

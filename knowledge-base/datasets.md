@@ -2,6 +2,36 @@
 
 Candidate data for training and evaluation. **Verified** means the spec was checked against the MOABB docs, PhysioNet or the dataset paper on 2026-09-28. **Verify** means it's from memory or a secondary source.
 
+## MVP v0 data lock (Step 3, 2026-10-02)
+Locked by D-011, D-012 and [architecture §4](architecture/mvp-architecture.md). Download in this order, small datasets first, so coding is never blocked:
+
+| # | Dataset | What we use | Role | Size |
+|---|---|---|---|---|
+| 1 | BNCI2014_001, BNCI2014_004 | Everything | E0 sanity check and literature tables. 2b doubles as a 3-channel virtual headset | Small (verify) |
+| 2 | PhysionetMI | Imagined runs (left/right fist; both fists/feet); **baseline runs 1–2** (eyes open/closed, for H1); executed runs (later, onboarding tests) | Core; H1 | A few GB (verify) |
+| 3 | Cho2017 | Motor imagery; real hand movement; **non-task recordings** (blinks, eye movements, head movement, jaw clenching) | Core; tuning the artifact gate | Verify |
+| 4 | Lee2019_MI | Motor-imagery files only | Core | A subset of the 209 GB OpenBMI release, which covers 3 paradigms (verify) |
+| 5 | Dreyer2023 | Motor imagery (EEG channels; EOG/EMG only for artifact analysis) | Core | Verify |
+| 6 | EEGMAT | Rest vs mental arithmetic | E6 brain state | Small |
+| 7 | Stieger2021 | **Sessions 1–2 per person first** | Core (62 people) | **377 GB** for all 598 sessions |
+
+**Storage ask:** about 1 TB on the cluster (about 0.5 TB with the Stieger subset).
+
+**Quick-start option (Day 1–2):** the harmonized cross-hardware benchmark by J. Hassan ([Zenodo, June 2026](https://zenodo.org/records/20727886); CC-BY 4.0; 1.9 GB).
+- **Contents:** PhysionetMI, Cho2017, Lee2019-MI, Shin2017A and Weibo2014.
+- **Processing:**
+  - resampled to 100 Hz and band-passed 8–32 Hz;
+  - interpolated to a 20-channel 10-20 montage with spherical splines;
+  - Euclidean-aligned;
+  - cut into 3-s binary left/right windows, with a leave-one-dataset-out protocol.
+- **Uses:**
+  - an early cross-check of our LODO numbers;
+  - **prior art to position against**: we're not the first to harmonize datasets across hardware.
+- **Why it isn't our main pipeline:**
+  - the data is interpolated and pre-aligned, and online-alignment experiments need raw data;
+  - it isn't peer-reviewed.
+- *Read depth: record page only.*
+
 ## Selection criteria (proposed)
 1. The label set includes **left hand vs right hand** motor imagery (plus feet / rest where available).
 2. **≥ 20 subjects** (cross-subject evaluation needs many subjects).
@@ -41,10 +71,14 @@ MOABB currently lists **63 "imagery" datasets** (motor imagery and imagined spee
 - Licence: **Open Data Commons Attribution v1.0** (commercial use OK with attribution).
 - Caveats: channel indices in the files start at 0 while the montage figure uses 1–64. A few subjects are commonly excluded for sampling or length irregularities (**verify which**, e.g. against MOABB's handling).
 
-### EEG During Mental Arithmetic Tasks (EEGMAT): [physionet.org/content/eegmat](https://www.physionet.org/content/eegmat/1.0.0/). Partly verified
-- **36 subjects**: 24 "good counters" and 12 "bad counters".
-- 10-20 Ag/AgCl electrodes with linked-ear reference. The page describes a **23-channel** system (**verify** the scalp EEG channel count; likely 19 plus reference/ECG) at a sampling rate of **500 Hz (verify)**.
-- Per subject: one **baseline (rest)** recording and one **serial subtraction** recording, each with **60 s** of artifact-free EEG.
+### EEG During Mental Arithmetic Tasks (EEGMAT): [physionet.org/content/eegmat](https://www.physionet.org/content/eegmat/1.0.0/). Partly verified (re-checked 2026-10-02)
+- **36 subjects**: 24 "good counters" (group G) and 12 "bad counters" (group B).
+- **23-channel** recording system, 10-20 placement, referenced to **interconnected ear electrodes**. The scalp channel names (probably 19, using the old T3/T4/T5/T6 names) and the sampling rate (**500 Hz, verify**) still need checking on the files.
+- Per subject: `_1` = background (rest) and `_2` = mental arithmetic, each **60 s** of artifact-free EEG.
+- **Caveats:**
+  - The page reports "a high-pass filter with a 30 Hz cut-off". That's most likely a 30 Hz *low-pass*; we'll check on the spectra.
+  - Artifacts were removed with ICA (**verify**), so the data is cleaner than any live stream.
+  - The page doesn't say whether rest was eyes open or closed.
 - Licence: ODC Attribution v1.0.
 - **Proposed role:** a *second paradigm* (rest vs mental workload, cross-subject) to show the layer isn't motor-imagery-specific. It's small, but it's a standard foundation-model benchmark ("Mental Arithmetic" in CBraMod / INCEPT), so our number is directly comparable. **Not the demo.**
 
@@ -63,11 +97,25 @@ MOABB currently lists **63 "imagery" datasets** (motor imagery and imagined spee
 | OpenMIIR | Music perception + **imagination** of 12 fragments | ~10 subjects, 64 ch (**verify**) | Yes | Not yet checked: imagined music is directly on-thesis |
 | MAD-EEG | Attention to one instrument in polyphonic music | ~8 subjects, 20 ch (**verify**) | Small | Not yet checked |
 
+*The CLAP candidates above are on hold with the music-CLAP track until after 1 Nov (D-018).*
+
+## Executed movement, artifacts and mobile EEG (mostly post-MVP)
+Context: [beyond LEFT/RIGHT](explainers/beyond-left-right-any-action.md).
+- **PhysionetMI executed runs** (real fist/feet movements). Already downloaded with the core pool.
+- **Cho2017 non-task recordings** (blinks, eye movements, head movement, jaw clenching). Used in the MVP to tune the artifact gate.
+- **Jeong et al. 2020** (*GigaScience*, doi:10.1093/gigascience/giaa098):
+  - 25 people; 60 EEG + 7 EMG + 4 EOG channels; multiple sessions;
+  - 11 upper-limb tasks: reaching in 6 directions, grasping 3 objects, wrist twisting with 2 motions;
+  - post-MVP.
+- **Lee et al. 2021 mobile BCI dataset**: scalp- and ear-EEG during standing, walking and running, with ERP and SSVEP paradigms (arXiv 2112.04176). Robustness testing, post-MVP.
+
 ## Large unlabelled corpora (Phase 2 pretraining)
 - **TUEG (Temple University Hospital EEG Corpus):** about 11,000 usable hours, 14,987 subjects, 19 channels, clinical (per INCEPT). Access requires registration / a data use agreement. **Check commercial terms.**
 
 ## Open data tasks
-- [ ] Licence check for each core dataset (commercial training allowed?)
-- [ ] Confirm the EEGMAT channel count and sampling rate
-- [ ] Confirm the THINGS-EEG2, OpenMIIR and MAD-EEG specs and licences
-- [ ] Decide the canonical montage: the channel intersection of the core pool around C3/Cz/C4
+- [ ] Licence check for each core dataset: is commercial training allowed? Deferred by the founder (Q7b). Every model bundle records its training datasets, so any dataset can be dropped later.
+- [ ] EEGMAT: channel names and sampling rate from the files (the 23-channel system is confirmed); check the 30 Hz filter on the spectra.
+- [ ] Record actual download sizes for every row marked "verify" in the data lock.
+- [ ] Compute the canonical montage (C-core) in code on Day 1 ([architecture §4.3](architecture/mvp-architecture.md)).
+- [ ] Verify whether Stieger2021's "down" target means an explicit rest class.
+- [ ] THINGS-EEG2, OpenMIIR and MAD-EEG specs and licences: deferred with the music-CLAP track (D-018).

@@ -48,9 +48,9 @@ Chance is 50% (binary) and 25% (4-class). Subject spread is huge: per-subject cr
 | Layer | Technique | Needs target data? | Evidence | Proposed role |
 |---|---|---|---|---|
 | Input | EA / RA re-centring per subject | Unlabeled | Strong (every paper) | **Core** |
-| Training | Multi-source domain generalisation: per-subject EA, SWA; optional DANN / Deep CORAL / MMD losses | No | Mixed. DANN reported unstable on small EEG data; MMD baselines weak in the graph paper. | **Ablation / experiment** |
+| Training | Multi-source domain generalisation: per-subject EA, SWA; optional DANN / Deep CORAL / MMD losses | No | Mixed. DANN reported unstable on small EEG data; MMD baselines weak in the graph paper. | Per-subject EA + SWA + cross-subject contrastive: **core**. DANN / CORAL: **side experiments (D-019)** |
 | Network | Per-domain Riemannian BN (SPDDSMBN, Kobler 2022) or EMA re-centring (RUNet) | Unlabeled (per-domain statistics) | Strong (NeurIPS 2022, TBME 2026) | v2 candidate |
-| **Test time** | **Online alignment + adaptive BN + entropy minimisation** (source-free) | Unlabeled, streamed | **+10 points** on 2a cross-subject (Wimpff 2024) | **Core: this is our "UDA"** |
+| **Test time** | **Online alignment + adaptive BN + entropy minimisation** (source-free) | Unlabeled, streamed | **+10 points** on 2a cross-subject (Wimpff 2024) | **Core: this is our "UDA" (decided, D-019)** |
 
 Strictly speaking, DANN or CORAL across *training* subjects is domain **generalisation**. UDA proper adapts to the *target*, which in a live product means test-time adaptation. Both can be in the MVP; only the second is proven for live use.
 
@@ -63,7 +63,11 @@ Strictly speaking, DANN or CORAL across *training* subjects is domain **generali
 | **C. CLIP image head** | Image embeddings (THINGS-EEG2) | Cross-subject 6.2% top-1 / 21.4% top-5 on 200-way | Yes, weakly | Low (needs a stimulus screen) | Medium |
 | ✗ **Open-vocabulary imagined actions** ("jump over the wall") | — | **No non-invasive evidence** | — | — | Credibility risk |
 
-**Proposal:** A is in the core MVP. B is a research track that could become the "wow" result (first cross-subject EEG → CLAP music identification). Say plainly in the application that open-vocabulary decoding is the long-term vision, not today's capability.
+**Status (2026-10-02):**
+- **A** is in the core MVP, subject to the keep-if rule in the [text-anchored head explainer](../explainers/text-anchored-head.md) (P-1).
+  - Prior art: LEAF (arXiv 2509.24302) already aligns EEG with label text at foundation-model scale. A is credible, but not a moat on its own.
+- **B** (music CLAP) is **deferred until after 1 Nov (D-018)**. It could still become the "wow" result later: the first cross-subject EEG → CLAP music identification.
+- Say plainly in the application that open-vocabulary decoding is the long-term vision, not today's capability.
 
 ## 6. Foundation models vs small models
 - INCEPT (11,000 h of pretraining) is +3.9 points over EEGNet on PhysioNet-MI 4-class after full fine-tuning, and *worse* with a frozen backbone. The MOABB benchmark finds Riemannian pipelines strongest with limited data.
@@ -77,12 +81,19 @@ Strictly speaking, DANN or CORAL across *training* subjects is domain **generali
 | Graph input | Nodes = actual electrodes, edges = connectivity (PLV) or distance | Handles any count/layout natively | More compute; modest accuracy so far |
 | Electrode-position embeddings | Spherical-harmonics encoding of each electrode's 3-D position (INCEPT) | Principled; FM-grade | More complex; needs more data |
 
-**MVP proposal:** canonical montage (the channel intersection of the training datasets, around C3/Cz/C4) + interpolation, and pick a demo headset that covers C3/C4.
+**MVP decision (architecture v1, §4.3):**
+- Use a canonical channel set: the intersection of the training datasets around C3/Cz/C4, ≈ 18 channels.
+- Align on the channels the headset actually has, and **zero-fill** the rest.
+- Train with **random channel-subset augmentation**, so the model has seen Ganglion-, Unicorn- and Crown-like layouts.
+- **No interpolation in v1:** interpolated channels make covariances singular and invent data.
+- The demo headset must cover C3/C4.
+
+**Prior art:** a June 2026 Zenodo benchmark (Hassan) harmonizes 5 MI datasets to a 20-channel montage by spline interpolation, with EA and a leave-one-dataset-out protocol. We're not the first to harmonize; our edge is the live runtime and sparse-headset evaluation ([datasets](../datasets.md)).
 
 ## 8. Real-time budget
 Sliding windows of 1–2 s, decisions every ~62.5 ms, CNN inference ~2 ms on CPU (Wimpff 2025). **The <30 ms latency target is realistic** with the whole stack on a laptop.
 
-## 9. Straw-man MVP pipeline (for discussion, not decided)
+## 9. Straw-man MVP pipeline (superseded by [architecture v1](../architecture/mvp-architecture.md), kept for history)
 ```
 [Any headset] --LSL--> Ingest: resample, band-pass/notch, map to canonical montage
       --> A. Online alignment (EA/RA via EMA; starts from population reference)      label-free
@@ -91,11 +102,11 @@ Sliding windows of 1–2 s, decisions every ~62.5 ms, CNN inference ~2 ms on CPU
       --> C. Test-time adaptation (adaptive BN stats + entropy minimisation; source-free)   = "UDA"
       --> D. Language-anchored head (EEG embedding vs text embeddings of command phrases)   = "CLAP"
       --> Confidence gating (entropy threshold: act or hold) --> intent events (JSON / WebSocket) --> apps
-Research track: D' = EEG vs CLAP-audio embeddings of candidate sounds (music ID / attention), LOSO on NMED-T.
+Research track: D' = EEG vs CLAP-audio embeddings of candidate sounds (music ID / attention), LOSO on NMED-T.  [deferred until after 1 Nov, D-018]
 ```
 
 ## 10. Top risks
 1. **Cross-dataset transfer** (60% in the only published test) is exactly the "any headset" claim, and it's the weakest link. Measure it first.
 2. **BCI inefficiency:** a live demo user may simply not produce usable motor imagery. Screen demo users in advance.
 3. **Dataset licences:** commercial use of some public datasets may be restricted. Check each one ([`../datasets.md`](../datasets.md)).
-4. **Scope:** doing alignment + adaptation + a language head + a music research track + an SDK + a demo + the YC application in ~33 days needs ruthless prioritisation. See [`../open-questions.md`](../open-questions.md).
+4. **Scope:** alignment + adaptation + a language head + an SDK + a demo + the YC application in ~30 days needs ruthless prioritisation. The music track is already deferred (D-018). The [plan](../plan/road-to-nov-1.md) has a cut list.

@@ -22,3 +22,10 @@ Claims from [`founder-notes/`](founder-notes/README.md) checked against the rese
 | 16 | "A B2B middleware layer bypasses the consumer-privacy target" (ProductIdea) | Processing neural data can still fall under emerging US state neural-data laws and proposed federal bills (**verify current status**) | ⚠️ Risky framing | "On-device processing; raw neural data never leaves the device unless the user opts in" |
 | 17 | RUNet shows zero-calibration via "Riemannian affine log mapping" (ProductIdea) | True, with strict-zero (no target data) and 68.1% 4-class LOSO on 2a | ✅ With numbers | Quote with protocol |
 | 18 | ELIPformer "proves" mapping brain data into multimodal latent space enables zero-calibration on unseen tasks (ProductIdea) | True for **stimulus-referenced RSVP detection** (+4–8 BA points), not free decoding | ⚠️ Scope it | "Language-image priors improve zero-calibration decoding when the system knows the candidate stimuli" |
+
+## Claims raised in chat (2026-10-02)
+
+| # | Claim / idea | Evidence | Verdict | Safer wording |
+|---|---|---|---|---|
+| 19 | Calibration could pull out *any* action the user does (stand up, walk, punch) without labels | Whole-body movement "EEG" is dominated by artifacts (Kline et al. 2015 recorded gait-related signal with the brain blocked off). Unlabeled data can be clustered but not *named* ([explainer](explainers/beyond-left-right-any-action.md)) | ❌ Not for the MVP | "NeurOS detects movement and pauses decoding; richer action vocabularies grow as labeled data and context signals are added" |
+| 20 | "We're the first to make decoders hardware-agnostic / to use language-aligned EEG" (implicit in the positioning) | Prior art: a harmonized cross-hardware MI benchmark (Hassan, Zenodo 2026); LEAF language-aligned EEG model (2025) | ⚠️ Don't claim "first" | "A zero-calibration runtime that adapts to any headset and any person in under 45 s, validated on ~380 people" (once measured) |
