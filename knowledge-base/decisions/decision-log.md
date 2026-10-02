@@ -4,18 +4,28 @@ Newest first. Format: **ID · date · decision** — why · who. Superseded deci
 
 ## Decided
 
-- **D-007 · 2026-09-28 · Research depth = primary list + one citation layer (targeted).** Two layers across 19 papers is about 10,000 papers; one targeted layer covers the decisions we face. · Founder
+- **D-017 · 2026-10-01 · Buy a research-grade EEG headset for the demo; the live demo uses a random volunteer, not a cofounder.** Budget isn't a constraint. Model choice is pending ([Q5](../open-questions.md)). · Founder
+- **D-016 · 2026-10-01 · Positioning: "a zero-calibration layer enabling a generalized neural operating system that any BCI company can use."** · Founder
+- **D-015 · 2026-10-01 · First users and outreach: UVA labs and OpenBCI forum developers.** · Founder
+- **D-014 · 2026-10-01 · MVP deliverable:** a Python package + local engine (LSL in → intent events as JSON over WebSocket, with confidence and HOLD), a dataset-playback "virtual headset" simulator, and a JavaScript client example. · Founder (accepted recommendation)
+- **D-013 · 2026-10-01 · EEG-only model input for the MVP**; multimodal EEG + EOG + EMG is a later module. · Founder
+- **D-012 · 2026-10-01 · Include PhysioNet EEGMAT** (rest vs mental arithmetic, 36 subjects) as a brain-state paradigm alongside motor imagery. · Founder
+- **D-011 · 2026-10-01 · Core motor imagery training pool: PhysionetMI, Dreyer2023, Stieger2021, Lee2019_MI, Cho2017**, plus BNCI2014-001/004 for literature comparability (~380 subjects). Licence check still to do. · Founder
+- **D-010 · 2026-10-01 · Compute: the school cluster via Proxmox.** GPU/storage details pending. · Founder
+- **D-009 · 2026-10-01 · Calibration target: usable within seconds, full accuracy within 30–45 s at most, with no calibration task.** To be validated by the warm-up-curve experiment (H1: a resting-state-seeded reference). · Founder
+- **D-007 · 2026-09-28 · Research depth = primary list + one citation layer (targeted).** · Founder
 - **D-006 · 2026-09-28 · User testing is informal and consented (not IRB research).** · Founder
-- **D-005 · 2026-09-28 · The knowledge base lives in this repo under `knowledge-base/`; git history is the version record.** Founders can edit any doc freely and recover earlier wording from history. · Founder
-- **D-004 · 2026-09-28 · Restart the repo from scratch.** The prior prototype code (`DataIngest.py`, `algorithmic_alignment_layer.py`, `eegnet-classifier_validation.py`, `eventbridge_sdk.py`) and `claudeinstructions.md` were deleted and are disregarded. · Founder
-- **D-003 · 2026-09-28 · The MVP must include UDA and CLAP**, aiming at "true zero calibration". The exact meaning of each is still open (see [Q1](../open-questions.md#q1-what-does-clap-mean-for-us-and-what-experience-should-the-mvp-decode-into-it), [Q2](../open-questions.md#q2-which-uda-do-we-mean), [Q3](../open-questions.md#q3-which-zero-calibration-claim-do-we-make)). · Founder
-- **D-002 · 2026-09-28 · Training data comes from public datasets only** (MOABB, PhysioNet, OpenNeuro, ...). No self-collected cap sessions for training; a headset may be bought for the demo only. · Founder
-- **D-001 · 2026-09-28 · Target the YC Winter 2027 batch; the application deadline of 1 Nov 2026 is hard.** · Founder
+- **D-005 · 2026-09-28 · The knowledge base lives in this repo under `knowledge-base/`; git history is the version record.** · Founder
+- **D-004 · 2026-09-28 · Restart the repo from scratch**; the prior prototype code and `claudeinstructions.md` are discarded. · Founder
+- **D-003 · 2026-09-28 (clarified 2026-10-01) · The MVP includes UDA and CLAP-style contrastive learning, for "true zero-phase calibration"** (no calibration phase). The intent of the contrastive part is to **increase generalizability across people**. Exact design pending ([Q1](../open-questions.md), [Q2](../open-questions.md)). · Founder
+- **D-002 · 2026-09-28 · Training data comes from public datasets only.** No self-collected training sessions. · Founder
+- **D-001 · 2026-09-28 · Target the YC Winter 2027 batch; the 1 Nov 2026 deadline is hard.** · Founder
 
-## Pending (blocking; see [open questions](../open-questions.md))
-- P-1: meaning and scope of CLAP in the MVP (Q1)
-- P-2: which UDA: test-time, train-time, or both (Q2)
-- P-3: zero-calibration claim level, L0 vs L1 (Q3)
-- P-4: intent vocabulary and headline metric (Q4)
-- P-5: demo form and headset purchase (Q5)
-- P-6: team roles, hours and compute (Q6)
+## Pending (see [open questions](../open-questions.md))
+- P-8: adopt the L0/L1/L2 definitions of zero-calibration for all reporting ([synthesis §2](../research/synthesis.md)). The product claim would be "no calibration task; adapts in ≤ 30–45 s", with L0 (no target data) reported alongside. Proposed by Claude and consistent with D-009; **founder to confirm**.
+- P-1: CLAP design. Cross-subject supervised contrastive + text-anchored head? Audio-CLAP research track now or later? (Q1)
+- P-2: UDA stack. Test-time core + training-time domain generalisation? (Q2)
+- P-4: command vocabulary (LEFT/RIGHT/REST + HOLD) and headline format (Q4)
+- P-5: headset model(s) and order date (Q5)
+- P-6b: cluster GPU/storage (Q6b)
+- P-20: timeline lock. Steps 3–4 done by 4 Oct, coding from 6 Oct (Q20)

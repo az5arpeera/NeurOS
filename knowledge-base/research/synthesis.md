@@ -36,7 +36,10 @@ Chance is 50% (binary) and 25% (4-class). Subject spread is huge: per-subject cr
 **Proposal:** the product claims **L1** ("no calibration session; it adapts silently while you use it"), and we always report L0 alongside it. That's both the strongest honest claim and the best UX.
 
 ## 3. The EA warm-up in practice
+> **Founder target (D-009, 2026-10-01):** usable within seconds, full accuracy within **30–45 s**, no calibration task. Plan and hypothesis H1 (a resting-state-seeded reference) are in [the calibration explainer](../explainers/calibration-time-commands-and-metrics.md).
+
 - The reference R̄ must come from the **new user's own data**. Junqueira 2024 used the first **24 trials** and cites **16–32**. Wimpff 2024 shows **EMA or linear online updates match batch alignment** (62.45% vs 62.48%).
+- **Resting-state re-centring has precedent** (Zanini et al. 2018 re-centred on resting-state trials). If a 30-s relaxed "settling" period gives a good-enough reference, the 30–45 s target is reachable. This is the first experiment to run (H1).
 - **Design:** start from a population reference (identity after training-time alignment), update it with an EMA over sliding windows from the first second, and let accuracy climb over about 1–2 minutes. Show that climb in the demo; it's a feature, not a flaw.
 - EA placement: band-pass → optional average reference → **EA** → spatial filtering / network ([Revisiting EA](papers/2025-wu-revisiting-euclidean-alignment.md)).
 

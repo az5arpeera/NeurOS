@@ -9,6 +9,7 @@ The single source of truth for what we know, what we've decided, and what's stil
 | [`open-questions.md`](open-questions.md) | Step 2: questions that must be answered before the MVP is locked, each with a recommendation | **Needs founder answers** |
 | [`decisions/decision-log.md`](decisions/decision-log.md) | Dated decisions (what, why, who), plus decisions still pending | Living |
 | [`research/synthesis.md`](research/synthesis.md) | What the literature actually supports for zero-calibration, UDA and CLAP, with realistic numbers | Read this second |
+| [`explainers/`](explainers/) | Plain-language explanations: [UDA](explainers/uda-train-time-vs-test-time.md), [contrastive learning & CLAP](explainers/contrastive-learning-and-clap-for-generalization.md), [calibration time & commands](explainers/calibration-time-commands-and-metrics.md), [demo hardware & compute](explainers/demo-hardware-lsl-and-compute.md), [post-MVP ideas](explainers/v2-ideas-riemannian-layers-pretraining-montage.md) | Living |
 | [`research/README.md`](research/README.md) | Reading list: every paper, how it was accessed, how deeply it was read | Living |
 | [`research/papers/`](research/papers/) | One note per primary paper (method, numbers with protocol, meaning for NeurOS, caveats) | Living |
 | [`research/layer-1-references.md`](research/layer-1-references.md) | Citations followed one layer out from the primary papers | Living |
