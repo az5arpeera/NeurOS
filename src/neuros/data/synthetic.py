@@ -96,7 +96,8 @@ def _pink_noise(rng: np.random.Generator, n_channels: int, n_samples: int) -> ND
     spectrum /= np.sqrt(freqs)
     pink = np.fft.irfft(spectrum, n=n_samples, axis=-1)
     pink -= pink.mean(axis=-1, keepdims=True)
-    return pink / pink.std(axis=-1, keepdims=True)
+    # Explicit float64 array: numpy 2.4's stubs type this division as Any (CI on Python 3.11).
+    return np.asarray(pink / pink.std(axis=-1, keepdims=True), dtype=np.float64)
 
 
 def _narrowband(
