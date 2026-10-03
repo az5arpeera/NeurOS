@@ -107,6 +107,16 @@ def test_assert_disjoint() -> None:
     assert len(dev) == 52 - 10
 
 
+def test_exclusions_shrink_dev_pool_not_the_locked_set() -> None:
+    split = make_locked_test_set()
+    # D-027 excludes PhysionetMI 88, 92, 100; none was drawn into the locked test set.
+    assert {88, 92, 100}.isdisjoint(split.test["PhysionetMI"])
+    assert split.usable_test_subjects("PhysionetMI") == split.test["PhysionetMI"]
+    dev = split.dev_subjects("PhysionetMI")
+    assert len(dev) == 109 - 22 - 3
+    assert {88, 92, 100}.isdisjoint(dev)
+
+
 def test_dev_folds_partition_people() -> None:
     split = make_locked_test_set()
     people = {key: split.dev_subjects(key) for key in split.test}

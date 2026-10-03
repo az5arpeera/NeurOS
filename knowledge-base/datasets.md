@@ -24,9 +24,13 @@ Locked by D-011, D-012 and [architecture §4](architecture/mvp-architecture.md).
 - **No transport security.** BNCI redirects to `lampx.tugraz.at` over HTTPS, but MOABB downloads with certificate verification off. Our SHA-256 manifest is the integrity check from first download onwards.
 - **Stim channel renamed** to `STI`. The harmoniser now treats any `stim`-typed channel as the event channel.
 - **BNCI2014-001 artifact flags.** MOABB's default `artifact_handling="ignore"` keeps every trial unaltered (what we want). `"annotate"` would expose the original expert artifact flags (event 1023): a free benchmark for our quality gate later.
+- **physionet.org is throttled** (~100 KB/s: 12 s per 1.2 MB file, ~5 h for PhysionetMI). PhysioNet's own AWS Open Data mirror (`physionet-open`) served the same file in 0.4 s. `neuros download` now fetches PhysioNet datasets from the mirror, checks **every file against `SHA256SUMS.txt` fetched from physionet.org**, and places files exactly where MOABB looks for them (`src/neuros/data/physionet.py`). Manifest entries record `"verified_against": "publisher SHA256SUMS.txt"`. EEGMAT will use the same path.
 
 **Validation results (3 Oct, `results/validation/`):**
-- **BNCI2014-001: 9/9 people, 108/108 recordings pass.** 250 Hz, 22 EEG channels, 2 sessions × 6 runs, 144 trials per class per person, typical amplitude 5.7–9.1 µV, no window over 500 µV.
+- **BNCI2014-001: 9/9 people, 108/108 recordings pass.** 250 Hz, 22 EEG channels, 2 sessions × 6 runs, 144 trials per class per person, no window over 500 µV.
+- **BNCI2014-004: 9/9 people, 45/45 recordings pass.** 250 Hz, C3/Cz/C4, 5 sessions; 60–80 trials per class per session (not a fixed 360 per person).
+- **PhysionetMI: 106/109 people pass (636/654 recordings).** All 872 files match PhysioNet's published SHA-256 sums. 160 Hz, 64 channels, 6 imagined runs per person (e.g. person 1: left 23, right 22, both hands 21, feet 24, rest 90). **People 88, 92 and 100 fail: recorded at 128 Hz** (person 100 also has fewer trials), so they're excluded (D-027). Typical amplitude (raw MAD) ~23 µV, the same as everyone else, so units weren't the problem.
+- **Validation now measures artifacts in the contract band.** On raw PhysionetMI (unfiltered), 39% of windows exceeded 500 µV peak-to-peak because of line noise and drift, which the model never sees. The extreme-amplitude flag and the typical-amplitude (units) check now use the 4–30 Hz band (zero-phase, measurement only); flatness stays broadband.
 
 **Quick-start option (Day 1–2):** the harmonized cross-hardware benchmark by J. Hassan ([Zenodo, June 2026](https://zenodo.org/records/20727886); CC-BY 4.0; 1.9 GB).
 - **Contents:** PhysionetMI, Cho2017, Lee2019-MI, Shin2017A and Weibo2014.
@@ -68,7 +72,7 @@ Locked by D-011, D-012 and [architecture §4](architecture/mvp-architecture.md).
 | Beetl2021_A | 4 | 63 | 4 | 224 | 4.0 | 500 | 1 | Optional |
 | Zhou2016 | 4 | 14 | 3 | 160 | 5.0 | 250 | 3 | Optional |
 
-**Core pool: 109 + 87 + 62 + 54 + 52 = 364 subjects**, plus 18 more for literature comparability (BCIC-IV-2a/2b), giving **about 380 subjects** across 7 independent recording setups. Every paper in our reading list evaluates on 9–30 subjects, so our evaluation scale is itself a differentiator.
+**Core pool: 109 + 87 + 62 + 54 + 52 = 364 subjects** (**361 usable** after D-027 excludes 3 PhysionetMI people), plus 18 more for literature comparability (BCIC-IV-2a/2b), giving **about 380 subjects** (379 usable) across 7 independent recording setups. Every paper in our reading list evaluates on 9–30 subjects, so our evaluation scale is itself a differentiator.
 
 MOABB currently lists **63 "imagery" datasets** (motor imagery and imagined speech) and 3 resting-state datasets.
 
@@ -80,7 +84,7 @@ MOABB currently lists **63 "imagery" datasets** (motor imagery and imagined spee
 - Annotations: T0 = rest, T1/T2 = the two classes; their meaning depends on the run number.
 - **Free resting-state data** (the baseline runs) for EA warm-up studies and RUNet-style contrastive pretraining.
 - Licence: **Open Data Commons Attribution v1.0** (commercial use OK with attribution).
-- Caveats: channel indices in the files start at 0 while the montage figure uses 1–64. A few subjects are commonly excluded for sampling or length irregularities (**verify which**, e.g. against MOABB's handling).
+- Caveats: channel indices in the files start at 0 while the montage figure uses 1–64. **Verified 3 Oct: people 88, 92 and 100 are recorded at 128 Hz** (and 100 has fewer trials); excluded by D-027. MOABB doesn't exclude them itself.
 
 ### EEG During Mental Arithmetic Tasks (EEGMAT): [physionet.org/content/eegmat](https://www.physionet.org/content/eegmat/1.0.0/). Partly verified (re-checked 2026-10-02)
 - **36 subjects**: 24 "good counters" (group G) and 12 "bad counters" (group B).

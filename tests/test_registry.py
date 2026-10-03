@@ -56,6 +56,15 @@ def test_registry_agrees_with_moabb_metadata(key: str, vocab: Vocabulary) -> Non
     assert check_against_moabb(DATASETS[key], vocab) == []
 
 
+def test_physionet_exclusions_d027() -> None:
+    spec = get_spec("PhysionetMI")
+    assert sorted(spec.excluded_subjects) == [88, 92, 100]
+    assert len(spec.usable_subjects) == 106
+    assert all("128 Hz" in reason for reason in spec.excluded_subjects.values())
+    usable_core = sum(len(DATASETS[k].usable_subjects) for k in keys_with_role("core"))
+    assert usable_core == 361
+
+
 def test_get_spec_unknown() -> None:
     with pytest.raises(NeurOSConfigError, match="known"):
         get_spec("NoSuchDataset")
@@ -85,6 +94,8 @@ def test_subgroups() -> None:
         ({"pre_cue_fixation_s": None}, NeurOSConfigError, "pre_cue"),
         ({"subgroups": {"A": (1, 2)}}, NeurOSConfigError, "cover the subjects"),
         ({"subgroups": {"A": (1, 2), "B": (2, 3)}}, NeurOSConfigError, "subgroups"),
+        ({"excluded_subjects": {9: "bad"}}, NeurOSConfigError, "not declared"),
+        ({"excluded_subjects": {1: "  "}}, NeurOSConfigError, "reason"),
     ],
 )
 def test_spec_validation(

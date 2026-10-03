@@ -69,6 +69,9 @@ class DatasetSpec:
     unverified: tuple[str, ...] = ()
     # Named subgroups with inclusive subject-id ranges, used to stratify splits.
     subgroups: Mapping[str, tuple[int, int]] = field(default_factory=dict)
+    # Subjects excluded from every use, with the reason (data-quality failures found by
+    # validation). They stay declared so splits and reports remain stable and transparent.
+    excluded_subjects: Mapping[int, str] = field(default_factory=dict)
     notes: str = ""
 
     def __post_init__(self) -> None:
@@ -92,6 +95,13 @@ class DatasetSpec:
             raise NeurOSConfigError(f"{self.key}: pre_cue_fixation_s must be positive or None")
         if self.rest_source == "pre_cue" and self.pre_cue_fixation_s is None:
             raise NeurOSConfigError(f"{self.key}: rest_source 'pre_cue' needs pre_cue_fixation_s")
+        unknown_excluded = sorted(set(self.excluded_subjects) - set(self.subjects))
+        if unknown_excluded:
+            raise NeurOSConfigError(
+                f"{self.key}: excluded subjects {unknown_excluded} are not declared"
+            )
+        if any(not reason.strip() for reason in self.excluded_subjects.values()):
+            raise NeurOSConfigError(f"{self.key}: every excluded subject needs a reason")
         self._check_subgroups()
 
     def _check_subgroups(self) -> None:
@@ -120,6 +130,11 @@ class DatasetSpec:
     @property
     def n_subjects(self) -> int:
         return len(self.subjects)
+
+    @property
+    def usable_subjects(self) -> tuple[int, ...]:
+        """Declared subjects minus documented exclusions: everyone eligible for any use."""
+        return tuple(s for s in self.subjects if s not in self.excluded_subjects)
 
     def subgroup_of(self, subject: int) -> str:
         """Subgroup name of a subject, or ``"all"`` when the dataset has no subgroups."""
@@ -201,12 +216,20 @@ _SPECS: tuple[DatasetSpec, ...] = (
         licence="ODC Attribution 1.0 (commercial use with attribution)",
         url="https://physionet.org/content/eegmmidb/1.0.0/",
         channels_source=_MOABB_SOURCE,
-        unverified=("native_sfreq",),
+        excluded_subjects={
+            88: "recorded at 128 Hz, not 160 Hz (validation: sampling_rate), 2026-10-03, D-027",
+            92: "recorded at 128 Hz, not 160 Hz (validation: sampling_rate), 2026-10-03, D-027",
+            100: (
+                "recorded at 128 Hz, not 160 Hz, and only 6 trials per class per run "
+                "(validation: sampling_rate), 2026-10-03, D-027"
+            ),
+        },
         notes=(
             "Imagined runs 4/8/12 (left vs right fist) and 6/10/14 (both fists vs both feet). "
-            "T0 annotations between tasks are explicit rest. A few subjects are reported to "
-            "have irregular sampling or run lengths: neuros validate lists them. Baseline runs "
-            "1-2 (eyes open/closed) aren't loaded by MOABB; a dedicated loader comes with H1."
+            "T0 annotations between tasks are explicit rest. Raw files are unfiltered (line "
+            "noise, drift). 160 Hz confirmed on all 106 usable people (3 Oct). Baseline runs "
+            "1-2 (eyes open/closed) are downloaded but not loaded by MOABB; a loader comes "
+            "with H1. Files come from PhysioNet's mirror, verified against SHA256SUMS.txt."
         ),
     ),
     DatasetSpec(

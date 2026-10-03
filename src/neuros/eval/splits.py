@@ -109,10 +109,20 @@ class LockedTestSet:
         return subject in self.test.get(dataset, ())
 
     def dev_subjects(self, dataset: str) -> tuple[int, ...]:
-        """Subjects of ``dataset`` available for development (everyone not locked)."""
+        """Subjects of ``dataset`` available for development: usable and not locked.
+
+        The locked set was drawn from *declared* subjects before any data was examined, so a
+        later data-quality exclusion (registry ``excluded_subjects``) never changes it; it only
+        shrinks the development pool (and, if it ever hit a test person, the test N).
+        """
         spec = get_spec(dataset)
         locked = set(self.test.get(dataset, ()))
-        return tuple(s for s in spec.subjects if s not in locked)
+        return tuple(s for s in spec.usable_subjects if s not in locked)
+
+    def usable_test_subjects(self, dataset: str) -> tuple[int, ...]:
+        """Locked test subjects of ``dataset`` that aren't excluded for data quality."""
+        excluded = get_spec(dataset).excluded_subjects
+        return tuple(s for s in self.test.get(dataset, ()) if s not in excluded)
 
     def assert_disjoint(self, people: Iterable[str], purpose: str) -> None:
         """Raise if any of ``people`` (``dataset:subject`` ids) is a locked test person.

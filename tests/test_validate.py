@@ -106,11 +106,25 @@ def test_extreme_amplitude_windows_are_flagged_not_failed(
     clean: Recording, synthetic_spec: DatasetSpec, vocab: Vocabulary
 ) -> None:
     data = clean.data.copy()
-    data[0, 1000:1010] += 2000.0  # electrode pop
+    # A 1-s, 10 Hz, ±800 µV burst (e.g. a jaw clench leaking into the band) inside window 2.
+    t = np.arange(250) / clean.sfreq
+    data[0, 1100:1350] += 800.0 * np.sin(2 * np.pi * 10.0 * t)
     report = validate_recording(_with_data(clean, data), synthetic_spec, vocab)
     assert report.windows_flagged == 1
     assert "extreme_amplitude" in _codes(report)
     assert report.ok  # flags are counted, not fatal
+
+
+def test_line_noise_and_drift_are_not_artifacts(
+    clean: Recording, synthetic_spec: DatasetSpec, vocab: Vocabulary
+) -> None:
+    # Unfiltered recordings (PhysionetMI) carry large 60 Hz noise and drift: out of band, so the
+    # model never sees them and they mustn't count as artifacts.
+    t = np.arange(clean.n_samples) / clean.sfreq
+    noise = 400.0 * np.sin(2 * np.pi * 60.0 * t) + 300.0 * np.sin(2 * np.pi * 0.2 * t)
+    report = validate_recording(_with_data(clean, clean.data + noise), synthetic_spec, vocab)
+    assert report.windows_flagged == 0
+    assert report.ok, report.issues
 
 
 def test_sampling_rate_mismatch(clean: Recording, vocab: Vocabulary) -> None:

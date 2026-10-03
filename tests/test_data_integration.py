@@ -62,6 +62,33 @@ def test_bnci2014_001_subject_1(config: DataConfig, vocab: Vocabulary) -> None:
     }
 
 
+def test_bnci2014_004_subject_1(config: DataConfig, vocab: Vocabulary) -> None:
+    recordings = _load_and_validate("BNCI2014_004", 1, config, vocab)
+    assert [rec.session for rec in recordings] == ["0train", "1train", "2train", "3test", "4test"]
+    assert _label_totals(recordings) == {"left_hand": 360, "right_hand": 360}
+
+
+def test_physionet_subject_1(config: DataConfig, vocab: Vocabulary) -> None:
+    recordings = _load_and_validate("PhysionetMI", 1, config, vocab)
+    assert len(recordings) == 6  # imagined runs 4, 8, 12 (hands) then 6, 10, 14 (fists/feet)
+    assert _label_totals(recordings) == {
+        "left_hand": 23,
+        "right_hand": 22,
+        "both_hands": 21,
+        "feet": 24,
+        "rest": 90,
+    }
+
+
+def test_physionet_excluded_subject_fails_validation(config: DataConfig, vocab: Vocabulary) -> None:
+    """Why D-027 excludes subject 88: its files are 128 Hz, not the declared 160 Hz."""
+    spec = get_spec("PhysionetMI")
+    recording = harmonize_moabb_subject(spec, 88, vocab)[0]
+    report = validate_recording(recording, spec, vocab, config.signal, config.validation)
+    assert recording.sfreq == 128.0
+    assert "sampling_rate" in {issue.code for issue in report.issues}
+
+
 @pytest.mark.parametrize("key", ["BNCI2014_001", "BNCI2014_004", "PhysionetMI"])
 def test_manifest_intact(config: DataConfig, key: str) -> None:
     assert verify_manifest(get_spec(key), config.data_dir) == []

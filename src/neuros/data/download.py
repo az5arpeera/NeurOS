@@ -27,6 +27,7 @@ from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
+from neuros.data.physionet import PHYSIONET_PROJECTS, fetch_subjects
 from neuros.data.registry import DatasetSpec, moabb_dataset
 from neuros.errors import DataContext, NeurOSDataError
 from neuros.provenance import file_sha256, stamp
@@ -98,6 +99,14 @@ def download(spec: DatasetSpec, subjects: Sequence[int], data_dir: Path) -> dict
     path = manifest_path(data_dir, spec)
     manifest = _load_manifest(path)
     files: dict[str, dict[str, Any]] = dict(manifest.get("files", {}))
+
+    # PhysioNet datasets: prefetch from PhysioNet's mirror, verified against the publisher's
+    # checksums (neuros.data.physionet). MOABB's data_path below then finds the files locally.
+    publisher_sums: dict[str, str] = {}
+    project = PHYSIONET_PROJECTS.get(spec.key)
+    if project is not None:
+        publisher_sums = fetch_subjects(project, subjects, raw_dir)
+
     for subject in subjects:
         context = DataContext(spec.key, subject)
         log.info("%s subject %s: fetching", spec.key, subject)
@@ -113,7 +122,16 @@ def download(spec: DatasetSpec, subjects: Sequence[int], data_dir: Path) -> dict
                     f"{str(previous['sha256'])[:12]}… → {digest[:12]}…)",
                     context,
                 )
-            files[key] = {"subject": subject, "bytes": file.stat().st_size, "sha256": digest}
+            entry: dict[str, Any] = {
+                "subject": subject,
+                "bytes": file.stat().st_size,
+                "sha256": digest,
+            }
+            if key in publisher_sums:
+                if publisher_sums[key] != digest:
+                    raise NeurOSDataError(f"{key} doesn't match the publisher's checksum", context)
+                entry["verified_against"] = "publisher SHA256SUMS.txt"
+            files[key] = entry
     body = {
         "dataset": spec.key,
         "moabb_code": str(dataset.code),

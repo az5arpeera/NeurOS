@@ -162,7 +162,13 @@ def cmd_validate(args: argparse.Namespace) -> int:
     dataset = moabb_dataset(spec)
     results: list[dict[str, object]] = []
     rows: list[list[str]] = []
-    for subject in _subjects(args, spec.subjects):
+    pool = spec.subjects if args.include_excluded else spec.usable_subjects
+    if spec.excluded_subjects and not args.include_excluded and not args.subjects:
+        print(
+            f"skipping excluded subjects {sorted(spec.excluded_subjects)} "
+            "(see the registry for reasons; --include-excluded checks them anyway)\n"
+        )
+    for subject in _subjects(args, pool):
         try:
             recordings = harmonize_moabb_subject(spec, subject, vocab, dataset=dataset)
         except NeurOSError as exc:
@@ -236,6 +242,12 @@ def build_parser() -> argparse.ArgumentParser:
         if name == "download":
             p.add_argument(
                 "--verify", action="store_true", help="re-hash files against the manifest"
+            )
+        else:
+            p.add_argument(
+                "--include-excluded",
+                action="store_true",
+                help="also validate subjects the registry excludes for data quality",
             )
         p.set_defaults(func=func)
     return parser

@@ -1,4 +1,4 @@
-"""Load-time validation of recordings against the data contract (architecture §4.5).
+"""Load-time validation of recordings against the data contract (architecture Â§4.5).
 
 Checks, each with an issue code:
 
@@ -9,22 +9,28 @@ sampling_rate        error    rate differs from the registry's declared native r
 unknown_channel      error    a channel the registry doesn't declare for this dataset
 non_finite           error    NaN or Inf samples (count per channel)
 flat_channel         error    window-detrended std below ``flat_std_uv`` (dead electrode)
-units                error    typical amplitude outside ``amplitude_mad_uv`` (volts vs µV bug)
+units                error    typical amplitude outside ``amplitude_mad_uv`` (volts vs ÂµV bug)
 too_short            error    shorter than one validation window
 unknown_label        error    an event label missing from the vocabulary
 no_events            error    a motor-imagery recording without task events
-extreme_amplitude    flag     windows whose peak-to-peak exceeds ``ptp_flag_uv`` (counted)
+extreme_amplitude    flag     windows whose peak-to-peak *in the contract band* exceeds
+                              ``ptp_flag_uv`` (counted)
 epoch_outside        flag     events whose offline epoch runs past the recording (counted)
 ==================== ======== ============================================================
 
 Errors make ``ValidationReport.ok`` false and ``raise_if_errors()`` raise
-``NeurOSDataError``. Flags are counted and reported, never silently dropped (§4.5).
+``NeurOSDataError``. Flags are counted and reported, never silently dropped (Â§4.5).
 
-Statistics are computed on **window-detrended** data: each window has its linear trend removed
-first. Raw files from DC-coupled amplifiers (e.g. Biosemi in Cho2017) carry offsets of
-millivolts and slow drift; without detrending, every channel of such a file would fail the unit
-and amplitude checks although the EEG itself is fine. Detrending is a measurement aid only: the
-model's preprocessing is the causal filter chain in ``neuros.signal``.
+Two measurement aids, neither of which ever feeds the model (that's the causal filter chain in
+``neuros.signal``):
+
+- **Flatness** uses *window-detrended* broadband data: each window's linear trend is removed
+  first. DC-coupled amplifiers (e.g. Biosemi in Cho2017) carry millivolt offsets and slow drift;
+  without detrending every channel of such a file would fail although the EEG is fine.
+- **Extreme amplitude and typical amplitude (units)** are measured in the contract band (4-30 Hz,
+  zero-phase Butterworth), i.e. on what the model will actually see. Day-1 finding: on raw
+  PhysionetMI (unfiltered: line noise and drift included) 39% of windows exceeded 500 ÂµV
+  peak-to-peak, which said nothing about artifacts the decoder would face.
 """
 
 from __future__ import annotations
@@ -36,7 +42,7 @@ from typing import Any, Literal
 
 import numpy as np
 from numpy.typing import NDArray
-from scipy.signal import detrend
+from scipy.signal import butter, detrend, sosfiltfilt
 
 from neuros.config.schemas import SignalContract, ValidationThresholds
 from neuros.data.recording import Recording
@@ -47,10 +53,12 @@ from neuros.errors import DataContext, NeurOSDataError
 Severity = Literal["error", "flag"]
 
 # Windows processed per chunk: bounds memory on long, high-rate recordings (Stieger: 1 kHz,
-# 60 channels → 64 windows ≈ 60 MB per float64 block).
+# 60 channels â†’ 64 windows â‰ˆ 60 MB per float64 block).
 _CHUNK_WINDOWS = 64
 # Relative tolerance when comparing sampling rates.
 _SFREQ_RTOL = 1e-6
+# Butterworth order of the measurement band-pass (zero-phase, so the effective order doubles).
+_MEASURE_ORDER = 4
 
 
 @dataclass(frozen=True)
@@ -138,7 +146,7 @@ def _windows(data: NDArray[np.float32], window: int) -> Iterator[NDArray[np.floa
     for start in range(0, n_windows, _CHUNK_WINDOWS):
         stop = min(start + _CHUNK_WINDOWS, n_windows)
         block = data[:, start * window : stop * window].astype(np.float64)
-        # [ch, w*window] → [w, ch, window]
+        # [ch, w*window] â†’ [w, ch, window]
         yield block.reshape(n_channels, stop - start, window).transpose(1, 0, 2)
 
 
@@ -198,7 +206,7 @@ def validate_recording(
     data = np.where(finite, recording.data, np.float32(0.0)) if not finite.all() else recording.data
 
     # 4. Window statistics: flatness, units, extreme amplitudes.
-    _window_checks(data, recording, thresholds, report)
+    _window_checks(data, recording, contract, thresholds, report)
 
     # 5. Labels and events.
     unknown_labels = sorted(set(recording.events.labels) - set(vocabulary.labels))
@@ -210,9 +218,35 @@ def validate_recording(
     return report
 
 
+def _band_stats(
+    data: NDArray[np.float32], sfreq: float, window: int, band: tuple[float, float]
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """Band-limited window statistics after a zero-phase band-pass (measurement only).
+
+    Returns:
+        ``(worst_ptp, mads)``: per window, the largest peak-to-peak over channels
+        (``[windows]``), and each channel's median absolute deviation (``[windows, channels]``).
+
+    Filters one channel at a time so memory stays at one channel's length (Stieger: 1 kHz).
+    """
+    n_windows = data.shape[1] // window
+    low, high = band[0], min(band[1], 0.45 * sfreq)  # stay below Nyquist for any native rate
+    sos = butter(_MEASURE_ORDER, [low, high], btype="bandpass", fs=sfreq, output="sos")
+    worst = np.zeros(n_windows, dtype=np.float64)
+    mads = np.zeros((n_windows, data.shape[0]), dtype=np.float64)
+    for index, channel in enumerate(data):
+        filtered = sosfiltfilt(sos, channel.astype(np.float64))
+        windows = filtered[: n_windows * window].reshape(n_windows, window)
+        np.maximum(worst, windows.max(axis=1) - windows.min(axis=1), out=worst)
+        centred = windows - np.median(windows, axis=1, keepdims=True)
+        mads[:, index] = np.median(np.abs(centred), axis=1)
+    return worst, mads
+
+
 def _window_checks(
     data: NDArray[np.float32],
     recording: Recording,
+    contract: SignalContract,
     thresholds: ValidationThresholds,
     report: ValidationReport,
 ) -> None:
@@ -225,33 +259,32 @@ def _window_checks(
             f"{thresholds.window_s} s validation window",
         )
         return
+    # Flatness: broadband, window-detrended ("no signal at all" must not hide behind a band).
     sum_sq = np.zeros(recording.n_channels, dtype=np.float64)
     n_values = 0
-    window_mads: list[NDArray[np.float64]] = []
-    flagged = 0
     total = 0
     for block in _windows(data, window):
         # Remove each window's linear trend (DC offset and slow drift); see module docstring.
         flat = detrend(block, axis=-1, type="linear")
         sum_sq += np.square(flat).sum(axis=(0, 2))
         n_values += flat.shape[0] * flat.shape[2]
-        median = np.median(flat, axis=-1, keepdims=True)
-        window_mads.append(np.median(np.abs(flat - median), axis=-1).ravel())
-        ptp = flat.max(axis=-1) - flat.min(axis=-1)  # [windows, channels]
-        flagged += int((ptp > thresholds.ptp_flag_uv).any(axis=1).sum())
         total += flat.shape[0]
 
+    # Extreme amplitude and typical amplitude: measured in the contract band, i.e. on what the
+    # model will see, so line noise and drift can't fake an artifact or a unit error.
+    worst, mads = _band_stats(data, recording.sfreq, window, contract.band_hz)
+    flagged = int(np.sum(worst > thresholds.ptp_flag_uv))
     report.windows_total = total
     report.windows_flagged = flagged
     if flagged:
         report.add(
             "extreme_amplitude",
             "flag",
-            f"{flagged}/{total} windows exceed {thresholds.ptp_flag_uv} µV peak-to-peak",
+            f"{flagged}/{total} windows exceed {thresholds.ptp_flag_uv} ÂµV peak-to-peak "
+            f"in the {contract.band_hz[0]:g}-{contract.band_hz[1]:g} Hz band",
         )
 
     std = np.sqrt(sum_sq / max(n_values, 1))
-    mads = np.concatenate(window_mads).reshape(total, recording.n_channels)
     flat_mask = std < thresholds.flat_std_uv
     if flat_mask.all():
         # Every channel "flat" is a unit problem (data still in volts), not 30 dead electrodes:
@@ -260,14 +293,16 @@ def _window_checks(
         report.add(
             "units",
             "error",
-            f"every channel's std is below {thresholds.flat_std_uv} µV (typical amplitude "
-            f"{report.amplitude_mad_uv:.3g} µV): the data is probably still in volts",
+            f"every channel's std is below {thresholds.flat_std_uv} ÂµV (typical amplitude "
+            f"{report.amplitude_mad_uv:.3g} ÂµV): the data is probably still in volts",
         )
         return
     flat_channels = [recording.ch_names[i] for i in np.flatnonzero(flat_mask)]
     if flat_channels:
         report.flat_channels = flat_channels
-        report.add("flat_channel", "error", f"std < {thresholds.flat_std_uv} µV on {flat_channels}")
+        report.add(
+            "flat_channel", "error", f"std < {thresholds.flat_std_uv} ÂµV on {flat_channels}"
+        )
 
     # Typical amplitude: median over windows and *live* channels of the window MAD. Flat
     # channels are excluded so one dead electrode can't fake a unit error.
@@ -277,8 +312,8 @@ def _window_checks(
         report.add(
             "units",
             "error",
-            f"typical amplitude {report.amplitude_mad_uv:.4g} µV is outside [{low}, {high}] µV; "
-            "check the volts → µV conversion",
+            f"typical amplitude {report.amplitude_mad_uv:.4g} ÂµV is outside [{low}, {high}] ÂµV; "
+            "check the volts â†’ ÂµV conversion",
         )
 
 

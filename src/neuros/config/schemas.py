@@ -81,8 +81,9 @@ class ValidationThresholds(BaseModel):
     flat_std_uv: float = Field(default=0.1, gt=0)
     # Any channel's peak-to-peak above this flags the window (movement, electrode pop, saturation).
     ptp_flag_uv: float = Field(default=500.0, gt=0)
-    # Plausible range for the typical amplitude (median absolute deviation, µV). Data still in
-    # volts gives ~1e-5 and doubly scaled data ~1e7, so both unit bugs fail loudly.
+    # Plausible range for the typical amplitude (median absolute deviation in the contract band,
+    # µV). Data still in volts gives ~1e-5 and doubly scaled data ~1e7, so both unit bugs fail
+    # loudly; measuring in-band keeps line noise from faking one.
     amplitude_mad_uv: tuple[float, float] = (0.5, 200.0)
     # Window length for the window-level flags; defaults to the model window.
     window_s: float = Field(default=2.0, gt=0)
