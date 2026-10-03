@@ -71,6 +71,19 @@ def test_harmonize_raw(spec: DatasetSpec, fake_vocab: Vocabulary) -> None:
     assert rec.person_id == "FakeMI:1"
 
 
+def test_any_stim_typed_channel_is_the_event_channel(
+    spec: DatasetSpec, fake_vocab: Vocabulary
+) -> None:
+    # MOABB 1.7 names the stim channel "STI"; it needn't be declared in the registry.
+    names = (*NAMES[:-1], "STI")
+    raw = _raw(names=("Fc3.", "C3..", "Cz..", "C4..", "EOG1", "stim"))
+    raw.rename_channels({"stim": "STI"})
+    assert tuple(raw.ch_names) == names
+    rec = _harmonize(raw, spec, fake_vocab)
+    assert rec.ch_names == ("FC3", "C3", "Cz", "C4")
+    assert rec.events.onsets.tolist() == [750, 2000]
+
+
 def test_first_samp_is_removed(spec: DatasetSpec, fake_vocab: Vocabulary) -> None:
     shifted = _harmonize(_raw(first_samp=12345), spec, fake_vocab)
     assert shifted.events.onsets.tolist() == [750, 2000]

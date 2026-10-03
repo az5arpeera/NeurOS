@@ -19,6 +19,15 @@ Locked by D-011, D-012 and [architecture §4](architecture/mvp-architecture.md).
 
 **In code (3 Oct):** every dataset above is declared in `src/neuros/data/registry.py`: channels (copied from MOABB 1.7.2's source), sampling rate, cue timing, subject ids, event names, licence, plus an `unverified` list of facts still to confirm on the files. `neuros datasets --check` cross-checks the declarations against MOABB's metadata (all agree). Downloads go through `neuros download`, which writes a SHA-256 manifest per dataset.
 
+**What we learned from MOABB 1.7 on Day 1:**
+- **It loads from a mirror by default.** `get_data` serves files from NEMAR's `sourcedata/` store (described as byte-identical originals), even when the upstream copies are already downloaded. We pin `MOABB_DOWNLOAD_PROVIDER=upstream` per process, so the files we load are exactly the files our manifest hashed.
+- **No transport security.** BNCI redirects to `lampx.tugraz.at` over HTTPS, but MOABB downloads with certificate verification off. Our SHA-256 manifest is the integrity check from first download onwards.
+- **Stim channel renamed** to `STI`. The harmoniser now treats any `stim`-typed channel as the event channel.
+- **BNCI2014-001 artifact flags.** MOABB's default `artifact_handling="ignore"` keeps every trial unaltered (what we want). `"annotate"` would expose the original expert artifact flags (event 1023): a free benchmark for our quality gate later.
+
+**Validation results (3 Oct, `results/validation/`):**
+- **BNCI2014-001: 9/9 people, 108/108 recordings pass.** 250 Hz, 22 EEG channels, 2 sessions × 6 runs, 144 trials per class per person, typical amplitude 5.7–9.1 µV, no window over 500 µV.
+
 **Quick-start option (Day 1–2):** the harmonized cross-hardware benchmark by J. Hassan ([Zenodo, June 2026](https://zenodo.org/records/20727886); CC-BY 4.0; 1.9 GB).
 - **Contents:** PhysionetMI, Cho2017, Lee2019-MI, Shin2017A and Weibo2014.
 - **Processing:**

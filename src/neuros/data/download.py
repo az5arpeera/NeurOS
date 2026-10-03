@@ -2,10 +2,16 @@
 
 Two things MOABB doesn't give us, added here:
 
-1. **Location control.** MOABB/MNE resolve download folders from ``MNE_DATA`` and per-dataset
-   ``MNE_DATASETS_<SIGN>_PATH`` settings, and may write them into ``~/.mne`` on first use. We set
-   them as environment variables of *this process only*, pointing at ``<data_dir>/raw``, so
-   nothing global changes and the cluster can use a different disk.
+1. **Location and source control.** MOABB/MNE resolve download folders from ``MNE_DATA`` and
+   per-dataset ``MNE_DATASETS_<SIGN>_PATH`` settings, and may write them into ``~/.mne`` on first
+   use. We set them as environment variables of *this process only*, pointing at
+   ``<data_dir>/raw``, so nothing global changes and the cluster can use a different disk.
+
+   MOABB 1.7 also loads, by default, from a NEMAR mirror of the original files (its
+   ``sourcedata/`` store), even when the upstream copies are already on disk. We pin
+   ``MOABB_DOWNLOAD_PROVIDER=upstream`` (again per process) so that ``get_data`` loads
+   *exactly* the files ``data_path`` returned, which are the files our manifest hashes. Found on
+   Day 1: without the pin, BNCI2014-001 was fetched twice (upstream + NEMAR ``nm000139``).
 2. **Integrity.** MOABB 1.7 downloads with TLS verification disabled and no known hashes on first
    download. We record each raw file's size and SHA-256 in ``<data_dir>/manifests/<key>.json``.
    Later downloads or ``verify_manifest`` compare against it, so a corrupted or silently
@@ -33,12 +39,17 @@ _KNOWN_SIGNS = ("BNCI", "EEGBCI", "GIGADB")
 
 
 def prepare_mne_environment(data_dir: Path) -> Path:
-    """Point MNE/MOABB downloads at ``<data_dir>/raw`` for this process; return that folder."""
+    """Point MNE/MOABB at ``<data_dir>/raw`` and the upstream source, for this process only.
+
+    Returns the raw-data folder.
+    """
     raw_dir = (data_dir / "raw").resolve()
     raw_dir.mkdir(parents=True, exist_ok=True)
     os.environ["MNE_DATA"] = str(raw_dir)
     for sign in _KNOWN_SIGNS:
         os.environ[f"MNE_DATASETS_{sign}_PATH"] = str(raw_dir)
+    # Load what we downloaded and hashed, not a mirror copy (see module docstring).
+    os.environ["MOABB_DOWNLOAD_PROVIDER"] = "upstream"
     return raw_dir
 
 

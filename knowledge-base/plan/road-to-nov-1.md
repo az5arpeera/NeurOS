@@ -29,6 +29,8 @@ Claude Code pairs on all engineering. **Founders send all outreach;** Claude dra
 - Package scaffold: `pyproject.toml` + `uv.lock`, ruff, strict mypy, pytest + hypothesis, CI (3.11 and 3.13), pre-commit.
 - Data layer: typed errors, channel normaliser, vocabulary + event maps (`labels.yaml`), dataset registry (cross-checked with MOABB), harmonisation, validation (§4.5), headset profiles, synthetic EEG generator, provenance stamps, download + SHA-256 manifest, `neuros` CLI.
 - **C-core computed: 26 channels.** **Locked test set written** (79 people, D-026).
+- Real data: BNCI2014-001 downloaded (SHA-256 manifest) and validated, 108/108 recordings pass.
+- Business: [customer-interview script](../business/customer-interview-script.md) drafted.
 
 ## Week 1: Sat 3 → Fri 9 Oct · data and baselines
 | Day | Engineering | Business / YC |

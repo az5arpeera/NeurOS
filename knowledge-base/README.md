@@ -8,6 +8,7 @@ The single source of truth for what we know, what we've decided, and what's stil
 |---|---|---|
 | [`architecture/mvp-architecture.md`](architecture/mvp-architecture.md) | **Step 4: MVP architecture v1.** Claims, data contract, alignment math, model, online engine, evaluation protocol, repo layout. The coding guidelines. | **Signed off 3 Oct (D-022)**; code started the same day |
 | [`plan/road-to-nov-1.md`](plan/road-to-nov-1.md) | Day-by-day plan to the 1 Nov deadline: engineering, customer discovery, YC application, cut list | Living |
+| [`business/`](business/customer-interview-script.md) | Customer discovery: the [interview script](business/customer-interview-script.md) (segments, questions, commitment ladder, note template, LOI outline) | Draft for the founders |
 | [`open-questions.md`](open-questions.md) | Open questions, each with a recommendation; answered ones at the bottom | Two open (cluster, roles) |
 | [`decisions/decision-log.md`](decisions/decision-log.md) | Dated decisions (what, why, who), plus decisions still pending | Living |
 | [`research/synthesis.md`](research/synthesis.md) | What the literature actually supports for zero-calibration, UDA and CLAP, with realistic numbers | Background |

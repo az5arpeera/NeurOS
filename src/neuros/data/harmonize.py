@@ -35,20 +35,33 @@ _IGNORED_ANNOTATION_PREFIXES = ("bad", "edge", "boundary")
 
 
 def classify_channels(
-    raw_names: Sequence[str], spec: DatasetSpec, context: DataContext
+    raw_names: Sequence[str],
+    spec: DatasetSpec,
+    context: DataContext,
+    channel_types: Sequence[str] | None = None,
 ) -> tuple[list[int], list[str]]:
     """Return (indices, canonical names) of the EEG channels to keep, in file order.
+
+    Channels whose MNE type is ``stim`` are the event channel and are always dropped (MOABB
+    1.7 names it ``STI``; older versions ``stim``). Every other non-EEG channel must be declared
+    in the registry, so montage surprises fail loudly.
 
     Raises:
         NeurOSChannelError: on an undeclared channel, a duplicate after normalisation, or a
             declared EEG channel missing from the file.
     """
+    if channel_types is not None and len(channel_types) != len(raw_names):
+        raise NeurOSChannelError(
+            f"{len(raw_names)} channel names but {len(channel_types)} channel types", context
+        )
     declared_eeg = set(spec.eeg_channels)
     declared_other = {name.strip().lower() for name in spec.non_eeg_channels}
     keep_idx: list[int] = []
     keep_names: list[str] = []
     unknown: list[str] = []
     for index, raw_name in enumerate(raw_names):
+        if channel_types is not None and channel_types[index] == "stim":
+            continue
         canonical = normalize_channel_name(raw_name)
         if canonical is not None and canonical in declared_eeg:
             if canonical in keep_names:
@@ -160,7 +173,9 @@ def harmonize_raw(
         NeurOSChannelError, NeurOSLabelError, NeurOSDataError: see the helpers above.
     """
     context = DataContext(spec.key, subject, session, run)
-    picks, names = classify_channels(list(raw.ch_names), spec, context)
+    picks, names = classify_channels(
+        list(raw.ch_names), spec, context, channel_types=list(raw.get_channel_types())
+    )
     events = extract_events(raw, event_id, spec, vocabulary, context)
     volts = raw.get_data(picks=picks)
     data = (np.asarray(volts, dtype=np.float64) * VOLTS_TO_MICROVOLTS).astype(np.float32)
