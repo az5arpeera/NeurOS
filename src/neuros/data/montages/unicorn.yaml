@@ -1,0 +1,19 @@
+# g.tec Unicorn Hybrid Black: 8 hybrid (dry or gel) electrodes. Virtual headset only (E5).
+name: unicorn
+description: "g.tec Unicorn Hybrid Black, 8 channels (virtual headset)"
+native_sfreq: 250.0
+units: uV
+lsl_stream_type: EEG
+electrodes: mixed
+channels:
+  - {device: Fz, canonical: Fz}
+  - {device: C3, canonical: C3}
+  - {device: Cz, canonical: Cz}
+  - {device: C4, canonical: C4}
+  - {device: Pz, canonical: Pz}
+  - {device: PO7, canonical: PO7}
+  - {device: Oz, canonical: Oz}
+  - {device: PO8, canonical: PO8}
+accelerometer: []
+verified: false
+notes: "Positions from g.tec's product documentation; PO7, Oz and PO8 fall outside C-core."

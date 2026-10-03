@@ -1,8 +1,8 @@
 # NeurOS MVP architecture, v1 (Step 4)
 
-**Status:** draft for founder sign-off · 2026-10-02 · builds on decisions D-001…D-021.
-
-**Before Saturday's coding session, only the sections marked 🔒 need sign-off.** Everything else can evolve as experiments report.
+**Status:** **signed off 2026-10-03 (D-022)** · builds on decisions D-001…D-026.
+- **Amended the same day:** D-024 (the command set is configurable; decoys and `HOLD("unrecognized")`), D-026 (which datasets feed the locked test set), and the Day-1 computation of C-core (26 channels, §4.3).
+- 🔒 sections change only through the decision log. Everything else can evolve as experiments report.
 
 This document *is* the "architectural guidelines, mathematical constraints, and data engineering patterns" that the founder's coding rule refers to: *"All generated code must be clean, heavily commented, production-grade, and include thorough error handling and data boundary checks."*
 
@@ -11,7 +11,7 @@ This document *is* the "architectural guidelines, mathematical constraints, and 
 ## 0. 🔒 What the MVP is, and what we'll claim
 
 **The MVP** is a Python package plus a local engine. It turns any LSL EEG stream into intent events, **with no calibration task**, and adapts silently within 30–45 s (D-009).
-- **Intent channel:** `LEFT`, `RIGHT`, `REST` or `HOLD`.
+- **Intent channel:** `LEFT`, `RIGHT`, `REST` or `HOLD`. The command set is a configuration (D-024): apps may opt in to `FEET` and `BOTH_HANDS` (experimental, E7); trained labels an app doesn't enable act as decoys and produce `HOLD("unrecognized")`.
 - **Brain-state channel:** rest vs workload.
 - **Deliverables (D-014):**
   - the package and engine;
@@ -103,8 +103,11 @@ The training pool (D-011, D-012), each dataset's role and the download order are
 | Artifact features | Computed in parallel on the **native-rate broadband** signal | Muscle and motion energy live above 30 Hz |
 
 ### 4.3 Canonical montage and missing channels
-- **C-core** is the intersection of the core datasets' channels within the sensorimotor region, computed in code on Day 1.
-  - Expected ≈ 18 channels: Fz, FC3, FC1, FC2, FC4, C5, C3, C1, Cz, C2, C4, C6, CP3, CP1, CPz, CP2, CP4, Pz.
+- **C-core** is the intersection of the core datasets' channels within the sensorimotor region (rows F, FC, C, CP, P), computed in code on Day 1 (`neuros montage`; committed in `src/neuros/data/montages/c_core.yaml`).
+  - **Computed 2026-10-03: 26 channels:** F3, Fz, F4, FC5, FC3, FC1, FC2, FC4, FC6, C5, C3, C1, Cz, C2, C4, C6, CP5, CP3, CP1, CPz, CP2, CP4, CP6, P3, Pz, P4.
+  - The earlier estimate of ~18 had also intersected BNCI2014-001's 22-channel cap. BNCI2014-001 is a literature dataset, not a core one, so it enters as an 18-of-26 subset like any headset.
+  - FCz is absent because Lee2019_MI doesn't record it.
+  - Coverage: Ganglion 4 (C3, Cz, C4, Pz), 2b 3, Unicorn 5, Crown 4, EEGMAT 9.
 - **Channel names are normalised:** case, dots and spaces (PhysioNet's `C3..`), and old 10-20 names (T3→T7, T4→T8, T5→P7, T6→P8).
 - **A headset covers a subset S of C-core.**
   - Alignment runs on S only, as an |S|×|S| problem.
@@ -124,18 +127,19 @@ The training pool (D-011, D-012), each dataset's role and the download order are
 | `left_hand` | "imagine squeezing your left hand" | All MI datasets ("left fist", "left hand", "left") |
 | `right_hand` | "imagine squeezing your right hand" | All MI datasets |
 | `rest` | "relax with your eyes open" | Explicit rest labels where they exist (PhysionetMI T0; Stieger2021 "down", to verify); otherwise pre-cue fixation windows |
-| `feet`, `both_hands`, `tongue` | Descriptive phrases | PhysionetMI, BNCI2014-001, Stieger2021. **Training-only auxiliaries** in v1 |
-| `state_rest`, `state_arithmetic` | "rest quietly" / "count backwards by sevens in your head" | EEGMAT |
+| `feet`, `both_hands` | Descriptive phrases | PhysionetMI, BNCI2014-001, Stieger2021 ("up" = both hands). **Decoys** by default: trained, and if one wins the output is `HOLD("unrecognized")`; apps may opt in to them as `FEET` / `BOTH_HANDS` (D-024) |
+| `tongue` | "imagine moving your tongue" | BNCI2014-001 only (9 people). **Held out of training entirely** (D-024): never-seen activity for the false-command metric |
+| `state_rest`, `state_arithmetic` | "rest quietly" / "keep subtracting the same number in your head" | EEGMAT |
 
 - Every window records its `rest_source` (`explicit`, `pre_cue` or `baseline_run`), so E1 can test whether pre-cue fixation helps or hurts.
-- The per-dataset event maps are code-reviewed config with tests.
+- The per-dataset event maps are code-reviewed config with tests: `src/neuros/data/labels.yaml`.
 
 ### 4.5 Cache and boundary checks
 - **Cache** (per dataset and person):
   - Preprocessed **continuous** signals, for replay and the simulator.
   - **Windows**, for training.
   - Both are keyed by dataset version and preprocessing-config hash.
-  - Metadata is stored in Parquet, with a SHA-256 manifest of the raw files.
+  - Metadata is stored in Parquet, with a SHA-256 manifest of the raw files (`data/manifests/<dataset>.json`, written by `neuros download`; built 3 Oct). MOABB 1.7 downloads with TLS verification off and no known hashes, so this manifest is our integrity check.
 - **Checks at load:**
   - expected sampling rate;
   - known channel names;
@@ -181,7 +185,7 @@ R_pop     stored in the model bundle for each headset profile (from training peo
 - **Architecture:** an EEGNet-family network (temporal conv → depthwise spatial conv → separable conv), then a linear map to a 64-dimensional embedding z.
   - Settings: F1 = 16, D = 2, F2 = 32, temporal kernel 64 samples (0.5 s), dropout 0.25–0.5.
   - Size: tens of thousands of parameters (< 1 MB). ShallowConvNet is the alternative (S4).
-- **Input:** [batch, 18 C-core channels, 256 samples], with zeros for missing channels.
+- **Input:** [batch, 26 C-core channels, 256 samples], with zeros for missing channels.
 - **Batch-norm design:**
   - Batches are **K people × M windows** (e.g. 8 × 32).
   - BN statistics are computed **per person within the batch** (domain-specific BN). This matches what AdaBN does at test time.
@@ -235,7 +239,7 @@ The runtime is PyTorch on CPU, because test-time adaptation needs gradients.
 | 5 | Online alignment | As in §5 | < 1 ms |
 | 6 | Encoder | Forward pass | ~2 ms |
 | 7 | Test-time adaptation (D-019) | **AdaBN:** BN statistics update on good windows. **Entropy minimisation:** once per second, one gradient step on the BN affine parameters only, using confident windows only, with an L2 anchor to the source weights. **Watchdog:** if predictions collapse onto one class (> 95% for 60 s on clean signal) while confidence rises, roll back to the last good state (snapshots every 10 s) and halve the step size. Can be disabled by config. | ~5–15 ms, once per second |
-| 8 | Head + policy | Smooths probabilities (EMA over ~0.5 s). Emits the top command if p ≥ θ_k, else `HOLD("low_confidence")`. Debounce: 2 consecutive decisions. θ_k is tuned on validation people to a target precision. | < 1 ms |
+| 8 | Head + policy | Smooths probabilities (EMA over ~0.5 s) over **all trained labels**. If the winner is a decoy (a label the app didn't enable) or the window is far from every anchor, emits `HOLD("unrecognized")` (D-024). Otherwise emits the top command if p ≥ θ_k, else `HOLD("low_confidence")`. Debounce: 2 consecutive decisions. θ_k and the distance threshold are tuned on validation people to a target precision. | < 1 ms |
 | 9 | Output | WebSocket on `localhost:8765`, schema `neuros.intent.v0` | < 1 ms |
 
 **Latency target:** < 10 ms typical and < 30 ms at p99 per decision on a laptop CPU. To be measured.
@@ -260,7 +264,8 @@ The runtime is PyTorch on CPU, because test-time adaptation needs gradients.
 }
 ```
 - `t` is the LSL clock in seconds.
-- When `command` is `"HOLD"`, `hold_reason` is one of `low_confidence | motion | muscle | flat | saturated | signal_gap | warmup | adaptation_reset`.
+- When `command` is `"HOLD"`, `hold_reason` is one of `low_confidence | unrecognized | motion | muscle | flat | saturated | signal_gap | warmup | adaptation_reset`.
+- `probs` lists the enabled commands; decoy probabilities appear under `"other"`.
 - A separate `status` event reports engine state changes.
 
 ### 7.4 Simulator ("virtual headset")
@@ -293,6 +298,9 @@ JavaScript: `new NeurOSClient("ws://localhost:8765").on("intent", e => ...)` (D-
   - 20% of people (~75), stratified by dataset.
   - Chosen by seed **on Day 1**.
   - Untouched until the freeze on Sat 24 Oct.
+  - **As locked on 2026-10-03 (D-026):** `configs/splits/locked_test_v1.yaml`, seed 20261003, SHA-256-protected. 72 motor-imagery people from the five core datasets (PhysionetMI 22, Dreyer2023 17, Stieger2021 12, Lee2019_MI 11, Cho2017 10; Dreyer stratified A/B/C 12/4/1) + 7 EEGMAT people.
+  - BNCI2014-001/004 are **not** in it: E0 uses all of their people during development. They're evaluated by their standard leave-one-subject-out protocol, and in the post-freeze 10-fold and LODO runs.
+  - `LockedTestSet.assert_disjoint()` guards every place data enters training or tuning.
 - **Development:** subject-wise 5-fold cross-validation on the other 80%, with inner validation people for early stopping and thresholds.
 - **Headline runs (after the freeze):**
   1. The frozen recipe on the locked test set.
@@ -307,6 +315,7 @@ JavaScript: `new NeurOSClient("ws://localhost:8765").on("intent", e => ...)` (D-
 - ITR in bits/min at the real decision rate;
 - the coverage-vs-accuracy curve for HOLD;
 - false-command rate during REST;
+- **false commands per minute during non-command activity** (D-024): people never seen, doing activity the model never trained on (tongue imagery, held out entirely; EEGMAT mental arithmetic);
 - time-to-usable: seconds until rolling left/right accuracy reaches 70%;
 - latency at p50 and p99.
 
@@ -335,6 +344,7 @@ JavaScript: `new NeurOSClient("ws://localhost:8765").on("intent", e => ...)` (D-
 | E4 | Heads and contrastive: linear vs text-anchored (the P-1 rule); SupCon λ sweep. **E4-zs:** hold out "feet" entirely and ask whether the text head recognises it; report either way. | P-1 rule: text head within 1 point, or better |
 | E5 | Virtual headsets: C-core, Ganglion-4, Unicorn-8, Crown-8, 2b-3 | Shows which hardware we can honestly support |
 | E6 | EEGMAT: rest vs mental arithmetic across people | Viability of the backup demo |
+| E7 | Command sets (D-024): default 3 commands vs opt-in 5 (+FEET, +BOTH_HANDS) on never-seen people, full C-core and Ganglion-4; decoy and distance thresholds; false commands per minute on tongue and arithmetic windows | 5-command mode goes in the demo only if it works on held-out people; reported either way |
 | S1–S4 | Side experiments: DANN and Deep CORAL (D-019), RA vs EA, ShallowConvNet | Reported, but not on the critical path |
 
 ### 8.6 Headline (P-4): targets are hypotheses, not promises
@@ -372,7 +382,7 @@ NeurOS/
   knowledge-base/
 ```
 - **Tooling:**
-  - Python 3.11, with `uv` (or pip) and pinned version ranges;
+  - Python ≥ 3.11 (CI tests 3.11 and 3.13; dev laptop 3.13), with `uv` and a committed lockfile (`uv.lock`);
   - **ruff** for lint and format, **mypy** for types, **pytest + hypothesis** for tests, plus pre-commit;
   - GitHub Actions runs lint and unit tests on CPU with synthetic data, in under 5 minutes.
 - **Outputs:**
@@ -396,8 +406,8 @@ NeurOS/
 
 | Item | Default until decided | Decided by |
 |---|---|---|
-| P-1 text-anchored head | Build both heads; E4 and the rule decide | Founder (rule) + data |
-| P-4 commands | `LEFT / RIGHT / REST + HOLD`; brain-state channel separate | Founder |
-| P-5 headset | Ganglion profile first; simulator until hardware arrives | Founder (order today) |
+| ~~P-1 text-anchored head~~ | Adopted under the rule (D-023); E4 decides | Decided 3 Oct |
+| ~~P-4 commands~~ | Configurable command set (D-024) | Decided 3 Oct |
+| ~~P-5 headset~~ | Ganglion + gold cups, ordered (D-025); simulator until it arrives | Decided 3 Oct |
 | Reference scheme, band | CAR over present channels, 4–30 Hz | E0b |
 | SSVEP demo insurance | Not built | Founder, week 3 |

@@ -1,0 +1,19 @@
+# Neurosity Crown: 8 dry electrodes. Virtual headset only (E5).
+name: crown
+description: "Neurosity Crown, 8 dry channels (virtual headset)"
+native_sfreq: 256.0
+units: uV
+lsl_stream_type: EEG
+electrodes: dry
+channels:
+  - {device: CP3, canonical: CP3}
+  - {device: C3, canonical: C3}
+  - {device: F5, canonical: F5}
+  - {device: PO3, canonical: PO3}
+  - {device: PO4, canonical: PO4}
+  - {device: F6, canonical: F6}
+  - {device: C4, canonical: C4}
+  - {device: CP4, canonical: CP4}
+accelerometer: []
+verified: false
+notes: "Positions from Neurosity's documentation; F5, F6, PO3 and PO4 fall outside C-core."

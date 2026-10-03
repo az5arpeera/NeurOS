@@ -1,0 +1,39 @@
+# C-core: the model's fixed input layout (architecture §4.3), in input-row order.
+#
+# Computed 2026-10-03 by neuros.data.montage.compute_c_core from the registry's channel lists
+# (copied from MOABB 1.7.2): the intersection of the five core motor-imagery datasets, restricted
+# to the F, FC, C, CP and P rows, sorted front-to-back then left-to-right.
+#
+# Changing this file changes the model input. tests/test_montage.py recomputes it; any change
+# needs a decision-log entry and retrained models.
+version: 1
+computed: "2026-10-03"
+from_datasets: [PhysionetMI, Dreyer2023, Stieger2021, Lee2019_MI, Cho2017]
+rows: [F, FC, C, CP, P]
+channels:
+  - F3
+  - Fz
+  - F4
+  - FC5
+  - FC3
+  - FC1
+  - FC2
+  - FC4
+  - FC6
+  - C5
+  - C3
+  - C1
+  - Cz
+  - C2
+  - C4
+  - C6
+  - CP5
+  - CP3
+  - CP1
+  - CPz
+  - CP2
+  - CP4
+  - CP6
+  - P3
+  - Pz
+  - P4

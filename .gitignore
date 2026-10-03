@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.hypothesis/
+.coverage
+build/
+dist/
+
+# Data and outputs are never committed (architecture §9)
+/data/
+/cache/
+/results/
+/bundles/
+
+# OS and editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

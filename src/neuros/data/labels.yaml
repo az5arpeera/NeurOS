@@ -1,0 +1,95 @@
+# Canonical label vocabulary and per-dataset event maps.
+#
+# Architecture §4.4 and decision D-024. Code-reviewed config: every change needs a test update
+# (tests/test_vocabulary.py) and, if it changes what a label means, a decision-log entry.
+#
+# Channels:
+#   intent: decoded into commands (LEFT / RIGHT / REST, plus opt-in FEET / BOTH_HANDS).
+#   state:  the separate brain-state channel (rest vs mental workload, from EEGMAT).
+#
+# Roles (D-024):
+#   command:  enabled as a command by default.
+#   decoy:    trained, but not a command by default. If a decoy wins at run time, the engine
+#             emits HOLD("unrecognized"). An app may opt in to it as a command.
+#   heldout:  never used for training. Its windows are "never-seen activity" for the
+#             false-command metric (architecture §8.2).
+#   state:    a label of the brain-state channel.
+#
+# Anchor texts feed the text-anchored head (D-023) and are embedded offline by a frozen
+# sentence-embedding model. They describe what the person was asked to do, in plain words.
+
+version: 1
+
+labels:
+  left_hand:
+    channel: intent
+    role: command
+    command: LEFT
+    anchor: "imagine squeezing your left hand"
+  right_hand:
+    channel: intent
+    role: command
+    command: RIGHT
+    anchor: "imagine squeezing your right hand"
+  rest:
+    channel: intent
+    role: command
+    command: REST
+    anchor: "relax with your eyes open"
+  feet:
+    channel: intent
+    role: decoy
+    command: FEET
+    anchor: "imagine moving both of your feet"
+  both_hands:
+    channel: intent
+    role: decoy
+    command: BOTH_HANDS
+    anchor: "imagine squeezing both of your hands at once"
+  tongue:
+    channel: intent
+    role: heldout
+    anchor: "imagine moving your tongue"
+  state_rest:
+    channel: state
+    role: state
+    anchor: "rest quietly"
+  state_arithmetic:
+    channel: state
+    role: state
+    anchor: "keep subtracting the same number in your head"
+
+# Dataset event name (as MOABB or our own loader names it) → canonical label.
+# Every event a dataset can emit must appear here; unmapped events raise NeurOSLabelError.
+event_maps:
+  BNCI2014_001:
+    left_hand: left_hand
+    right_hand: right_hand
+    feet: feet
+    tongue: tongue
+  BNCI2014_004:
+    left_hand: left_hand
+    right_hand: right_hand
+  PhysionetMI:
+    left_hand: left_hand
+    right_hand: right_hand
+    hands: both_hands      # "open and close both fists"
+    feet: feet             # "open and close both feet"
+    rest: rest             # annotation T0, between task periods
+  Cho2017:
+    left_hand: left_hand
+    right_hand: right_hand
+  Lee2019_MI:
+    left_hand: left_hand
+    right_hand: right_hand
+  Dreyer2023:
+    left_hand: left_hand
+    right_hand: right_hand
+  Stieger2021:
+    left_hand: left_hand
+    right_hand: right_hand
+    both_hand: both_hands  # MOABB's spelling; the "up" target (imagine both hands)
+    rest: rest             # the "down" target: voluntary rest
+  EEGMAT:
+    background: state_rest
+    task: state_arithmetic

@@ -1,0 +1,15 @@
+# BCI Competition IV 2b layout (BNCI2014-004): the 3-channel virtual headset.
+# Same positions as the Ganglion minus Pz, and proven to support left vs right imagery.
+name: bcic2b
+description: "BCIC-IV-2b layout: C3, Cz, C4 (virtual headset)"
+native_sfreq: 250.0
+units: uV
+lsl_stream_type: EEG
+electrodes: wet
+channels:
+  - {device: C3, canonical: C3}
+  - {device: Cz, canonical: Cz}
+  - {device: C4, canonical: C4}
+accelerometer: []
+verified: true
+notes: "Layout taken from the dataset itself (MOABB BNCI2014_004)."

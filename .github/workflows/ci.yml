@@ -1,0 +1,42 @@
+# Lint, types and unit tests on CPU with synthetic data (architecture §9). No dataset downloads:
+# tests marked `data` are skipped here.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+      - name: Install (locked)
+        run: uv sync --extra dev --locked
+      - name: Format
+        run: uv run ruff format --check src tests
+      - name: Lint
+        run: uv run ruff check src tests
+      - name: Types
+        run: uv run mypy
+      - name: Tests
+        run: uv run pytest -q
+        env:
+          HYPOTHESIS_PROFILE: ci

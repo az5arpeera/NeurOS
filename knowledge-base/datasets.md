@@ -7,8 +7,8 @@ Locked by D-011, D-012 and [architecture §4](architecture/mvp-architecture.md).
 
 | # | Dataset | What we use | Role | Size |
 |---|---|---|---|---|
-| 1 | BNCI2014_001, BNCI2014_004 | Everything | E0 sanity check and literature tables. 2b doubles as a 3-channel virtual headset | Small (verify) |
-| 2 | PhysionetMI | Imagined runs (left/right fist; both fists/feet); **baseline runs 1–2** (eyes open/closed, for H1); executed runs (later, onboarding tests) | Core; H1 | A few GB (verify) |
+| 1 | BNCI2014_001, BNCI2014_004 | Everything | E0 sanity check and literature tables. 2b doubles as a 3-channel virtual headset | **≈ 0.75 GB + 0.45 GB** (18 .mat files each; HEAD requests, 3 Oct) |
+| 2 | PhysionetMI | Imagined runs (left/right fist; both fists/feet); **baseline runs 1–2** (eyes open/closed, for H1; MOABB's `data_path` fetches them too); executed runs (later, onboarding tests) | Core; H1 | **≈ 1.9 GB** for imagery + baseline runs (872 EDF files) |
 | 3 | Cho2017 | Motor imagery; real hand movement; **non-task recordings** (blinks, eye movements, head movement, jaw clenching) | Core; tuning the artifact gate | Verify |
 | 4 | Lee2019_MI | Motor-imagery files only | Core | A subset of the 209 GB OpenBMI release, which covers 3 paradigms (verify) |
 | 5 | Dreyer2023 | Motor imagery (EEG channels; EOG/EMG only for artifact analysis) | Core | Verify |
@@ -16,6 +16,8 @@ Locked by D-011, D-012 and [architecture §4](architecture/mvp-architecture.md).
 | 7 | Stieger2021 | **Sessions 1–2 per person first** | Core (62 people) | **377 GB** for all 598 sessions |
 
 **Storage ask:** about 1 TB on the cluster (about 0.5 TB with the Stieger subset).
+
+**In code (3 Oct):** every dataset above is declared in `src/neuros/data/registry.py`: channels (copied from MOABB 1.7.2's source), sampling rate, cue timing, subject ids, event names, licence, plus an `unverified` list of facts still to confirm on the files. `neuros datasets --check` cross-checks the declarations against MOABB's metadata (all agree). Downloads go through `neuros download`, which writes a SHA-256 manifest per dataset.
 
 **Quick-start option (Day 1–2):** the harmonized cross-hardware benchmark by J. Hassan ([Zenodo, June 2026](https://zenodo.org/records/20727886); CC-BY 4.0; 1.9 GB).
 - **Contents:** PhysionetMI, Cho2017, Lee2019-MI, Shin2017A and Weibo2014.
@@ -115,7 +117,9 @@ Context: [beyond LEFT/RIGHT](explainers/beyond-left-right-any-action.md).
 ## Open data tasks
 - [ ] Licence check for each core dataset: is commercial training allowed? Deferred by the founder (Q7b). Every model bundle records its training datasets, so any dataset can be dropped later.
 - [ ] EEGMAT: channel names and sampling rate from the files (the 23-channel system is confirmed); check the 30 Hz filter on the spectra.
-- [ ] Record actual download sizes for every row marked "verify" in the data lock.
-- [ ] Compute the canonical montage (C-core) in code on Day 1 ([architecture §4.3](architecture/mvp-architecture.md)).
-- [ ] Verify whether Stieger2021's "down" target means an explicit rest class.
+- [ ] Record actual download sizes for every row marked "verify" in the data lock. (BNCI2014-001/004 and PhysionetMI measured 3 Oct.)
+- [x] Compute the canonical montage (C-core) in code on Day 1: **26 channels** ([architecture §4.3](architecture/mvp-architecture.md)).
+- [x] Stieger2021's "down" target: MOABB labels it `rest` (event id 4), and "up" `both_hand` (3).
+- [ ] Confirm the registry's `unverified` fields on the files (Dreyer2023 cue offset; pre-cue fixation for Cho2017 / Lee2019 / Dreyer2023; EEGMAT channels and rate).
+- [ ] PhysioNet publishes `SHA256SUMS.txt` for EEGMMIDB and EEGMAT: cross-check our manifests against it.
 - [ ] THINGS-EEG2, OpenMIIR and MAD-EEG specs and licences: deferred with the music-CLAP track (D-018).

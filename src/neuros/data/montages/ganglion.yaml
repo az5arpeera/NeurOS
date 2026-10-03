@@ -1,0 +1,20 @@
+# OpenBCI Ganglion, the demo headset (D-025): 4 wet gold-cup electrodes with Ten20 paste.
+# C3/C4 read left vs right hand imagery; Cz covers the midline (and feet imagery); Pz serves the
+# brain-state channel (focus vs relax).
+name: ganglion
+description: "OpenBCI Ganglion, 4 channels, gold cups + Ten20 paste"
+native_sfreq: 200.0
+units: uV            # BrainFlow reports Ganglion EEG in microvolts
+lsl_stream_type: EEG
+electrodes: wet
+channels:
+  - {device: "1", canonical: C3}
+  - {device: "2", canonical: Cz}
+  - {device: "3", canonical: C4}
+  - {device: "4", canonical: Pz}
+accelerometer: []
+verified: false
+notes: >-
+  Reference and ground go on the earlobes. The device labels "1".."4" are placeholders: when the
+  board arrives (week 2), set them to the channel labels the BrainFlow/LSL stream actually
+  publishes, list the accelerometer channels, and set verified to true.

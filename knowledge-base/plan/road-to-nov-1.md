@@ -16,13 +16,19 @@
 
 Claude Code pairs on all engineering. **Founders send all outreach;** Claude drafts.
 
-## Today: Fri 2 Oct
-- [ ] **Sign off** [architecture v1](../architecture/mvp-architecture.md): the 🔒 sections, including the claim levels (P-8) and the evaluation protocol.
-- [ ] **Decide** P-1 (the text-anchored head rule) and P-4 (commands).
-- [ ] **Order the headset** (P-5): recommended OpenBCI Ganglion kit, ≈ $715.
+## Fri 2 – Sat 3 Oct: decisions
+- [x] **Sign off** [architecture v1](../architecture/mvp-architecture.md) (D-022).
+- [x] **Decide** P-1 (D-023: text-anchored head under the rule) and P-4 (D-024: configurable command set).
+- [x] **Order the headset** (D-025): OpenBCI Ganglion + gold cups + Ten20, ≈ $715.
 - [ ] **Email g.tec** about a student/startup price for the Unicorn (optional upside).
 - [ ] **Ask the cluster admins** about GPU, storage (~1 TB) and SSH (Q6b).
-- [ ] **Start downloads** in the order given in [datasets.md](../datasets.md#mvp-v0-data-lock-step-3-2026-10-02).
+- [x] **Start downloads**: BNCI2014-001/004 and PhysionetMI on 3 Oct (≈ 3.1 GB).
+- [ ] **Roles** (P-22): founder says TBD.
+
+### Sat 3 Oct, done
+- Package scaffold: `pyproject.toml` + `uv.lock`, ruff, strict mypy, pytest + hypothesis, CI (3.11 and 3.13), pre-commit.
+- Data layer: typed errors, channel normaliser, vocabulary + event maps (`labels.yaml`), dataset registry (cross-checked with MOABB), harmonisation, validation (§4.5), headset profiles, synthetic EEG generator, provenance stamps, download + SHA-256 manifest, `neuros` CLI.
+- **C-core computed: 26 channels.** **Locked test set written** (79 people, D-026).
 
 ## Week 1: Sat 3 → Fri 9 Oct · data and baselines
 | Day | Engineering | Business / YC |
@@ -34,7 +40,7 @@ Claude Code pairs on all engineering. **Founders send all outreach;** Claude dra
 
 ## Week 2: Sat 10 → Fri 16 Oct · live engine and adaptation
 - **Engineering:**
-  - the streaming engine (LSL in, quality gate, online alignment, policy, WebSocket out);
+  - the streaming engine (LSL in, quality gate, online alignment, policy with the configurable command set and `HOLD("unrecognized")` (D-024), WebSocket out);
   - the simulator and the JS client;
   - the golden train–serve parity test.
 - **Experiments:** **E2** warm-up curve + **H1** (rest-seeded), then **E3** test-time adaptation.
@@ -47,6 +53,7 @@ Claude Code pairs on all engineering. **Founders send all outreach;** Claude dra
   - **E4:** heads (the P-1 rule) and SupCon;
   - **E5:** virtual headsets;
   - **E6:** EEGMAT;
+  - **E7:** command sets (3 vs 5 commands) and false commands per minute on never-seen activity (D-024);
   - side experiments S1/S2 if time allows.
 - **Pilot sessions:** 3–5 consented volunteers on the real headset, giving the first live numbers.
 - **Lab test:** try NeurOS on a UVA lab's research EEG system (second-hardware proof).

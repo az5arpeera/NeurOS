@@ -1,6 +1,6 @@
 # Open questions (Step 2)
 
-Questions that must be answered before the MVP architecture is locked (Step 4).
+Questions for the founders, each with a recommendation. (The architecture was locked on 3 Oct, D-022.)
 - Answered items move to the bottom, with their answer and a link to the decision log.
 - Plain-language background is in [`explainers/`](explainers/).
 - The architecture draft is [`architecture/mvp-architecture.md`](architecture/mvp-architecture.md).
@@ -9,39 +9,7 @@ Priority: 🔴 blocking · 🟠 this week · 🟡 can wait until after the MVP.
 
 ---
 
-## 🔴 Still open (round 3, 2026-10-02): needed for Saturday's coding start
-
-### Q21. Sign off architecture v1
-Read the 🔒 sections of [architecture v1](architecture/mvp-architecture.md):
-- §0: what we claim, including the **L0/L1/L2 claim levels** (P-8);
-- §3: engineering principles;
-- §4: data contract;
-- §5: alignment math;
-- §8: evaluation protocol, including the locked 20% test set.
-
-Edit anything you disagree with. Everything else can evolve.
-
-### Q1. Text-anchored head: adopt it under the rule?
-Explained in the [text-anchored head explainer](explainers/text-anchored-head.md).
-
-**Proposal:**
-- Build both heads.
-- Adopt the text-anchored head as the MVP's CLAP layer **if it scores within 1 point of the linear head, or better, on never-seen people** (experiment E4).
-- Cross-subject supervised contrastive is the generalization engine either way.
-
-The music-CLAP track is deferred (D-018).
-
-### Q4. Confirm the command vocabulary
-**Proposal:** `LEFT / RIGHT / REST` + `HOLD`.
-- `HOLD` now also fires on detected movement or muscle artifacts.
-- Whole-body actions (walk, punch) are out of scope; see [beyond LEFT/RIGHT](explainers/beyond-left-right-any-action.md).
-- Headline targets are working hypotheses in [architecture §8.6](architecture/mvp-architecture.md).
-
-### Q5. Pick the headset within the $1.2k cap, and order today
-See the [hardware explainer](explainers/demo-hardware-lsl-and-compute.md).
-- **Recommended:** OpenBCI Ganglion kit (≈ $715: wet electrodes, C3/Cz/C4, BrainFlow/LSL, our first-user community).
-- **Alternative:** BrainAccess MINI (€900 excl. VAT; 8 dry channels).
-- **Optional upside:** email g.tec about a student/startup price for the Unicorn.
+## 🟠 Still open (2026-10-03): coding has started; these don't block it
 
 ### Q6b. Cluster details (founder working on it)
 - GPU (≥ 8 GB VRAM is plenty);
@@ -50,9 +18,12 @@ See the [hardware explainer](explainers/demo-hardware-lsl-and-compute.md).
 - Docker/conda.
 
 ### Q22. Role split
-**Proposal** (in the [plan](plan/road-to-nov-1.md)):
+Founder (3 Oct): "TBD on specific roles". **Proposal** (in the [plan](plan/road-to-nov-1.md)):
 - **Founder:** data pipeline, engine/SDK, evaluation harness, outreach, the YC application.
 - **Cofounder:** model training and experiments.
+
+### Optional: email g.tec
+Ask about a student/startup price for the Unicorn (a second headset for the hardware-agnostic story).
 
 ---
 
@@ -74,6 +45,10 @@ See the [hardware explainer](explainers/demo-hardware-lsl-and-compute.md).
 
 | Date | Q | Answer | Decision |
 |---|---|---|---|
+| 2026-10-03 | Q21: architecture sign-off | **Signed off**, including the L0/L1/L2 claim levels and the evaluation protocol | [D-022](decisions/decision-log.md) |
+| 2026-10-03 | Q1: text-anchored head | **Adopt under the rule** (ship it if within 1 point of the linear head, or better, on never-seen people) | [D-023](decisions/decision-log.md) |
+| 2026-10-03 | Q4: commands | **`LEFT / RIGHT / REST + HOLD`, as a configurable command set**: labels the app doesn't enable act as decoys → `HOLD("unrecognized")`; FEET / BOTH_HANDS as an experimental opt-in mode | [D-024](decisions/decision-log.md) |
+| 2026-10-03 | Q5: headset | **OpenBCI Ganglion + gold cups + Ten20** (≈ $715), ordered; electrodes at C3, Cz, C4, Pz | [D-025](decisions/decision-log.md) |
 | 2026-10-02 | Q2: UDA stack | **Test-time adaptation is the core** (rest-seeded alignment → AdaBN → entropy minimisation); **DANN / Deep CORAL are side experiments** | [D-019](decisions/decision-log.md) |
 | 2026-10-02 | Q1 (part): music-CLAP track | **Deferred until after 1 Nov.** All resources go to the MVP, business value / market fit, and applying | [D-018](decisions/decision-log.md) |
 | 2026-10-02 | Q5 (part): budget | **$1,000–1,200 max** for the headset | [D-020](decisions/decision-log.md) |

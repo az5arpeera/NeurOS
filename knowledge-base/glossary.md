@@ -36,3 +36,8 @@
 | **SSVEP** | Steady-state visually evoked potential: looking at a target flickering at a fixed frequency makes the visual cortex oscillate at that frequency. Decodable with no training (CCA). |
 | **Weak supervision** | Labels that arrive for free from context (an accelerometer, app events) instead of from a person labelling data. |
 | **Artifact** | Signal not from the brain: eye blinks (EOG), muscle activity (EMG), electrode or cable motion. |
+| **C-core** | The model's fixed 26-channel input layout: the sensorimotor channels every core dataset recorded (F3 … P4). A headset fills the rows it has; the rest are zeros. See [architecture §4.3](architecture/mvp-architecture.md). |
+| **Command set** | Which trained labels an app turns into commands. Default `LEFT / RIGHT / REST`; `FEET` and `BOTH_HANDS` are opt-in (D-024). |
+| **Decoy label** | A label the model is trained on but the app hasn't enabled as a command. If it wins, NeurOS says `HOLD("unrecognized")` instead of guessing a command. The same idea as "unknown" in voice-assistant wake-word models. |
+| **Locked test set** | The 79 people (20% per dataset) set aside on 3 Oct 2026 and not touched until the freeze on 24 Oct, so our published numbers come from people no decision was tuned on (D-026). |
+| **Harmonisation** | Converting each dataset's own conventions (channel spellings, units, event names, cue timing) into one canonical format before anything else touches the data. |

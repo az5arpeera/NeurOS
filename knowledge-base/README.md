@@ -6,9 +6,9 @@ The single source of truth for what we know, what we've decided, and what's stil
 
 | Path | What it holds | Status |
 |---|---|---|
-| [`architecture/mvp-architecture.md`](architecture/mvp-architecture.md) | **Step 4: MVP architecture v1.** Claims, data contract, alignment math, model, online engine, evaluation protocol, repo layout. The coding guidelines. | **Draft: founder sign-off on 🔒 sections** |
+| [`architecture/mvp-architecture.md`](architecture/mvp-architecture.md) | **Step 4: MVP architecture v1.** Claims, data contract, alignment math, model, online engine, evaluation protocol, repo layout. The coding guidelines. | **Signed off 3 Oct (D-022)**; code started the same day |
 | [`plan/road-to-nov-1.md`](plan/road-to-nov-1.md) | Day-by-day plan to the 1 Nov deadline: engineering, customer discovery, YC application, cut list | Living |
-| [`open-questions.md`](open-questions.md) | Questions that must be answered before coding, each with a recommendation | **Needs founder answers** |
+| [`open-questions.md`](open-questions.md) | Open questions, each with a recommendation; answered ones at the bottom | Two open (cluster, roles) |
 | [`decisions/decision-log.md`](decisions/decision-log.md) | Dated decisions (what, why, who), plus decisions still pending | Living |
 | [`research/synthesis.md`](research/synthesis.md) | What the literature actually supports for zero-calibration, UDA and CLAP, with realistic numbers | Background |
 | [`explainers/`](explainers/) | Plain-language explanations: [UDA](explainers/uda-train-time-vs-test-time.md), [contrastive learning & CLAP](explainers/contrastive-learning-and-clap-for-generalization.md), [text-anchored head](explainers/text-anchored-head.md), [calibration time & commands](explainers/calibration-time-commands-and-metrics.md), [beyond LEFT/RIGHT](explainers/beyond-left-right-any-action.md), [demo hardware & compute](explainers/demo-hardware-lsl-and-compute.md), [post-MVP ideas](explainers/v2-ideas-riemannian-layers-pretraining-montage.md) | Living |
