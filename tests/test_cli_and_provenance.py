@@ -7,8 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from neuros.cli import _baseline_output_name, build_parser, main
+from neuros.cli import _baseline_output_name, _window_overrides, build_parser, main
+from neuros.config.experiment import apply_signal_overrides
 from neuros.config.schemas import SignalContract
+from neuros.data.registry import get_spec, task_epoch
 from neuros.provenance import config_hash, file_sha256, stamp
 
 from .conftest import REPO_ROOT
@@ -66,19 +68,25 @@ def test_cli_baseline_rejects_bad_windows(capsys: pytest.CaptureFixture[str]) ->
 
 
 def test_baseline_output_names_never_clobber() -> None:
+    spec = get_spec("BNCI2014_001")
+
     def name(*extra: str) -> str:
-        args = build_parser().parse_args(["baseline", "--dataset", "BNCI2014_001", *extra])
-        return _baseline_output_name("BNCI2014_001", args)
+        args = build_parser().parse_args(["baseline", "--dataset", spec.key, *extra])
+        contract = SignalContract()
+        if args.window is not None:
+            contract = apply_signal_overrides(contract, _window_overrides(args.window))
+        return _baseline_output_name(spec.key, args, task_epoch(spec, contract))
 
     stem = "BNCI2014_001_left_hand-right_hand_all_as_recorded"
-    # The Day-2 and E0 files keep their names, so those results regenerate in place.
-    assert name() == f"{stem}.json"
-    assert name("--alignment-unit", "session") == f"{stem}_session.json"
+    # Every name carries its epoch, so no run can overwrite a pre-D-030 file (which has none).
+    assert name() == f"{stem}_aftercue.json"
+    assert name("--alignment-unit", "session") == f"{stem}_session_aftercue.json"
     assert (
         name("--alignment-unit", "session", "--window", "1.5", "3.5")
         == f"{stem}_session_window1.5-3.5s.json"
     )
-    assert name("--subjects", "1", "2") == f"{stem}_subj1-2.json"
+    assert name("--window", "-0.5", "0") == f"{stem}_window-0.5-0s.json"
+    assert name("--subjects", "1", "2") == f"{stem}_aftercue_subj1-2.json"
 
 
 def test_cli_loso_refuses_locked_test_people(

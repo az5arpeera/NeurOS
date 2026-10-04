@@ -22,21 +22,6 @@ Founder (3 Oct): "TBD on specific roles". **Proposal** (in the [plan](plan/road-
 - **Founder:** data pipeline, engine/SDK, evaluation harness, outreach, the YC application.
 - **Cofounder:** model training and experiments.
 
-### Q25. Cue-controlled evaluation windows (proposed 4 Oct)
-**Why:**
-- E0's 75.0% came largely from the on-screen arrow.
-- After the arrow had gone, zero-calibration EEGNet scored 60.6% and a calibrated model 72.2% ([E0 results](results/2026-10-03-e0-eegnet-bnci2014-001.md)).
-- The brain's response to the cue looks alike in everyone, so cross-person models learn it first.
-
-**Recommendation** (would be D-030):
-- Every motor-imagery result reports a window that starts after the cue has left the screen, next to a cue-only control ([cue, cue + 0.5 s]).
-- Training uses the same windows, so the model learns imagery rather than the cue.
-- Each dataset's registry entry records how long its cue stays on screen. On BNCI2014-001 the window becomes [1.5, 3.5] s.
-- Datasets whose cue stays up for the whole trial report the cue-only control and carry a flag in every table.
-- The product contract's epoch (§4.2, 🔒) and the headline target (§8.6, X ≈ 75%) change through the decision log; revisit the target after E1.
-
-**Cost:** every number we publish gets lower, and more honest.
-
 ### Optional: email g.tec
 Ask about a student/startup price for the Unicorn (a second headset for the hardware-agnostic story).
 
@@ -60,6 +45,7 @@ Ask about a student/startup price for the Unicorn (a second headset for the hard
 
 | Date | Q | Answer | Decision |
 |---|---|---|---|
+| 2026-10-04 | Q25: cue-controlled evaluation windows | **Adopted.** Every motor-imagery result uses windows that start after the class has left the screen (train and test), next to a cue-only control; datasets whose cue stays up carry a flag. Prompted by E0: 75.0% with the arrow on screen, 60.6% after it | [D-030](decisions/decision-log.md) |
 | 2026-10-03 | Q21: architecture sign-off | **Signed off**, including the L0/L1/L2 claim levels and the evaluation protocol | [D-022](decisions/decision-log.md) |
 | 2026-10-03 | Q1: text-anchored head | **Adopt under the rule** (ship it if within 1 point of the linear head, or better, on never-seen people) | [D-023](decisions/decision-log.md) |
 | 2026-10-03 | Q4: commands | **`LEFT / RIGHT / REST + HOLD`, as a configurable command set**: labels the app doesn't enable act as decoys → `HOLD("unrecognized")`; FEET / BOTH_HANDS as an experimental opt-in mode | [D-024](decisions/decision-log.md) |

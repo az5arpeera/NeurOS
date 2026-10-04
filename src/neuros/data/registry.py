@@ -10,6 +10,9 @@ Provenance of the declarations (2026-10-03):
 - Channel lists: copied from the hard-coded lists in MOABB 1.7.2's dataset modules (EEGMAT: from
   the PhysioNet page; verify on the files).
 - Subject ids, event names and cue intervals: MOABB 1.7.2 dataset metadata.
+- How long the class stays on screen (``class_on_screen_s``, D-030): the paradigm descriptions in
+  MOABB 1.7.2's dataset docstrings, read 2026-10-04. Where a description is unclear, the value is
+  the whole task (the conservative choice: it can only flag a result, never clear one).
 - Fields still unconfirmed on the actual files are listed in ``unverified``. ``neuros validate``
   confirms them once the data is downloaded; then the entry is updated and the field removed.
 
@@ -39,6 +42,10 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 DatasetRole = Literal["core", "literature", "brain_state"]
 Paradigm = Literal["motor_imagery", "mental_arithmetic"]
 RestSource = Literal["explicit", "pre_cue", "none"]
+EpochRule = Literal["after_cue", "fixed"]
+
+# Tolerance for comparing epoch boundaries in seconds (they're sums of declared decimals).
+_EPOCH_TOL_S = 1e-9
 
 
 @dataclass(frozen=True)
@@ -60,6 +67,11 @@ class DatasetSpec:
     cue_offset_s: float
     # Seconds of task (imagery, or the whole labelled segment for EEGMAT) after the cue.
     task_s: float
+    # Seconds from the cue's onset during which the screen shows something that depends on the
+    # class: the cue itself, or feedback driven by a classifier. Equal to task_s when it stays up
+    # for the whole task. None only for paradigms without class cues (EEGMAT). D-030 starts
+    # offline windows after it, because cross-person models learn the cue before the imagery.
+    class_on_screen_s: float | None
     # Seconds of fixation before the cue, usable as pre-cue rest; None if not established.
     pre_cue_fixation_s: float | None
     rest_source: RestSource
@@ -91,6 +103,17 @@ class DatasetSpec:
                 raise NeurOSConfigError(f"{self.key}: {name} must be positive, got {value}")
         if not math.isfinite(self.cue_offset_s) or self.cue_offset_s < 0:
             raise NeurOSConfigError(f"{self.key}: cue_offset_s must be >= 0")
+        if self.paradigm == "motor_imagery" and self.class_on_screen_s is None:
+            raise NeurOSConfigError(
+                f"{self.key}: a cued paradigm must declare class_on_screen_s (D-030)"
+            )
+        if self.class_on_screen_s is not None and not (
+            math.isfinite(self.class_on_screen_s) and 0 <= self.class_on_screen_s <= self.task_s
+        ):
+            raise NeurOSConfigError(
+                f"{self.key}: class_on_screen_s must be within [0, task_s={self.task_s}] s, "
+                f"got {self.class_on_screen_s}"
+            )
         if self.pre_cue_fixation_s is not None and self.pre_cue_fixation_s <= 0:
             raise NeurOSConfigError(f"{self.key}: pre_cue_fixation_s must be positive or None")
         if self.rest_source == "pre_cue" and self.pre_cue_fixation_s is None:
@@ -211,6 +234,9 @@ _SPECS: tuple[DatasetSpec, ...] = (
         native_sfreq=160.0,
         cue_offset_s=0.0,
         task_s=3.0,
+        # "A target appears on either the left or the right side of the screen ... until the
+        # target disappears" (MOABB/PhysioNet): a lateralised target for the whole task.
+        class_on_screen_s=3.0,
         pre_cue_fixation_s=None,
         rest_source="explicit",
         licence="ODC Attribution 1.0 (commercial use with attribution)",
@@ -244,6 +270,9 @@ _SPECS: tuple[DatasetSpec, ...] = (
         native_sfreq=512.0,
         cue_offset_s=0.0,
         task_s=5.0,
+        # Red arrow for 1.25 s, then a blue feedback bar driven by the online classifier until
+        # the task ends (MOABB, after Pillette 2021).
+        class_on_screen_s=5.0,
         pre_cue_fixation_s=3.0,
         rest_source="pre_cue",
         licence="CC BY 4.0 (verify, Q7b)",
@@ -268,6 +297,8 @@ _SPECS: tuple[DatasetSpec, ...] = (
         native_sfreq=1000.0,
         cue_offset_s=0.0,
         task_s=3.0,
+        # Users steer a cursor toward one of four on-screen targets for the whole trial (MOABB).
+        class_on_screen_s=3.0,
         pre_cue_fixation_s=None,
         rest_source="explicit",
         licence="CC BY 4.0 (verify, Q7b)",
@@ -291,6 +322,9 @@ _SPECS: tuple[DatasetSpec, ...] = (
         native_sfreq=1000.0,
         cue_offset_s=0.0,
         task_s=4.0,
+        # Imagery "for 4 s when the right or left arrow appeared"; in the online test runs the
+        # cross also moves left or right with the classifier's output (MOABB).
+        class_on_screen_s=4.0,
         pre_cue_fixation_s=3.0,
         rest_source="pre_cue",
         licence="GigaDB, CC0 (verify, Q7b)",
@@ -311,12 +345,15 @@ _SPECS: tuple[DatasetSpec, ...] = (
         native_sfreq=512.0,
         cue_offset_s=0.0,
         task_s=3.0,
+        # BCI2000 presents a left/right instruction; MOABB doesn't say for how long, so the whole
+        # task is assumed until the paper is checked.
+        class_on_screen_s=3.0,
         pre_cue_fixation_s=2.0,
         rest_source="pre_cue",
         licence="GigaDB, CC0 (verify, Q7b)",
         url="https://doi.org/10.5524/100295",
         channels_source=_MOABB_SOURCE,
-        unverified=("pre_cue_fixation_s", "licence"),
+        unverified=("pre_cue_fixation_s", "licence", "class_on_screen_s"),
         notes=(
             "Biosemi, DC-coupled: large offsets and drift are expected in raw data. Also has "
             "non-task recordings (blinks, eye/head movement, jaw clench) for the artifact gate."
@@ -334,6 +371,9 @@ _SPECS: tuple[DatasetSpec, ...] = (
         native_sfreq=250.0,
         cue_offset_s=2.0,
         task_s=4.0,
+        # The arrow "appeared and stayed on the screen for 1.25 s ... No feedback was provided"
+        # (MOABB, from the competition description). The one dataset with a cue-free window.
+        class_on_screen_s=1.25,
         pre_cue_fixation_s=2.0,
         rest_source="pre_cue",
         licence="BNCI Horizon 2020 (verify, Q7b)",
@@ -354,13 +394,20 @@ _SPECS: tuple[DatasetSpec, ...] = (
         native_sfreq=250.0,
         cue_offset_s=3.0,
         task_s=4.5,
+        # Sessions 3-5 show the cue and a smiley moved by the online classifier for the whole
+        # task (competition description, Leeb et al.); sessions 1-2 only an arrow for 1.25 s.
+        # MOABB's docstring repeats BNCI2014-001's text, so this is unverified.
+        class_on_screen_s=4.5,
         pre_cue_fixation_s=3.0,
         rest_source="pre_cue",
         licence="BNCI Horizon 2020 (verify, Q7b)",
         url="https://bnci-horizon-2020.eu/database/data-sets",
         channels_source=_MOABB_SOURCE,
-        unverified=("licence",),
-        notes="3 bipolar-derived channels; doubles as the 3-channel virtual headset.",
+        unverified=("licence", "class_on_screen_s"),
+        notes=(
+            "3 bipolar-derived channels; doubles as the 3-channel virtual headset. Restricted "
+            "to screening sessions 1-2, it would have a cue-free window like BNCI2014-001."
+        ),
     ),
     DatasetSpec(
         key="EEGMAT",
@@ -374,6 +421,7 @@ _SPECS: tuple[DatasetSpec, ...] = (
         native_sfreq=500.0,
         cue_offset_s=0.0,
         task_s=60.0,
+        class_on_screen_s=None,  # 60-s recordings, no class cue
         pre_cue_fixation_s=None,
         rest_source="none",
         licence="ODC Attribution 1.0 (commercial use with attribution)",
@@ -412,22 +460,95 @@ def locked_test_dataset_keys() -> tuple[str, ...]:
     return keys_with_role("core", "brain_state")
 
 
+@dataclass(frozen=True)
+class TaskEpoch:
+    """Where one dataset's offline epoch sits, in seconds from the cue's onset (D-030)."""
+
+    start_s: float
+    end_s: float
+    # "after_cue": placed by the contract's rule; "fixed": the contract's own epoch_s.
+    rule: EpochRule
+    # True when no class-related display overlaps the window: it starts at least the
+    # contract's margin after the class has left the screen, or ends before the cue appears.
+    # Results on windows that aren't cue-free must be reported with the cue-only control.
+    cue_free: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        """The fields every result file records next to its numbers."""
+        return {
+            "epoch_s": [self.start_s, self.end_s],
+            "epoch_rule": self.rule,
+            "cue_free": self.cue_free,
+        }
+
+    def describe(self) -> str:
+        """One line for logs, e.g. ``[1.5, 3.5] s after the cue (cue-free)``."""
+        status = (
+            "cue-free"
+            if self.cue_free
+            else "NOT cue-free: the class is on screen, so report the cue-only control"
+        )
+        return f"[{self.start_s:g}, {self.end_s:g}] s after the cue ({status})"
+
+
+def task_epoch(spec: DatasetSpec, contract: SignalContract) -> TaskEpoch:
+    """The offline task epoch for ``spec`` under ``contract`` (D-030).
+
+    With the contract's rule (``epoch_s`` is None), the window starts ``cue_margin_s`` after the
+    class has left the screen. When that window doesn't fit in the task, because the class
+    stays on screen too long, the *latest* window inside the task is used instead: the one
+    furthest from the cue's onset, whose brain response is the strongest and most alike across
+    people. That window is marked ``cue_free=False``.
+
+    A fixed ``epoch_s`` (diagnostics, the cue-only control) is used as given, and ``cue_free``
+    says whether it happens to avoid the class display.
+
+    Raises:
+        NeurOSConfigError: for a paradigm without class cues, a task shorter than one window, or
+            a fixed epoch that runs past the end of the task (it would cut into the next phase
+            of the trial and mislabel it).
+    """
+    if spec.class_on_screen_s is None:
+        raise NeurOSConfigError(f"{spec.key}: no class cue (paradigm {spec.paradigm}), no epochs")
+    clear_from = spec.class_on_screen_s + contract.cue_margin_s
+    if contract.epoch_s is None:
+        rule: EpochRule = "after_cue"
+        latest_start = spec.task_s - contract.window_s
+        if latest_start < -_EPOCH_TOL_S:
+            raise NeurOSConfigError(
+                f"{spec.key}: the task ({spec.task_s} s) is shorter than one window "
+                f"({contract.window_s} s)"
+            )
+        start = min(clear_from, max(latest_start, 0.0))
+        end = start + contract.window_s
+    else:
+        rule = "fixed"
+        start, end = contract.epoch_s
+        if end > spec.task_s + _EPOCH_TOL_S:
+            raise NeurOSConfigError(
+                f"{spec.key}: epoch [{start:g}, {end:g}] s runs past the task, which ends "
+                f"{spec.task_s:g} s after the cue"
+            )
+    cue_free = start >= clear_from - _EPOCH_TOL_S or end <= _EPOCH_TOL_S
+    return TaskEpoch(round(start, 9), round(end, 9), rule, cue_free)
+
+
 def check_registry(vocabulary: Vocabulary, contract: SignalContract) -> None:
     """Cross-check the registry against the vocabulary and the signal contract.
 
     Raises:
-        NeurOSConfigError: if a dataset has no event map, or a motor-imagery task is too short
-            to contain the offline epoch (``task_s`` must reach the epoch end).
+        NeurOSConfigError: if a dataset has no event map, or a motor-imagery dataset can't host
+            the contract's offline epoch (see ``task_epoch``).
     """
     problems: list[str] = []
     for spec in _SPECS:
         if spec.key not in vocabulary.event_maps:
             problems.append(f"{spec.key}: no event map in labels.yaml")
-        if spec.paradigm == "motor_imagery" and spec.task_s < contract.epoch_s[1]:
-            problems.append(
-                f"{spec.key}: task_s={spec.task_s} s is shorter than the epoch end "
-                f"{contract.epoch_s[1]} s"
-            )
+        if spec.paradigm == "motor_imagery":
+            try:
+                task_epoch(spec, contract)
+            except NeurOSConfigError as exc:
+                problems.append(str(exc))
         if spec.native_sfreq < contract.sfreq:
             problems.append(
                 f"{spec.key}: native rate {spec.native_sfreq} Hz is below the contract "

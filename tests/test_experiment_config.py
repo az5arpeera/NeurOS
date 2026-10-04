@@ -31,7 +31,8 @@ def test_e0_files_load_with_the_papers_recipe() -> None:
     assert e0.alignments == ("none", "ea")
     assert e0.alignment_unit == "session"
     assert e0.validation_people == 0
-    assert e0.signal == {}
+    # Pinned to the pre-D-030 window, so the file keeps reproducing the 3 Oct result.
+    assert e0.signal == {"epoch_s": [0.5, 2.5]}
     # Sagayaraju 2026: AdamW lr 1e-3, weight decay 0.05, dropout 0.5, 300 epochs, SWA.
     assert (e0.train.lr, e0.train.weight_decay, e0.train.max_epochs) == (1e-3, 0.05, 300)
     assert e0.model.dropout == 0.5
@@ -97,7 +98,10 @@ def test_signal_overrides_are_validated_as_a_whole() -> None:
     base = SignalContract()
     assert apply_signal_overrides(base, {}) is base
     with pytest.raises(NeurOSConfigError, match="invalid signal overrides"):
-        apply_signal_overrides(base, {"window_s": 4.0})  # epoch still 2 s long
+        # A fixed epoch must stay one window long.
+        apply_signal_overrides(SignalContract(epoch_s=(0.5, 2.5)), {"window_s": 4.0})
+    # Under the contract's after-cue rule (D-030) the window length can change on its own.
+    assert apply_signal_overrides(base, {"window_s": 4.0}).window_s == 4.0
     with pytest.raises(NeurOSConfigError):
         apply_signal_overrides(base, {"bandwidth": 3})
     with pytest.raises(NeurOSConfigError):  # a clean error, not an OverflowError

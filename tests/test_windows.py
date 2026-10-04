@@ -89,26 +89,43 @@ def test_stream_reset_and_bad_chunks() -> None:
 
 
 # ---------------------------------------------------------------------- epochs
-def test_epochs_start_half_a_second_after_the_cue() -> None:
+EPOCH = (0.5, 2.5)  # a fixed epoch; the contract's own rule needs a dataset (task_epoch)
+
+
+def test_epochs_start_where_the_epoch_says() -> None:
     rec = _recording(events=[(200, "left_hand"), (700, "right_hand")])
-    windows, skipped = extract_epochs(rec, CONTRACT)
+    windows, skipped = extract_epochs(rec, CONTRACT, epoch_s=EPOCH)
     assert skipped == 0
     assert windows.starts.tolist() == [264, 764]  # cue + 0.5 s × 128 Hz
     assert np.array_equal(windows.data[1], rec.data[:, 764 : 764 + WINDOW])
     assert windows.labels == ("left_hand", "right_hand")
     assert windows.person_ids == ("Synthetic:1", "Synthetic:1")
+    # A contract that fixes its own epoch needs no argument.
+    windows, _ = extract_epochs(rec, SignalContract(epoch_s=(1.5, 3.5)))
+    assert windows.starts.tolist() == [392, 892]  # cue + 1.5 s × 128 Hz
+
+
+def test_epochs_need_an_explicit_one_window_epoch() -> None:
+    rec = _recording(events=[(200, "left_hand")])
+    # The contract's D-030 rule depends on the dataset, which a recording doesn't carry.
+    with pytest.raises(NeurOSConfigError, match="task_epoch"):
+        extract_epochs(rec, CONTRACT)
+    with pytest.raises(NeurOSConfigError, match="one 2-s window"):
+        extract_epochs(rec, CONTRACT, epoch_s=(0.5, 3.0))
 
 
 def test_epochs_filter_labels_and_count_events_past_the_end() -> None:
     rec = _recording(events=[(100, "left_hand"), (300, "rest"), (1800, "right_hand")])
-    windows, skipped = extract_epochs(rec, CONTRACT, labels={"left_hand", "right_hand"})
+    windows, skipped = extract_epochs(
+        rec, CONTRACT, labels={"left_hand", "right_hand"}, epoch_s=EPOCH
+    )
     assert windows.labels == ("left_hand",)
     assert skipped == 1  # right_hand at 1800: its epoch runs past 2000 samples
 
 
 def test_epochs_need_the_preprocessed_rate() -> None:
     with pytest.raises(NeurOSDataError, match="preprocess"):
-        extract_epochs(_recording(sfreq=250.0), CONTRACT)
+        extract_epochs(_recording(sfreq=250.0), CONTRACT, epoch_s=EPOCH)
 
 
 def test_flags_mark_transients_and_extreme_amplitudes() -> None:
@@ -125,7 +142,9 @@ def test_flags_mark_transients_and_extreme_amplitudes() -> None:
         session=rec.session,
         run=rec.run,
     )
-    windows, _ = extract_epochs(spiky, CONTRACT, ValidationThresholds(ptp_flag_uv=500.0))
+    windows, _ = extract_epochs(
+        spiky, CONTRACT, ValidationThresholds(ptp_flag_uv=500.0), epoch_s=EPOCH
+    )
     # An epoch starts >= 0.5 s after the recording starts, so it never overlaps the filter
     # transient (TRANSIENT_S = 0.5 s); the spike flags the third epoch only.
     assert windows.flags.tolist() == [

@@ -63,7 +63,7 @@ Claude Code pairs on all engineering. **Founders send all outreach;** Claude dra
   - **After the arrow has gone** ([1.5, 3.5] s): zero-calibration EEGNet scores **60.6%**, level with TS+LR + EA (60.4%) and **11.6 points below a calibrated model** (72.2%, p = 0.012).
   - Before the cue, every model scores at chance: nothing leaks.
   - Retracted: the 83.7%, the deep model's 8.1-point lead, and "zero-calibration on par with calibrated".
-  - **Proposed protocol change ([Q25](../open-questions.md)):** cue-controlled windows plus a cue-only control for every motor-imagery result. The founders decide.
+  - **Adopted ([D-030](../decisions/decision-log.md)):** every motor-imagery result uses windows that start after the class has left the screen, next to a cue-only control. Built in on 4 Oct: the registry declares how long each dataset shows the class, `neuros datasets` prints each window, and every result file records its window and a cue-free flag. **Only BNCI2014-001 has a cue-free window;** all five core datasets keep the class on screen for the whole task.
   - Without the arrow's first half-second, the 4-s window's 83.7% falls to 72.3% ([0.5, 4.0] s), no better than our 2-s window: its gain was the cue's onset, not the window's length.
 - **Fixed:** result files took their provenance stamp at the end of a run instead of the start. They now record the code that actually ran, plus a code-only "dirty" flag.
 - **Business:** [ready-to-adapt drafts for the first 10 outreach messages](../business/first-10-messages.md); the founders send them.
@@ -75,7 +75,7 @@ Claude Code pairs on all engineering. **Founders send all outreach;** Claude dra
 | **Sat 3** | Scaffolding (pyproject, CI, src layout, error types). Data registry and harmonisation for BNCI2014-001/004 + PhysionetMI. `validate.py`. Compute C-core. Fix the locked test set by seed. Tests. | Draft the customer-interview script (calibration pain, current workflow, willingness to pay) |
 | Sun 4 | ✅ (done Sat 3 Oct evening) Causal filters, timestamp resampler, windows, offline EA (unit tests: aligned mean covariance = I). Riemannian baselines on BNCI2014-001 | ✅ List 15 target contacts: UVA EEG/BCI labs, OpenBCI forum, BCI startups |
 | Mon 5 – Tue 6 | ✅ (done Sat 3 Oct night) EEGNet encoder, trainer, subject-wise splits → **E0 sanity** (≈ 74% EA + EEGNet + SWA): **pipeline check passed, 75.0%; cue-controlled 60.6%** (4 Oct) | Founders send the first 10 outreach messages ([drafts ready](../business/first-10-messages.md)) |
-| Wed 7 – Fri 9 | Remaining loaders (Cho2017, Lee2019_MI, Dreyer2023, EEGMAT, Stieger subset), recording how long each dataset's cue stays on screen. **E0b**, **E1** pooled + first LODO, on cue-controlled windows if Q25 is adopted | One-page landing site + waitlist. YC: one-liner, founder bios, "why now" |
+| Wed 7 – Fri 9 | Remaining loaders (Cho2017, Lee2019_MI, Dreyer2023, EEGMAT, Stieger subset), checking each one's declared class display (D-030) against its paper. **E0b**, **E1** pooled + first LODO on D-030 windows, each with its cue-only control (automate that in the E1 runner) | One-page landing site + waitlist. YC: one-liner, founder bios, "why now" |
 
 ## Week 2: Sat 10 → Fri 16 Oct · live engine and adaptation
 - **Engineering:**
@@ -83,7 +83,7 @@ Claude Code pairs on all engineering. **Founders send all outreach;** Claude dra
   - the simulator and the JS client;
   - the golden train–serve parity test.
 - **Experiments:** **E2** warm-up curve + **H1** (rest-seeded), then **E3** test-time adaptation.
-- **Hardware:** headset arrives → profile YAML, signal checks, founders' self-test.
+- **Hardware:** headset arrives → profile YAML, signal checks, founders' self-test. Design the self-test so the cue leaves the screen before the analysed window (D-030): it's our only cue-free evidence beyond BNCI2014-001.
 - **Business:** 8–10 interviews done; write up the pains; ask for pilot commitments or letters of intent.
 - **YC:** all written answers v1; a rough demo recorded on the simulator.
 

@@ -7,7 +7,8 @@ boundary check runs on every recording:
 2. ``validate_recording`` + ``raise_if_errors``: a recording that breaks the data contract
    stops the run with its dataset/subject/run context (§4.5); flags are only counted;
 3. ``preprocess_recording``: the shared causal chain to 128 Hz (train–serve parity);
-4. ``extract_epochs``: one window per task event at [cue + 0.5 s, cue + 2.5 s].
+4. ``extract_epochs``: one window per task event, placed after the class has left the screen
+   (D-030, ``task_epoch``). Each summary says whether the windows are cue-free.
 
 The disk cache of preprocessed recordings (§4.5, keyed by the preprocessing-config hash) slots
 in between steps 3 and 4 when E1 needs all ~380 people. BNCI2014-001 takes seconds without it.
@@ -23,7 +24,7 @@ from typing import Any
 from neuros.config.schemas import DataConfig
 from neuros.data.harmonize import harmonize_moabb_subject
 from neuros.data.recording import Recording, person_id
-from neuros.data.registry import DatasetSpec
+from neuros.data.registry import DatasetSpec, task_epoch
 from neuros.data.validate import validate_recording
 from neuros.data.vocabulary import Vocabulary
 from neuros.errors import DataContext, NeurOSConfigError, NeurOSDataError
@@ -84,6 +85,9 @@ class EpochSummary:
     label_counts: dict[str, int] = field(default_factory=dict)
     flagged_extreme: int = 0
     flagged_transient: int = 0
+    # The epoch used, in seconds from the cue, and whether it avoids the class display (D-030).
+    epoch_s: list[float] = field(default_factory=list)
+    cue_free: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return dict(self.__dict__)
@@ -107,12 +111,23 @@ def subject_epochs(
     unknown = sorted(set(labels) - set(vocabulary.labels))
     if unknown or not labels:
         raise NeurOSConfigError(f"labels {unknown or '[]'} are not vocabulary labels")
+    # Resolved before any data is touched, so a dataset that can't host the epoch fails fast.
+    epoch = task_epoch(spec, config.signal)
     recordings = prepare_subject(spec, subject, vocabulary, config, dataset=dataset)
-    summary = EpochSummary(person=person_id(spec.key, subject), n_recordings=len(recordings))
+    summary = EpochSummary(
+        person=person_id(spec.key, subject),
+        n_recordings=len(recordings),
+        epoch_s=[epoch.start_s, epoch.end_s],
+        cue_free=epoch.cue_free,
+    )
     sets: list[WindowSet] = []
     for recording in recordings:
         windows, skipped = extract_epochs(
-            recording, config.signal, config.validation, labels=labels
+            recording,
+            config.signal,
+            config.validation,
+            labels=labels,
+            epoch_s=(epoch.start_s, epoch.end_s),
         )
         summary.skipped_outside += skipped
         sets.append(windows)

@@ -104,6 +104,8 @@ def test_bnci2014_001_epochs_subject_1(config: DataConfig, vocab: Vocabulary) ->
     )
     assert windows.data.shape == (288, 22, 256)  # 2 × 144 trials, 22 channels, 2 s at 128 Hz
     assert windows.label_counts() == {"left_hand": 144, "right_hand": 144}
+    # D-030: the window starts 0.25 s after the arrow has gone, so it's cue-free.
+    assert (summary.epoch_s, summary.cue_free) == ([1.5, 3.5], True)
     assert summary.skipped_outside == 0
     assert windows.n_flagged(WindowFlag.FILTER_TRANSIENT) == 0
     assert set(windows.sessions) == {"0train", "1test"}

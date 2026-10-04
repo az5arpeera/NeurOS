@@ -31,6 +31,7 @@ uv run neuros --config configs/data.yaml loso --experiment configs/e0.yaml  # E0
 - Raw data goes to `data/raw/` with a SHA-256 manifest in `data/manifests/`; reports go to `results/`. All three folders are git-ignored. Set `NEUROS_DATA_DIR` to put the data elsewhere (e.g. on the cluster).
 - Run the downloaded-data tests with `NEUROS_DATA_TESTS=1 uv run pytest -m data`.
 - `neuros loso` trains one fold per person in parallel processes (default: CPUs ÷ 2 workers × 2 threads). E0 takes about 50 minutes per alignment on the dev laptop. Add `--max-epochs 2 --subjects 1 2 3` for a quick smoke test.
+- Offline windows start after the class has left the screen (D-030). `neuros datasets` shows each dataset's window and flags the ones where the class stays on screen; `baseline --window START END` fixes a window for diagnostics such as the cue-only control (`--window 0 0.5`).
 - Optional: `uv run pre-commit install` runs format, lint and types before each commit.
 
 ## House rules for code

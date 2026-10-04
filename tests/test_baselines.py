@@ -30,7 +30,7 @@ def _person(subject: int, session: str, seed: int, gains: np.ndarray) -> WindowS
     recording = make_recording(
         SyntheticConfig(n_trials=24, seed=seed), subject=subject, session=session
     )
-    windows, _ = extract_epochs(preprocess_recording(recording))
+    windows, _ = extract_epochs(preprocess_recording(recording), epoch_s=(0.5, 2.5))
     return windows.with_data((windows.data * gains[None, :, None]).astype(np.float32))
 
 

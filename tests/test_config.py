@@ -19,8 +19,11 @@ def test_contract_defaults_match_architecture() -> None:
     assert contract.band_hz == (4.0, 30.0)
     assert contract.window_samples == 256
     assert contract.hop_samples == 16
-    assert contract.epoch_s == (0.5, 2.5)
+    assert contract.epoch_s is None  # D-030: per dataset, after the class has left the screen
+    assert contract.cue_margin_s == 0.25
     assert contract.reference == "car"
+    # Diagnostics can still fix a window, validated against the window length.
+    assert SignalContract(epoch_s=(0.0, 2.0)).epoch_s == (0.0, 2.0)
 
 
 def test_committed_config_is_the_contract() -> None:
@@ -38,6 +41,10 @@ def test_committed_config_is_the_contract() -> None:
         {"hop_s": 3.0},  # hop longer than the window
         {"window_s": 2.003},  # not a whole number of samples
         {"epoch_s": (0.5, 3.0)},  # epoch ≠ one window
+        {"epoch_s": (2.5, 0.5)},  # end before start
+        {"cue_margin_s": -0.1},
+        {"cue_margin_s": 5.0},  # beyond any trial; a typo
+        {"window_s": float("inf")},  # no inf/NaN anywhere in the contract
         {"notch_hz": (-50.0,)},
     ],
 )

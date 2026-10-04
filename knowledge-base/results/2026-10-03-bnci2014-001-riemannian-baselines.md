@@ -79,8 +79,9 @@
 
 ## Regenerate
 ```bash
-uv run neuros --config configs/data.yaml baseline --dataset BNCI2014_001 [--channels c-core] [--reference car] [--alignment-unit session] [--window START END]
+uv run neuros --config configs/data.yaml baseline --dataset BNCI2014_001 --window 0.5 2.5 [--channels c-core] [--reference car] [--alignment-unit session]
 ```
 - Each run takes about 1.5 minutes on the laptop.
-- Output: `results/baselines/BNCI2014_001_left_hand-right_hand_<channels>_<reference>.json`, with per-person scores, Wilcoxon tests and provenance.
+- `--window 0.5 2.5` reproduces these 3 Oct numbers. Since D-030 (4 Oct), a run without it uses the after-cue window, [1.5, 3.5] s on this dataset.
+- Output: `results/baselines/BNCI2014_001_left_hand-right_hand_<channels>_<reference>.json` for the 3 Oct runs; regenerated copies carry `_window0.5-2.5s` in the name. Each file has per-person scores, Wilcoxon tests and provenance.
 - **Reproducibility:** first computed from uncommitted Day-2 code, then re-run from the committed code (`dc59206`, `824560b`) the same evening. All four tables were **identical to the last digit**: the pipeline is deterministic.

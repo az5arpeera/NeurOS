@@ -37,6 +37,7 @@ from neuros.errors import NeurOSError
 
 if TYPE_CHECKING:
     from neuros.config.experiment import LosoExperimentConfig
+    from neuros.data.registry import TaskEpoch
     from neuros.signal.windows import WindowSet
 
 log = logging.getLogger("neuros")
@@ -72,13 +73,23 @@ def _finished(provenance: dict[str, Any]) -> dict[str, Any]:
 
 # ---------------------------------------------------------------------- commands
 def cmd_datasets(args: argparse.Namespace) -> int:
-    from neuros.data.registry import DATASETS, check_against_moabb, check_registry
+    from neuros.data.registry import DATASETS, check_against_moabb, check_registry, task_epoch
     from neuros.data.vocabulary import default_vocabulary
 
     vocab = default_vocabulary()
+    contract = _config(args).signal
     rows = []
     for spec in DATASETS.values():
         labels = sorted(set(vocab.event_maps.get(spec.key, {}).values()))
+        # The offline window each dataset gets under the contract (D-030), and whether the
+        # class is still on screen during it.
+        window = "-"
+        if spec.class_on_screen_s is not None:
+            try:
+                epoch = task_epoch(spec, contract)
+                window = f"[{epoch.start_s:g}, {epoch.end_s:g}]" + ("" if epoch.cue_free else " !")
+            except NeurOSError:
+                window = "INVALID"  # explained by --check
         rows.append(
             [
                 spec.key,
@@ -87,10 +98,17 @@ def cmd_datasets(args: argparse.Namespace) -> int:
                 str(len(spec.eeg_channels)),
                 f"{spec.native_sfreq:g}",
                 ",".join(labels),
+                window,
                 ",".join(spec.unverified) or "-",
             ]
         )
-    print(_table(rows, ["dataset", "role", "people", "EEG ch", "Hz", "labels", "unverified"]))
+    print(
+        _table(
+            rows,
+            ["dataset", "role", "people", "EEG ch", "Hz", "labels", "window s", "unverified"],
+        )
+    )
+    print("\n'!' = the class is on screen during the window: report the cue-only control (D-030)")
     if not args.check:
         return 0
     problems: list[str] = []
@@ -309,25 +327,28 @@ def _dev_windows(
     channels: str,
     split_path: str,
     purpose: str,
-) -> tuple[WindowSet, list[dict[str, object]], list[int]]:
+) -> tuple[WindowSet, list[dict[str, object]], list[int], TaskEpoch]:
     """Task windows of a dataset's development people, printed per subject as they load.
 
     Person-level isolation (principle 2): the locked test set is loaded and checked first, so
     a locked test person can never enter a development run, even when named explicitly.
 
     Returns:
-        ``(windows, per-subject epoch summaries, subjects)``.
+        ``(windows, per-subject epoch summaries, subjects, the epoch used)``.
     """
     from neuros.data.download import prepare_mne_environment
     from neuros.data.montage import load_c_core
     from neuros.data.prepare import subject_epochs
     from neuros.data.recording import person_id
-    from neuros.data.registry import get_spec, moabb_dataset
+    from neuros.data.registry import get_spec, moabb_dataset, task_epoch
     from neuros.data.vocabulary import default_vocabulary
     from neuros.eval.splits import load_locked_test_set
     from neuros.signal.windows import WindowSet
 
     spec = get_spec(dataset_key)
+    # Resolved first: a dataset that can't host the epoch fails before anything loads.
+    epoch = task_epoch(spec, config.signal)
+    print(f"{spec.key}: windows {epoch.describe()}", flush=True)
     vocab = default_vocabulary()
     locked = load_locked_test_set(Path(split_path))
     subjects = list(subjects_arg) if subjects_arg else list(locked.dev_subjects(spec.key))
@@ -351,7 +372,7 @@ def _dev_windows(
     windows = WindowSet.concat(sets)
     if channels == "c-core":
         windows = windows.pick_channels([ch for ch in load_c_core() if ch in windows.ch_names])
-    return windows, summaries, subjects
+    return windows, summaries, subjects, epoch
 
 
 def _window_overrides(window: Sequence[float]) -> dict[str, object]:
@@ -373,15 +394,20 @@ def _window_overrides(window: Sequence[float]) -> dict[str, object]:
     return {"epoch_s": [start, end], "window_s": round(end - start, 9)}
 
 
-def _baseline_output_name(spec_key: str, args: argparse.Namespace) -> str:
-    """Result file name: names every setting that changes the numbers, so runs never clobber."""
+def _baseline_output_name(spec_key: str, args: argparse.Namespace, epoch: TaskEpoch) -> str:
+    """Result file name: names every setting that changes the numbers, so runs never clobber.
+
+    Every name carries its epoch: ``_aftercue`` for the contract's rule (D-030), or the fixed
+    window. Files without one are from before D-030 (4 Oct) and used [0.5, 2.5] s; nothing
+    writes such a name any more, so they're never overwritten.
+    """
     name = f"{spec_key}_{'-'.join(args.labels)}_{args.channels}_{args.reference}"
-    # Per-person files keep their Day-2 names, so those results regenerate in place.
     if args.alignment_unit == "session":
         name += "_session"
-    if args.window is not None:
-        start, end = args.window
-        name += f"_window{start:g}-{end:g}s"
+    if epoch.rule == "after_cue":
+        name += "_aftercue"
+    else:
+        name += f"_window{epoch.start_s:g}-{epoch.end_s:g}s"
     if args.subjects:
         name += "_subj" + "-".join(str(s) for s in args.subjects)
     return name + ".json"
@@ -400,16 +426,16 @@ def cmd_baseline(args: argparse.Namespace) -> int:
         config = config.model_copy(
             update={"signal": apply_signal_overrides(config.signal, _window_overrides(args.window))}
         )
-    spec_key = get_spec(args.dataset).key
+    spec = get_spec(args.dataset)
+    spec_key = spec.key
     provenance = stamp(config, dataset=spec_key)  # at the start: the code that runs
-    windows, summaries, subjects = _dev_windows(
+    windows, summaries, subjects, epoch = _dev_windows(
         config, spec_key, args.subjects, args.labels, args.channels, args.split, "a baseline run"
     )
     print(
         f"\n{len(windows)} windows, {len(windows.people)} people, {len(windows.ch_names)} "
-        f"channels ({args.channels}), {windows.n_samples} samples per window (epoch "
-        f"{list(config.signal.epoch_s)} s), reference {args.reference}, alignment per "
-        f"{args.alignment_unit}\n"
+        f"channels ({args.channels}), {windows.n_samples} samples per window "
+        f"{epoch.describe()}, reference {args.reference}, alignment per {args.alignment_unit}\n"
     )
     result = run_riemannian_baselines(
         windows, reference=args.reference, unit=args.alignment_unit, progress=print
@@ -442,7 +468,7 @@ def cmd_baseline(args: argparse.Namespace) -> int:
             f"points, Wilcoxon p = {comparison['p_value']:.3g} (n = {comparison['n_people']})"
         )
 
-    out = config.results_dir / "baselines" / _baseline_output_name(spec_key, args)
+    out = config.results_dir / "baselines" / _baseline_output_name(spec_key, args, epoch)
     out.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "provenance": _finished(provenance),
@@ -453,7 +479,9 @@ def cmd_baseline(args: argparse.Namespace) -> int:
             "channel_set": args.channels,
             "reference": args.reference,
             "alignment_unit": args.alignment_unit,
-            "epoch_s": list(config.signal.epoch_s),
+            **epoch.to_dict(),
+            "class_on_screen_s": spec.class_on_screen_s,
+            "cue_margin_s": config.signal.cue_margin_s,
             "window_s": config.signal.window_s,
             "sfreq": config.signal.sfreq,
             "subjects": subjects,
@@ -533,7 +561,8 @@ def cmd_loso(args: argparse.Namespace) -> int:
     config = config.model_copy(
         update={"signal": apply_signal_overrides(config.signal, experiment.signal)}
     )
-    spec_key = get_spec(experiment.dataset).key
+    spec = get_spec(experiment.dataset)
+    spec_key = spec.key
     # Provenance at the start: worker processes import the code on disk when they start, so
     # the checkout must not change during a run, and the stamp must describe it as it was.
     provenance = stamp(
@@ -545,7 +574,7 @@ def cmd_loso(args: argparse.Namespace) -> int:
     )
     if provenance["git_dirty_code"] == "true":
         print("warning: uncommitted code changes; this result won't be reproducible from git")
-    windows, summaries, subjects = _dev_windows(
+    windows, summaries, subjects, epoch = _dev_windows(
         config,
         spec_key,
         args.subjects,
@@ -560,7 +589,7 @@ def cmd_loso(args: argparse.Namespace) -> int:
     print(
         f"\n{experiment.name}: {len(windows)} windows, {len(windows.people)} people, "
         f"{len(windows.ch_names)} channels ({experiment.channels}), {windows.n_samples} samples "
-        f"per window (epoch {list(config.signal.epoch_s)} s), reference {experiment.reference}\n",
+        f"per window {epoch.describe()}, reference {experiment.reference}\n",
         flush=True,
     )
     result = run_loso_experiment(
@@ -616,7 +645,9 @@ def cmd_loso(args: argparse.Namespace) -> int:
             "channels": list(windows.ch_names),
             "channel_set": experiment.channels,
             "reference": experiment.reference,
-            "epoch_s": list(config.signal.epoch_s),
+            **epoch.to_dict(),
+            "class_on_screen_s": spec.class_on_screen_s,
+            "cue_margin_s": config.signal.cue_margin_s,
             "window_s": config.signal.window_s,
             "sfreq": config.signal.sfreq,
             "subjects": subjects,
@@ -697,8 +728,8 @@ def build_parser() -> argparse.ArgumentParser:
         nargs=2,
         metavar=("START", "END"),
         default=None,
-        help="epoch [START, END] s from the cue instead of the contract's (a diagnostic, "
-        "e.g. 1.5 3.5 to start after BNCI2014-001's arrow has gone)",
+        help="a fixed epoch [START, END] s from the cue instead of the contract's after-cue "
+        "rule (D-030): e.g. 0 0.5 for the cue-only control, -0.5 0 for a pre-cue null check",
     )
     p.add_argument("--split", default=str(DEFAULT_SPLIT_PATH), help="locked test set file")
     p.set_defaults(func=cmd_baseline)

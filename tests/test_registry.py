@@ -12,6 +12,7 @@ from neuros.data.registry import (
     get_spec,
     keys_with_role,
     locked_test_dataset_keys,
+    task_epoch,
 )
 from neuros.data.vocabulary import Vocabulary
 from neuros.errors import NeurOSChannelError, NeurOSConfigError
@@ -47,8 +48,72 @@ def test_check_registry_passes(vocab: Vocabulary) -> None:
 def test_check_registry_catches_short_tasks(vocab: Vocabulary) -> None:
     # A contract whose epoch ends at 5 s is longer than PhysionetMI's 3 s task.
     contract = SignalContract(window_s=2.0, epoch_s=(3.0, 5.0))
-    with pytest.raises(NeurOSConfigError, match="shorter than the epoch end"):
+    with pytest.raises(NeurOSConfigError, match="runs past the task"):
         check_registry(vocab, contract)
+
+
+# ---------------------------------------------------------------------- task epochs (D-030)
+def test_task_epochs_start_after_the_class_display() -> None:
+    contract = SignalContract()
+    # BNCI2014-001's arrow is up for 1.25 s: the window starts 0.25 s after it has gone.
+    epoch = task_epoch(get_spec("BNCI2014_001"), contract)
+    assert (epoch.start_s, epoch.end_s, epoch.rule, epoch.cue_free) == (
+        1.5,
+        3.5,
+        "after_cue",
+        True,
+    )
+    # Every other cued dataset keeps the class (cue or feedback) on screen for the whole task:
+    # it gets the latest window in the task, flagged as not cue-free.
+    latest = {
+        "PhysionetMI": (1.0, 3.0),
+        "Dreyer2023": (3.0, 5.0),
+        "Stieger2021": (1.0, 3.0),
+        "Lee2019_MI": (2.0, 4.0),
+        "Cho2017": (1.0, 3.0),
+        "BNCI2014_004": (2.5, 4.5),
+    }
+    for key, (start, end) in latest.items():
+        epoch = task_epoch(get_spec(key), contract)
+        assert (epoch.start_s, epoch.end_s, epoch.cue_free) == (start, end, False), key
+    # A wider margin moves the cue-free window later.
+    epoch = task_epoch(get_spec("BNCI2014_001"), SignalContract(cue_margin_s=0.5))
+    assert (epoch.start_s, epoch.end_s, epoch.cue_free) == (1.75, 3.75, True)
+
+
+def test_fixed_epochs_report_whether_they_clear_the_cue() -> None:
+    spec = get_spec("BNCI2014_001")
+
+    def fixed(start: float, end: float) -> tuple[bool, str]:
+        epoch = task_epoch(spec, SignalContract(window_s=end - start, epoch_s=(start, end)))
+        return epoch.cue_free, epoch.rule
+
+    assert fixed(0.5, 2.5) == (False, "fixed")  # the pre-D-030 window: arrow up until 1.25 s
+    assert fixed(1.5, 3.5) == (True, "fixed")
+    assert fixed(0.0, 0.5) == (False, "fixed")  # the cue-only control
+    assert fixed(-0.5, 0.0) == (True, "fixed")  # before the cue appears
+    with pytest.raises(NeurOSConfigError, match="runs past the task"):
+        fixed(2.5, 4.5)
+
+
+def test_task_epoch_boundaries() -> None:
+    with pytest.raises(NeurOSConfigError, match="no class cue"):
+        task_epoch(get_spec("EEGMAT"), SignalContract())
+    with pytest.raises(NeurOSConfigError, match="shorter than one window"):
+        task_epoch(make_spec(task_s=1.5, class_on_screen_s=1.0), SignalContract())
+    epoch = task_epoch(get_spec("BNCI2014_001"), SignalContract())
+    assert epoch.to_dict() == {"epoch_s": [1.5, 3.5], "epoch_rule": "after_cue", "cue_free": True}
+    assert epoch.describe().endswith("(cue-free)")
+    assert "NOT cue-free" in task_epoch(get_spec("PhysionetMI"), SignalContract()).describe()
+
+
+def test_class_on_screen_is_declared_and_bounded() -> None:
+    with pytest.raises(NeurOSConfigError, match="must declare class_on_screen_s"):
+        make_spec(class_on_screen_s=None)
+    for bad in (-0.1, 4.5, float("nan")):  # task_s is 4.0
+        with pytest.raises(NeurOSConfigError, match="class_on_screen_s must be within"):
+            make_spec(class_on_screen_s=bad)
+    make_spec(paradigm="mental_arithmetic", class_on_screen_s=None)  # no class cue: fine
 
 
 @pytest.mark.parametrize("key", [k for k, s in DATASETS.items() if s.moabb_class is not None])

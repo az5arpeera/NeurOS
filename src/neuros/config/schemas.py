@@ -41,10 +41,18 @@ class SignalContract(BaseModel):
     notch_q: float = Field(default=30.0, gt=0)
     window_s: float = Field(default=2.0, gt=0)
     hop_s: float = Field(default=0.125, gt=0)
-    # Offline motor-imagery epoch relative to the cue: skips the visual response to the cue's
-    # onset. Not the whole cue: BNCI2014-001's arrow stays on screen until 1.25 s, and
-    # zero-calibration models decode it (E0 diagnostics, 4 Oct; proposal Q25).
-    epoch_s: tuple[float, float] = (0.5, 2.5)
+    # Offline motor-imagery epoch, in seconds from the cue's onset (D-030).
+    # - None (the contract): one window per dataset that starts `cue_margin_s` after anything
+    #   class-related has left the screen (the registry's `class_on_screen_s`). Where the class
+    #   stays on screen for the whole task, the latest window in the task is used and the
+    #   result is flagged as not cue-free (`neuros.data.registry.task_epoch`).
+    # - A fixed (start, end): diagnostics, e.g. the cue-only control (0.0, 0.5).
+    # Why: zero-calibration models learn the cue before the imagery. On BNCI2014-001 the
+    # pre-D-030 window (0.5, 2.5) scored 75.0%, but 60.6% once the arrow had gone (E0, 4 Oct).
+    epoch_s: tuple[float, float] | None = None
+    # Seconds between the class leaving the screen and the first usable sample: the brain's
+    # response to a disappearing stimulus lasts a few hundred milliseconds.
+    cue_margin_s: float = Field(default=0.25, ge=0, le=2.0)
     reference: Literal["car", "as_recorded"] = "car"
 
     @model_validator(mode="after")
@@ -65,12 +73,15 @@ class SignalContract(BaseModel):
                 raise ValueError(
                     f"{name}={seconds} s is not a whole number of samples at {self.sfreq} Hz"
                 )
-        start, end = self.epoch_s
-        if not start < end:
-            raise ValueError(f"epoch {self.epoch_s} must have start < end")
-        if not math.isclose(end - start, self.window_s):
-            # One offline epoch must be exactly one model window, or train and serve differ.
-            raise ValueError(f"epoch length {end - start} s must equal window_s {self.window_s} s")
+        if self.epoch_s is not None:
+            start, end = self.epoch_s
+            if not start < end:
+                raise ValueError(f"epoch {self.epoch_s} must have start < end")
+            if not math.isclose(end - start, self.window_s):
+                # One offline epoch must be exactly one model window, or train and serve differ.
+                raise ValueError(
+                    f"epoch length {end - start} s must equal window_s {self.window_s} s"
+                )
         return self
 
     @property

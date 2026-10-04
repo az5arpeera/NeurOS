@@ -92,7 +92,7 @@ def test_preprocessed_recording_follows_the_contract(
 
 def test_motor_imagery_signal_survives_preprocessing(offline: Recording) -> None:
     # Left-hand imagery suppresses mu over C4, right-hand over C3 (synthetic ERD).
-    windows, _ = extract_epochs(offline, CONTRACT)
+    windows, _ = extract_epochs(offline, CONTRACT, epoch_s=(0.5, 2.5))
     labels = np.array(windows.labels)
 
     def mu_power(label: str, channel: str) -> float:

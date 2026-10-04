@@ -4,6 +4,26 @@ Newest first. Format: **ID · date · decision** — why · who. Superseded deci
 
 ## Decided
 
+- **D-030 · 2026-10-04 · Cue-controlled evaluation windows (Q25).** Every motor-imagery result reports a window that starts after the cue has left the screen, next to a cue-only control ([cue, cue + 0.5 s]). Training uses the same windows. Datasets whose cue stays up report the control and carry a flag. Why: E0's 75.0% came largely from the on-screen arrow. After the arrow had gone, zero-calibration EEGNet scored 60.6% against 72.2% for a calibrated model ([E0 results](../results/2026-10-03-e0-eegnet-bnci2014-001.md)). Amends §4.2's offline epoch (🔒). · Founder (adopted the Q25 recommendation)
+  - **Implementation** (Claude; founder may veto):
+    - **The offline epoch is per dataset.** It starts `cue_margin_s` = 0.25 s after the class has left the screen.
+      - Each registry entry declares `class_on_screen_s`: how long the screen shows anything that depends on the class (the cue, or feedback driven by a classifier).
+      - Where the class stays up for the whole task, the window is the *latest* one in the task (furthest from the cue's onset, whose response is the strongest and most alike across people), flagged "not cue-free".
+    - **Every result file records** the epoch, the rule and the flag; `neuros datasets` shows each dataset's window.
+    - **Declared values** (MOABB 1.7.2's paradigm descriptions, 4 Oct; the whole task where unclear):
+      - BNCI2014-001: arrow for 1.25 s, no feedback → **[1.5, 3.5] s, cue-free**;
+      - PhysionetMI: a left/right target until the task ends;
+      - Lee2019: the arrow for the whole task, plus moving feedback in the online runs;
+      - Dreyer2023: the arrow, then a classifier-driven feedback bar;
+      - Stieger2021: cursor control toward on-screen targets;
+      - Cho2017: an instruction of unstated duration (unverified);
+      - BNCI2014-004: cue and smiley feedback in sessions 3–5 (unverified; its screening sessions 1–2 would allow a cue-free window).
+    - **Consequence: none of the five core datasets has a cue-free window.** Their results always carry the cue-only control. Cue-free evidence comes only from BNCI2014-001 (and BNCI2014-004's screening sessions), and from live tests without a visual class cue.
+    - `configs/e0.yaml` is pinned to its 3 Oct window, [0.5, 2.5], so it still reproduces that result.
+    - Result file names now always carry their window (`_aftercue` or `_window…`), so files from before D-030 are never overwritten.
+    - Diagnostics still fix windows explicitly (`--window`, or `signal.epoch_s` in an experiment).
+    - Not automated yet: running the cue-only control next to each experiment. It comes with the E1 runner.
+  - The headline target (§8.6, X ≈ 75%) is revisited after E1, through this log.
 - **D-029 · 2026-10-03 · Deep-model and training details, fixed in code (Day 3).** These fill in what architecture §6.1, §6.4 and E0 left open:
   - **Encoder:** EEGNet exactly as published (Lawhern 2018).
     - Keras's batch-norm settings (running statistics move 1% per step, ε = 1e-3), Glorot initialisation, no convolution biases.
@@ -21,7 +41,7 @@ Newest first. Format: **ID · date · decision** — why · who. Superseded deci
     - It's the paper's protocol, and the offline twin of the online engine, which starts a new reference every time the headset goes on.
     - Measured on BNCI2014-001 with the Riemannian baselines: per session and per person differ by **< 1 point**, so the Day-2 numbers stand.
     - Amends §5's "per person" (🔒).
-  - **E0 has a second config with the paper's 4-s window** (cue + 0–4 s), besides our 2-s contract window (cue + 0.5–2.5 s), so a shortfall could be traced to the window (a protocol choice) or to a bug. The 2-s run passed the pipeline check (75.0%). The 4-s run (4 Oct) gave 83.7%, largely by decoding the on-screen cue. A window after the arrow has gone gives 60.6%, so the 75.0% isn't a motor-imagery number either: see the E0 results log and Q25.
+  - **E0 has a second config with the paper's 4-s window** (cue + 0–4 s), besides our 2-s contract window (cue + 0.5–2.5 s), so a shortfall could be traced to the window (a protocol choice) or to a bug. The 2-s run passed the pipeline check (75.0%). The 4-s run (4 Oct) gave 83.7%, largely by decoding the on-screen cue. A window after the arrow has gone gives 60.6%, so the 75.0% isn't a motor-imagery number either: see the E0 results log and D-030.
   - **Tooling:**
     - CI installs PyTorch's CPU build on Linux: 196 MB instead of 3.3 GB of CUDA wheels.
     - Folds train in parallel processes: 9 × 2 threads is ≈ 2× faster than 1 × 16 on the laptop.
@@ -66,5 +86,4 @@ Newest first. Format: **ID · date · decision** — why · who. Superseded deci
 ## Pending (see [open questions](../open-questions.md))
 - P-6b: cluster GPU/storage. Founder is working on it. (Q6b)
 - P-22: role split. Founder (3 Oct): "TBD on specific roles". Proposal in the [plan](../plan/road-to-nov-1.md). (Q22)
-- P-25: cue-controlled evaluation windows (would be D-030). Proposed 4 Oct after the E0 cue diagnostics. (Q25)
-- Resolved on 3 Oct: P-21 and P-8 → D-022; P-1 → D-023; P-4 → D-024; P-5 → D-025.
+- Resolved on 3 Oct: P-21 and P-8 → D-022; P-1 → D-023; P-4 → D-024; P-5 → D-025. On 4 Oct: P-25 → D-030.

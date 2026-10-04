@@ -46,7 +46,7 @@ from scipy.signal import butter, detrend, sosfiltfilt
 
 from neuros.config.schemas import SignalContract, ValidationThresholds
 from neuros.data.recording import Recording
-from neuros.data.registry import DatasetSpec
+from neuros.data.registry import DatasetSpec, task_epoch
 from neuros.data.vocabulary import Vocabulary
 from neuros.errors import DataContext, NeurOSDataError
 
@@ -214,7 +214,7 @@ def validate_recording(
         report.add("unknown_label", "error", f"labels not in the vocabulary: {unknown_labels}")
     if spec.paradigm == "motor_imagery" and len(recording.events) == 0:
         report.add("no_events", "error", "motor-imagery recording without task events")
-    _epoch_checks(recording, contract, report)
+    _epoch_checks(recording, spec, contract, report)
     return report
 
 
@@ -315,12 +315,19 @@ def _window_checks(
         )
 
 
-def _epoch_checks(recording: Recording, contract: SignalContract, report: ValidationReport) -> None:
-    """Count events whose offline epoch [cue + start, cue + end] runs past the recording."""
-    if not len(recording.events):
+def _epoch_checks(
+    recording: Recording, spec: DatasetSpec, contract: SignalContract, report: ValidationReport
+) -> None:
+    """Count events whose offline epoch [cue + start, cue + end] runs past the recording.
+
+    The epoch is the dataset's own (D-030, ``task_epoch``); paradigms without class cues
+    (EEGMAT) have none to check.
+    """
+    if not len(recording.events) or spec.class_on_screen_s is None:
         return
-    start = round(contract.epoch_s[0] * recording.sfreq)
-    end = round(contract.epoch_s[1] * recording.sfreq)
+    epoch = task_epoch(spec, contract)
+    start = round(epoch.start_s * recording.sfreq)
+    end = round(epoch.end_s * recording.sfreq)
     onsets = recording.events.onsets
     outside = int(np.sum((onsets + start < 0) | (onsets + end > recording.n_samples)))
     report.events_epoch_outside = outside
@@ -328,6 +335,6 @@ def _epoch_checks(recording: Recording, contract: SignalContract, report: Valida
         report.add(
             "epoch_outside",
             "flag",
-            f"{outside}/{len(onsets)} events: offline epoch {contract.epoch_s} s "
-            "runs past the recording",
+            f"{outside}/{len(onsets)} events: offline epoch [{epoch.start_s:g}, "
+            f"{epoch.end_s:g}] s runs past the recording",
         )

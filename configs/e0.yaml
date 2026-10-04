@@ -3,10 +3,15 @@
 #   leave-one-subject-out over 9 people (Sagayaraju 2026; knowledge-base/research/papers/
 #   2026-sagayaraju-ea-swa-calibration-bottleneck.md). Go / no-go: within ±3 points.
 #
-# This file runs OUR signal contract: 2-s windows at [cue + 0.5 s, cue + 2.5 s], 4-30 Hz causal
-# filters, 128 Hz. The paper most likely used MOABB's 4-s window [cue, cue + 4 s];
-# e0_window4s.yaml repeats this run with it, so a shortfall can be traced to the window
-# (protocol) or to a bug (pipeline).
+# This file runs our signal contract as it was on 3 Oct: 2-s windows at [cue + 0.5 s,
+# cue + 2.5 s], 4-30 Hz causal filters, 128 Hz. The paper most likely used MOABB's 4-s window
+# [cue, cue + 4 s]; e0_window4s.yaml repeats this run with it, so a shortfall can be traced to
+# the window (protocol) or to a bug (pipeline).
+#
+# 4 Oct: the contract now places windows after the cue has left the screen (D-030), which on
+# BNCI2014-001 is [cue + 1.5 s, cue + 3.5 s] = e0_post_cue.yaml. The window below is pinned so
+# this file keeps reproducing the 3 Oct result (75.0%, not a motor-imagery number: see the E0
+# results log).
 #
 # Regenerate: uv run neuros --config configs/data.yaml loso --experiment configs/e0.yaml
 name: e0
@@ -21,6 +26,9 @@ alignments: [none, ea]   # architecture §8.4 rows 3 (EEGNet) and 4 (EEGNet + EA
 alignment_unit: session  # one EA reference per recording session, as in the paper
 seeds: [20261005]
 validation_people: 0     # like the paper: train on all 8 other people, no early stopping
+
+signal:                  # pinned on 4 Oct (D-030 changed the contract's default; see above)
+  epoch_s: [0.5, 2.5]
 
 model:                   # architecture §6.1
   f1: 16

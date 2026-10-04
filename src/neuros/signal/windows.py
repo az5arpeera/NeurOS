@@ -2,8 +2,8 @@
 
 A window is ``[channels, 256]`` samples (2.0 s at 128 Hz) of the preprocessed signal:
 
-- **Offline task epochs** start at ``cue + 0.5 s`` (skipping the visual response to the cue's
-  onset, though not a cue that stays on screen) and end at ``cue + 2.5 s``: ``extract_epochs``.
+- **Offline task epochs**: one window per task event, placed per dataset after the class has
+  left the screen (D-030, ``neuros.data.registry.task_epoch``): ``extract_epochs``.
 - **Online**, the engine decides every hop (0.125 s = 16 samples) on the latest 256 samples:
   ``WindowStream``. ``sliding_windows`` is the offline equivalent; tests assert both yield the
   same windows from the same signal.
@@ -314,27 +314,43 @@ def extract_epochs(
     thresholds: ValidationThresholds | None = None,
     *,
     labels: Collection[str] | None = None,
+    epoch_s: tuple[float, float] | None = None,
 ) -> tuple[WindowSet, int]:
     """Cut one window per task event at ``[cue + epoch_s[0], cue + epoch_s[1]]``.
 
     Args:
         recording: a *preprocessed* recording (contract rate; events at the cue).
-        contract: the signal contract (epoch timing, window length).
+        contract: the signal contract (window length; the epoch, if it fixes one).
         thresholds: ``ptp_flag_uv`` for the extreme-amplitude flag.
         labels: keep only events with these labels (default: all).
+        epoch_s: the epoch in seconds from the cue, normally ``task_epoch(spec, contract)``.
+            Defaults to the contract's fixed epoch. The contract's own rule (D-030) depends on
+            the dataset, which a recording alone doesn't carry, so it must be resolved first.
 
     Returns:
         ``(windows, skipped)``: ``skipped`` counts selected events whose epoch runs outside
         the recording. They're reported by the caller, never silently lost.
 
     Raises:
+        NeurOSConfigError: if no epoch is given and the contract doesn't fix one, or the epoch
+            isn't exactly one window long.
         NeurOSDataError: if the recording isn't at the contract rate.
     """
     contract = contract or SignalContract()
     thresholds = thresholds or ValidationThresholds()
     _require_contract_rate(recording, contract)
+    epoch = epoch_s if epoch_s is not None else contract.epoch_s
+    if epoch is None:
+        raise NeurOSConfigError(
+            "the contract places epochs after the cue per dataset (D-030): pass epoch_s from "
+            "neuros.data.registry.task_epoch(spec, contract)"
+        )
+    if not math.isclose(epoch[1] - epoch[0], contract.window_s):
+        raise NeurOSConfigError(
+            f"epoch {list(epoch)} s is not one {contract.window_s:g}-s window long"
+        )
     window = contract.window_samples
-    offset = round(contract.epoch_s[0] * recording.sfreq)
+    offset = round(epoch[0] * recording.sfreq)
     wanted = None if labels is None else set(labels)
 
     starts: list[int] = []

@@ -64,6 +64,7 @@ def make_spec(**overrides: object) -> DatasetSpec:
         "native_sfreq": 250.0,
         "cue_offset_s": 0.0,
         "task_s": 4.0,
+        "class_on_screen_s": 1.25,  # like BNCI2014-001: after-cue window [1.5, 3.5] (D-030)
         "pre_cue_fixation_s": 2.0,
         "rest_source": "pre_cue",
         "licence": "test",

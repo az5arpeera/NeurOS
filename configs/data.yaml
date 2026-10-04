@@ -13,7 +13,12 @@ signal:
   notch_q: 30.0
   window_s: 2.0
   hop_s: 0.125
-  epoch_s: [0.5, 2.5]
+  # Offline task epochs (D-030, 4 Oct): null = per dataset, starting cue_margin_s after the
+  # class has left the screen (registry: class_on_screen_s); the latest window in the task, and
+  # flagged "not cue-free", where the class stays up. Experiments may fix a window instead
+  # (diagnostics, the cue-only control [0, 0.5]). Before D-030 this was [0.5, 2.5].
+  epoch_s: null
+  cue_margin_s: 0.25
   reference: car
 
 validation:
