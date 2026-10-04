@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from neuros.cli import main
+from neuros.cli import _baseline_output_name, build_parser, main
 from neuros.config.schemas import SignalContract
 from neuros.provenance import config_hash, file_sha256, stamp
 
@@ -56,6 +56,29 @@ def test_cli_baseline_refuses_locked_test_people(capsys: pytest.CaptureFixture[s
     args = ["baseline", "--dataset", "PhysionetMI", "--subjects", "4", "--split", str(split)]
     assert main(args) == 2
     assert "locked test people" in capsys.readouterr().err
+
+
+def test_cli_baseline_rejects_bad_windows(capsys: pytest.CaptureFixture[str]) -> None:
+    # Checked before any data loads: end before start, shorter than one hop, not finite.
+    for window in (["2.5", "0.5"], ["0.5", "0.51"], ["0.5", "inf"], ["nan", "1.0"]):
+        assert main(["baseline", "--dataset", "BNCI2014_001", "--window", *window]) == 2, window
+        assert "invalid signal overrides" in capsys.readouterr().err
+
+
+def test_baseline_output_names_never_clobber() -> None:
+    def name(*extra: str) -> str:
+        args = build_parser().parse_args(["baseline", "--dataset", "BNCI2014_001", *extra])
+        return _baseline_output_name("BNCI2014_001", args)
+
+    stem = "BNCI2014_001_left_hand-right_hand_all_as_recorded"
+    # The Day-2 and E0 files keep their names, so those results regenerate in place.
+    assert name() == f"{stem}.json"
+    assert name("--alignment-unit", "session") == f"{stem}_session.json"
+    assert (
+        name("--alignment-unit", "session", "--window", "1.5", "3.5")
+        == f"{stem}_session_window1.5-3.5s.json"
+    )
+    assert name("--subjects", "1", "2") == f"{stem}_subj1-2.json"
 
 
 def test_cli_loso_refuses_locked_test_people(

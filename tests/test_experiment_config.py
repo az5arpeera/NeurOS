@@ -100,6 +100,8 @@ def test_signal_overrides_are_validated_as_a_whole() -> None:
         apply_signal_overrides(base, {"window_s": 4.0})  # epoch still 2 s long
     with pytest.raises(NeurOSConfigError):
         apply_signal_overrides(base, {"bandwidth": 3})
+    with pytest.raises(NeurOSConfigError):  # a clean error, not an OverflowError
+        apply_signal_overrides(base, {"window_s": float("inf"), "epoch_s": [0.5, float("inf")]})
     changed = apply_signal_overrides(base, {"band_hz": [8.0, 30.0]})
     assert changed.band_hz == (8.0, 30.0)
     assert changed.window_s == base.window_s

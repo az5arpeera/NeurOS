@@ -354,12 +354,52 @@ def _dev_windows(
     return windows, summaries, subjects
 
 
+def _window_overrides(window: Sequence[float]) -> dict[str, object]:
+    """Signal overrides that move the offline epoch to ``[start, end]`` s from the cue.
+
+    The window length follows the epoch, so one epoch stays exactly one model window. The
+    caller validates the result as a whole contract (``apply_signal_overrides``): start < end,
+    finite values, a whole number of samples, and so on.
+
+    Raises:
+        NeurOSConfigError: if ``window`` isn't exactly two numbers.
+    """
+    from neuros.errors import NeurOSConfigError
+
+    if len(window) != 2:
+        raise NeurOSConfigError(f"--window takes START END in seconds, got {list(window)}")
+    start, end = (float(x) for x in window)
+    # Rounded so 3.5 - 1.5 can't come out as 1.9999999999999998 and miss a whole sample.
+    return {"epoch_s": [start, end], "window_s": round(end - start, 9)}
+
+
+def _baseline_output_name(spec_key: str, args: argparse.Namespace) -> str:
+    """Result file name: names every setting that changes the numbers, so runs never clobber."""
+    name = f"{spec_key}_{'-'.join(args.labels)}_{args.channels}_{args.reference}"
+    # Per-person files keep their Day-2 names, so those results regenerate in place.
+    if args.alignment_unit == "session":
+        name += "_session"
+    if args.window is not None:
+        start, end = args.window
+        name += f"_window{start:g}-{end:g}s"
+    if args.subjects:
+        name += "_subj" + "-".join(str(s) for s in args.subjects)
+    return name + ".json"
+
+
 def cmd_baseline(args: argparse.Namespace) -> int:
+    from neuros.config.experiment import apply_signal_overrides
     from neuros.data.registry import get_spec
     from neuros.eval.baselines import run_riemannian_baselines
     from neuros.provenance import stamp
 
     config = _config(args)
+    if args.window is not None:
+        # A diagnostic window (e.g. one that starts after the on-screen cue has gone), applied
+        # before the stamp so the recorded config hash describes the windows actually used.
+        config = config.model_copy(
+            update={"signal": apply_signal_overrides(config.signal, _window_overrides(args.window))}
+        )
     spec_key = get_spec(args.dataset).key
     provenance = stamp(config, dataset=spec_key)  # at the start: the code that runs
     windows, summaries, subjects = _dev_windows(
@@ -367,7 +407,8 @@ def cmd_baseline(args: argparse.Namespace) -> int:
     )
     print(
         f"\n{len(windows)} windows, {len(windows.people)} people, {len(windows.ch_names)} "
-        f"channels ({args.channels}), reference {args.reference}, alignment per "
+        f"channels ({args.channels}), {windows.n_samples} samples per window (epoch "
+        f"{list(config.signal.epoch_s)} s), reference {args.reference}, alignment per "
         f"{args.alignment_unit}\n"
     )
     result = run_riemannian_baselines(
@@ -401,16 +442,7 @@ def cmd_baseline(args: argparse.Namespace) -> int:
             f"points, Wilcoxon p = {comparison['p_value']:.3g} (n = {comparison['n_people']})"
         )
 
-    out = (
-        config.results_dir
-        / "baselines"
-        / (
-            f"{spec_key}_{'-'.join(args.labels)}_{args.channels}_{args.reference}"
-            # Per-person files keep their Day-2 names, so those results regenerate in place.
-            + ("_session" if args.alignment_unit == "session" else "")
-            + ".json"
-        )
-    )
+    out = config.results_dir / "baselines" / _baseline_output_name(spec_key, args)
     out.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "provenance": _finished(provenance),
@@ -422,6 +454,7 @@ def cmd_baseline(args: argparse.Namespace) -> int:
             "reference": args.reference,
             "alignment_unit": args.alignment_unit,
             "epoch_s": list(config.signal.epoch_s),
+            "window_s": config.signal.window_s,
             "sfreq": config.signal.sfreq,
             "subjects": subjects,
             "split_file": str(args.split),
@@ -657,6 +690,15 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["person", "session"],
         default="person",
         help="one EA/RA reference per person (the Day-2 default) or per recording session (E0)",
+    )
+    p.add_argument(
+        "--window",
+        type=float,
+        nargs=2,
+        metavar=("START", "END"),
+        default=None,
+        help="epoch [START, END] s from the cue instead of the contract's (a diagnostic, "
+        "e.g. 1.5 3.5 to start after BNCI2014-001's arrow has gone)",
     )
     p.add_argument("--split", default=str(DEFAULT_SPLIT_PATH), help="locked test set file")
     p.set_defaults(func=cmd_baseline)

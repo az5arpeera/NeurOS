@@ -21,7 +21,9 @@ from neuros.errors import NeurOSConfigError
 class SignalContract(BaseModel):
     """What every window looks like after preprocessing (architecture §4.2)."""
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    # No inf/NaN: an infinite window would otherwise crash the sample check below with an
+    # OverflowError instead of a clean validation error.
+    model_config = ConfigDict(frozen=True, extra="forbid", allow_inf_nan=False)
 
     units: Literal["uV"] = "uV"
     sfreq: float = Field(default=128.0, gt=0)
