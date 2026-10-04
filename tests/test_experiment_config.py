@@ -120,3 +120,14 @@ def test_loader_errors(tmp_path: Path) -> None:
     invalid.write_text("name: x\ndataset: BNCI2014_001\nseeds: []\n", encoding="utf-8")
     with pytest.raises(NeurOSConfigError, match="invalid experiment config"):
         load_experiment_config(invalid)
+
+
+@pytest.mark.parametrize(
+    "path", sorted((REPO_ROOT / "configs").glob("e*.yaml")), ids=lambda p: p.name
+)
+def test_every_committed_experiment_is_valid(path: Path) -> None:
+    experiment = load_experiment_config(path)
+    contract = apply_signal_overrides(SignalContract(), experiment.signal)
+    pooled = experiment.model.pool1 * experiment.model.pool2
+    assert contract.window_samples >= pooled  # EEGNet's pools need this many samples
+    assert experiment.name == path.stem  # results land in results/<name>/

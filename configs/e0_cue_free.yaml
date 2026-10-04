@@ -1,0 +1,44 @@
+# E0 diagnostic 2 of 2: do long windows help without the cue?
+# Window [cue + 0.5 s, cue + 4.0 s] (3.5 s): everything the 4-s window has except the first
+# half-second after the arrow appears. If it keeps most of the 4-s window's gain over our 2-s
+# window, the gain is window length (more motor-imagery signal); if it falls back toward the
+# 2-s result, the gain came from the cue. Context: the E0 results log (4 Oct).
+#
+# Regenerate: uv run neuros --config configs/data.yaml loso --experiment configs/e0_cue_free.yaml
+name: e0_cue_free
+description: >
+  Diagnostic: EEGNet + EA on [cue + 0.5 s, cue + 4.0 s] (3.5 s, 448 samples).
+dataset: BNCI2014_001
+labels: [left_hand, right_hand]
+channels: all
+reference: as_recorded
+alignments: [ea]
+alignment_unit: session
+seeds: [20261005]
+validation_people: 0
+
+signal:                  # overrides of configs/data.yaml for this experiment only
+  window_s: 3.5
+  epoch_s: [0.5, 4.0]
+
+model:
+  f1: 16
+  depth: 2
+  f2: 32
+  kernel_samples: 64
+  dropout: 0.5
+  embedding_dim: 64
+  spatial_max_norm: 1.0
+  head_max_norm: 0.25
+
+train:
+  max_epochs: 300
+  lr: 0.001
+  min_lr: 0.0
+  weight_decay: 0.05
+  label_smoothing: 0.0
+  swa_fraction: 0.25
+  patience: null
+  people_per_batch: 8
+  windows_per_person: 8
+  log_every: 50

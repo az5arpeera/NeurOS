@@ -1,0 +1,45 @@
+# E0 diagnostic 1 of 2: is the on-screen cue itself decodable?
+# Window [cue, cue + 0.5 s]: the first half-second after the left/right arrow appears. Motor
+# imagery takes ~0.5-1 s to change the EEG, so accuracy well above chance here means the cue
+# (the visual response to the arrow, glances toward it) is decodable. Windows that include it
+# would then overstate what works live, where there is no arrow. Context: the E0 results log,
+# "The paper's 4-s window" (4 Oct).
+#
+# Regenerate: uv run neuros --config configs/data.yaml loso --experiment configs/e0_cue_only.yaml
+name: e0_cue_only
+description: >
+  Diagnostic: EEGNet + EA on the first half-second after the cue only (64 samples).
+dataset: BNCI2014_001
+labels: [left_hand, right_hand]
+channels: all
+reference: as_recorded
+alignments: [ea]
+alignment_unit: session
+seeds: [20261005]
+validation_people: 0
+
+signal:                  # overrides of configs/data.yaml for this experiment only
+  window_s: 0.5
+  epoch_s: [0.0, 0.5]
+
+model:
+  f1: 16
+  depth: 2
+  f2: 32
+  kernel_samples: 64
+  dropout: 0.5
+  embedding_dim: 64
+  spatial_max_norm: 1.0
+  head_max_norm: 0.25
+
+train:
+  max_epochs: 300
+  lr: 0.001
+  min_lr: 0.0
+  weight_decay: 0.05
+  label_smoothing: 0.0
+  swa_fraction: 0.25
+  patience: null
+  people_per_batch: 8
+  windows_per_person: 8
+  log_every: 50
