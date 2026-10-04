@@ -100,7 +100,7 @@ def test_file_sha256(tmp_path: Path) -> None:
 
 def test_stamp_has_reproducibility_fields() -> None:
     block = stamp(SignalContract(), seed="7")
-    assert {"created_utc", "git_sha", "git_dirty", "versions", "config_sha256", "seed"} <= set(
-        block
-    )
+    expected = {"created_utc", "git_sha", "git_dirty", "git_dirty_code", "versions"}
+    assert expected | {"config_sha256", "seed"} <= set(block)
+    assert block["git_dirty_code"] in {"true", "false", "unknown"}
     assert block["versions"]["numpy"] != "absent"

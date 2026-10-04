@@ -29,7 +29,7 @@ import sys
 import warnings
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from neuros import __version__
 from neuros.config.schemas import DataConfig, load_data_config
@@ -61,6 +61,13 @@ def _table(rows: list[list[str]], header: list[str]) -> str:
 
 def _subjects(args: argparse.Namespace, all_subjects: Sequence[int]) -> list[int]:
     return list(args.subjects) if args.subjects else list(all_subjects)
+
+
+def _finished(provenance: dict[str, Any]) -> dict[str, Any]:
+    """A start-of-run provenance block plus the time the result was written."""
+    import datetime as dt
+
+    return {**provenance, "finished_utc": dt.datetime.now(dt.UTC).isoformat(timespec="seconds")}
 
 
 # ---------------------------------------------------------------------- commands
@@ -172,6 +179,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
 
     config = _config(args)
     spec = get_spec(args.dataset)
+    provenance = stamp(config, dataset=spec.key)  # at the start: the code that runs
     vocab = default_vocabulary()
     prepare_mne_environment(config.data_dir)
     dataset = moabb_dataset(spec)
@@ -217,9 +225,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
     out = config.results_dir / "validation" / f"{spec.key}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(
-        json.dumps(
-            {"provenance": stamp(config, dataset=spec.key), "recordings": results}, indent=1
-        ),
+        json.dumps({"provenance": _finished(provenance), "recordings": results}, indent=1),
         encoding="utf-8",
         newline="\n",
     )
@@ -355,6 +361,7 @@ def cmd_baseline(args: argparse.Namespace) -> int:
 
     config = _config(args)
     spec_key = get_spec(args.dataset).key
+    provenance = stamp(config, dataset=spec_key)  # at the start: the code that runs
     windows, summaries, subjects = _dev_windows(
         config, spec_key, args.subjects, args.labels, args.channels, args.split, "a baseline run"
     )
@@ -406,7 +413,7 @@ def cmd_baseline(args: argparse.Namespace) -> int:
     )
     out.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        "provenance": stamp(config, dataset=spec_key),
+        "provenance": _finished(provenance),
         "protocol": {
             "dataset": spec_key,
             "labels": list(args.labels),
@@ -494,6 +501,17 @@ def cmd_loso(args: argparse.Namespace) -> int:
         update={"signal": apply_signal_overrides(config.signal, experiment.signal)}
     )
     spec_key = get_spec(experiment.dataset).key
+    # Provenance at the start: worker processes import the code on disk when they start, so
+    # the checkout must not change during a run, and the stamp must describe it as it was.
+    provenance = stamp(
+        config,
+        dataset=spec_key,
+        experiment_file=str(args.experiment),
+        experiment_sha256=config_hash(experiment),
+        threads_per_worker=str(args.threads),
+    )
+    if provenance["git_dirty_code"] == "true":
+        print("warning: uncommitted code changes; this result won't be reproducible from git")
     windows, summaries, subjects = _dev_windows(
         config,
         spec_key,
@@ -558,14 +576,7 @@ def cmd_loso(args: argparse.Namespace) -> int:
     )
     out.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        "provenance": stamp(
-            config,
-            dataset=spec_key,
-            experiment_file=str(args.experiment),
-            experiment_sha256=config_hash(experiment),
-            workers=str(workers),
-            threads_per_worker=str(args.threads),
-        ),
+        "provenance": {**_finished(provenance), "workers": str(workers)},
         "protocol": {
             "dataset": spec_key,
             "labels": list(experiment.labels),

@@ -56,6 +56,8 @@ g.tec's BCI designers' hackathon runs **online during IEEE SMC 2026, 4–5 Oct (
 ## Message drafts (founders adapt and send)
 Short, about their work, and no pitch, per the Mom Test. Personalise the first line every time.
 
+**Ready-to-adapt versions for the first 10 contacts:** [first-10-messages.md](first-10-messages.md) (one per contact, with the channel to use).
+
 **A, labs:**
 > Subject: 20 minutes on your EEG setup? (UVA students)
 >

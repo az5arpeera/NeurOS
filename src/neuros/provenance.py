@@ -24,29 +24,35 @@ _TRACKED_PACKAGES = ("numpy", "scipy", "mne", "moabb", "pyriemann", "torch")
 _HASH_CHUNK = 1 << 20  # 1 MiB
 
 
+# Paths whose uncommitted changes can change a number. Edits elsewhere (the knowledge base,
+# tests) leave ``git_dirty_code`` false, so a result is only marked irreproducible when it is.
+CODE_PATHS = ("src", "configs", "pyproject.toml", "uv.lock")
+
+
 def git_state(repo: Path | None = None) -> dict[str, str]:
-    """Return ``{"git_sha": ..., "git_dirty": "true"/"false"}`` or ``"unknown"`` values."""
+    """The checkout's state: ``git_sha``, ``git_dirty`` (any uncommitted change) and
+    ``git_dirty_code`` (uncommitted changes under ``CODE_PATHS``), as strings.
+
+    Values are ``"unknown"`` outside a git checkout (e.g. an installed package).
+    """
     cwd = str(repo) if repo else None
-    try:
-        sha = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=10,
-        ).stdout.strip()
-        status = subprocess.run(
-            ["git", "status", "--porcelain"],
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=10,
+
+    def git(*args: str) -> str:
+        return subprocess.run(
+            ["git", *args], cwd=cwd, capture_output=True, text=True, check=True, timeout=10
         ).stdout
+
+    try:
+        sha = git("rev-parse", "HEAD").strip()
+        status = git("status", "--porcelain")
+        code_status = git("status", "--porcelain", "--", *CODE_PATHS)
     except (OSError, subprocess.SubprocessError):
-        return {"git_sha": "unknown", "git_dirty": "unknown"}
-    return {"git_sha": sha, "git_dirty": "true" if status.strip() else "false"}
+        return {"git_sha": "unknown", "git_dirty": "unknown", "git_dirty_code": "unknown"}
+    return {
+        "git_sha": sha,
+        "git_dirty": "true" if status.strip() else "false",
+        "git_dirty_code": "true" if code_status.strip() else "false",
+    }
 
 
 def config_hash(config: BaseModel | Mapping[str, Any]) -> str:
@@ -68,7 +74,12 @@ def package_versions(packages: Iterable[str] = _TRACKED_PACKAGES) -> dict[str, s
 
 
 def stamp(config: BaseModel | Mapping[str, Any] | None = None, **extra: str) -> dict[str, Any]:
-    """A provenance block for a result file."""
+    """A provenance block for a result file.
+
+    Take it when a run **starts**, before any work: the git state then describes the code that
+    actually ran, even if the checkout changes while a long run is in progress (worker
+    processes import modules when they start). Add ``finished_utc`` when writing the result.
+    """
     block: dict[str, Any] = {
         "created_utc": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
         **git_state(),

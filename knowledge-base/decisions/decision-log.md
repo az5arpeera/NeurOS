@@ -4,6 +4,29 @@ Newest first. Format: **ID · date · decision** — why · who. Superseded deci
 
 ## Decided
 
+- **D-029 · 2026-10-03 · Deep-model and training details, fixed in code (Day 3).** These fill in what architecture §6.1, §6.4 and E0 left open:
+  - **Encoder:** EEGNet exactly as published (Lawhern 2018).
+    - Keras's batch-norm settings (running statistics move 1% per step, ε = 1e-3), Glorot initialisation, no convolution biases.
+    - Max-norm caps: 1 on each spatial filter, 0.25 on each class of the head.
+    - F1/D/F2 = 16/2/32 with a 64-sample temporal kernel (§6.1), then our 64-d embedding and the linear head.
+    - **20,002 parameters** for 22 channels × 2 s.
+  - **Training recipe:**
+    - batches of 8 people × 8 windows, class-balanced within each person;
+    - AdamW (lr 1e-3, weight decay 0.05); the learning rate follows a cosine down to 0.
+    - **SWA** = the plain average of the weights after each of the last 25% of the run's epochs.
+    - **Early stopping** (optional, validation people only): the run then ends at the best validation epoch, and SWA averages the last quarter before it.
+    - **Batch-norm statistics are always recomputed for the final weights** (one shuffled pass over the training windows). Averaged weights need their own statistics, and running statistics that move 1% per step lag the weights.
+  - **Input scale:** the inputs of each fold are divided by one number, the RMS of its training windows (training people only, principle 2).
+  - **EA reference: one per recording session** (it was one per person on Day 2).
+    - It's the paper's protocol, and the offline twin of the online engine, which starts a new reference every time the headset goes on.
+    - Measured on BNCI2014-001 with the Riemannian baselines: per session and per person differ by **< 1 point**, so the Day-2 numbers stand.
+    - Amends §5's "per person" (🔒).
+  - **E0 is run at two windows:** our 2-s contract window (cue + 0.5–2.5 s) and the paper's 4-s window (cue + 0–4 s). That way a shortfall can be traced to the window (a protocol choice) or to a bug.
+  - **Tooling:**
+    - CI installs PyTorch's CPU build on Linux: 196 MB instead of 3.3 GB of CUDA wheels.
+    - Folds train in parallel processes: 9 × 2 threads is ≈ 2× faster than 1 × 16 on the laptop.
+    - Every result records its thread count, because parallel sums can change the last bits.
+  - · Claude (implementation within the signed-off architecture; founder may veto)
 - **D-028 · 2026-10-03 · Signal-chain details, fixed in code (Day 2).** These fill in what architecture §4.2 and §5 left open, without changing the contract:
   - **Band-pass:** Butterworth **order 4 per edge** (8 poles). Measured at every native rate in scope (160–1000 Hz): ≈ 35 ms delay at 10 Hz, 99% settled within 0.22 s, ≥ 30 dB down at 64 Hz. Order 2 would halve the delay but leave only 15–29 dB at 64 Hz, and the band-pass is also the resampler's anti-alias filter.
   - **Notches:** 50 and 60 Hz, **Q = 30**.

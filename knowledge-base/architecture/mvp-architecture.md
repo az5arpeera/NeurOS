@@ -3,6 +3,7 @@
 **Status:** **signed off 2026-10-03 (D-022)** · builds on decisions D-001…D-026.
 - **Amended the same day:** D-024 (the command set is configurable; decoys and `HOLD("unrecognized")`), D-026 (which datasets feed the locked test set), and the Day-1 computation of C-core (26 channels, §4.3).
 - **Day 2 (D-028):** the filter order, notch Q, start-up behaviour and resampling method are fixed in code (§4.2), and the CAR/EA interaction is documented (§5). The contract itself is unchanged.
+- **Day 3 (D-029):** the encoder and training details are fixed in code (§6.1, §6.4), and offline EA now uses one reference per recording session (§5).
 - 🔒 sections change only through the decision log. Everything else can evolve as experiments report.
 
 This document *is* the "architectural guidelines, mathematical constraints, and data engineering patterns" that the founder's coding rule refers to: *"All generated code must be clean, heavily commented, production-grade, and include thorough error handling and data boundary checks."*
@@ -155,7 +156,7 @@ The training pool (D-011, D-012), each dataset's role and the download order are
 ## 5. 🔒 Alignment math (offline and online)
 For a window X ∈ ℝ^{|S|×T}, the covariance is C = XXᵀ / T.
 
-**Offline (training, per person):**
+**Offline (training, per person):** since D-029, one reference **per recording session** (the paper's protocol, and the offline twin of the online engine, which starts a new reference each session). Per person and per session differ by < 1 point on BNCI2014-001.
 ```
 R̄  = mean of C over the person's windows
 R̄  ← (1−γ)·R̄ + γ·(tr R̄ / |S|)·I                    γ = 1e-3 (shrinkage)
@@ -189,8 +190,10 @@ R_pop     stored in the model bundle for each headset profile (from training peo
   - Settings: F1 = 16, D = 2, F2 = 32, temporal kernel 64 samples (0.5 s), dropout 0.25–0.5.
   - Size: tens of thousands of parameters (< 1 MB). ShallowConvNet is the alternative (S4).
 - **Input:** [batch, 26 C-core channels, 256 samples], with zeros for missing channels.
+- **As built (D-029):** `neuros.models.eegnet`, EEGNet exactly as published: Keras batch-norm settings, Glorot initialisation, max-norm 1 on spatial filters and 0.25 on the head. **20,002 parameters** at 22 channels × 2 s.
 - **Batch-norm design:**
-  - Batches are **K people × M windows** (e.g. 8 × 32).
+  - Batches are **K people × M windows** (e.g. 8 × 32; E0 uses 8 × 8 = 64).
+  - So far (E0) standard batch norm; per-person statistics come with E3b.
   - BN statistics are computed **per person within the batch** (domain-specific BN). This matches what AdaBN does at test time.
   - Ablation E3b uses standard BN instead.
 
@@ -217,6 +220,11 @@ L = L_cls + λ·L_SupCon   [ + μ·L_DANN or μ·L_CORAL : side experiments S1/S
   - AdamW with a cosine schedule;
   - early stopping on **validation people** (never test people);
   - SWA over the last 25% of epochs.
+- **As built (D-029):** `neuros.train`.
+  - SWA averages the weights after each of the last 25% of the run's epochs. With early stopping, the run ends at the best validation epoch.
+  - Batch-norm statistics are always recomputed for the final weights.
+  - Inputs are divided by the RMS of the fold's training windows.
+  - Augmentations, the reference jitter (§5) and SupCon come with E1–E4.
 
 ### 6.5 Model bundle
 The bundle contains:
