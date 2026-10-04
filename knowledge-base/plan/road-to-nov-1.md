@@ -58,7 +58,7 @@ Claude Code pairs on all engineering. **Founders send all outreach;** Claude dra
 - **✅ E0 passes:** EEGNet + EA **75.0%** against the literature's 74.3% ± 3, on our own causal 2-s pipeline (9 people, one seed). See the [E0 results log](../results/2026-10-03-e0-eegnet-bnci2014-001.md).
   - EEGNet without alignment: 72.1%. EA adds 2.9 points (better for 8 of 9 people; p = 0.074).
   - **The deep model beats the best Riemannian baseline by 8.1 points** (p = 0.039, better for 7 of 9 people).
-  - The 4-s-window run is now optional: it was only needed if the 2-s run fell short.
+  - The paper's 4-s window (run 4 Oct, 00:40): 83.7%, but it starts when the arrow appears, and the gains sit in the hardest people. It probably partly decodes the cue itself, not motor imagery. Two diagnostic windows are proposed in the results log; this matters for every cued dataset (E0b).
 - **Fixed:** result files took their provenance stamp at the end of a run instead of the start. They now record the code that actually ran, plus a code-only "dirty" flag.
 - **Business:** [ready-to-adapt drafts for the first 10 outreach messages](../business/first-10-messages.md); the founders send them.
 - **Next:** cluster access (Q6b) before E1, which is too heavy for the laptop.

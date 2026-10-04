@@ -21,7 +21,7 @@ Newest first. Format: **ID · date · decision** — why · who. Superseded deci
     - It's the paper's protocol, and the offline twin of the online engine, which starts a new reference every time the headset goes on.
     - Measured on BNCI2014-001 with the Riemannian baselines: per session and per person differ by **< 1 point**, so the Day-2 numbers stand.
     - Amends §5's "per person" (🔒).
-  - **E0 has a second config with the paper's 4-s window** (cue + 0–4 s), besides our 2-s contract window (cue + 0.5–2.5 s), so a shortfall could be traced to the window (a protocol choice) or to a bug. The 2-s run passed (75.0%), so the 4-s run is optional.
+  - **E0 has a second config with the paper's 4-s window** (cue + 0–4 s), besides our 2-s contract window (cue + 0.5–2.5 s), so a shortfall could be traced to the window (a protocol choice) or to a bug. The 2-s run passed (75.0%). The 4-s run (4 Oct) gave 83.7%, probably partly by decoding the on-screen cue: see the E0 results log.
   - **Tooling:**
     - CI installs PyTorch's CPU build on Linux: 196 MB instead of 3.3 GB of CUDA wheels.
     - Folds train in parallel processes: 9 × 2 threads is ≈ 2× faster than 1 × 16 on the laptop.

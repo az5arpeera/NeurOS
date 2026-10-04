@@ -14,4 +14,4 @@ Every number we compute, with its protocol, in the order we computed it.
 | Date | Entry | What it shows |
 |---|---|---|
 | 3 Oct 2026 | [Riemannian baselines on BNCI2014-001](2026-10-03-bnci2014-001-riemannian-baselines.md) | The first table rows for E0. Cross-person left/right: **65–69%**. Alignment adds about 2 points to tangent space and about 11 points to MDM. Within-person sanity check: 73–77% |
-| 3 Oct 2026 | [E0: EEGNet on BNCI2014-001](2026-10-03-e0-eegnet-bnci2014-001.md) | **E0 passes:** EEGNet + EA **75.0%** vs the literature's 74.3% ± 3, with our causal 2-s pipeline. EEGNet beats the best Riemannian baseline by 8.1 points (p = 0.039). EA adds 2.9 points to EEGNet (p = 0.074) |
+| 3 Oct 2026 | [E0: EEGNet on BNCI2014-001](2026-10-03-e0-eegnet-bnci2014-001.md) | **E0 passes:** EEGNet + EA **75.0%** vs the literature's 74.3% ± 3, with our causal 2-s pipeline. EEGNet beats the best Riemannian baseline by 8.1 points (p = 0.039). EA adds 2.9 points to EEGNet (p = 0.074). The paper's 4-s window gives 83.7%, but it probably includes decoding the on-screen cue: two diagnostic runs proposed |
