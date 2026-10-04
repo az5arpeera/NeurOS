@@ -22,8 +22,12 @@ Scalp regions (``neuros.data.montage.SCALP_REGIONS``): ``eyes``, ``motor``, ``pa
 the dataset's montage is skipped, and the skip is reported.
 
 Reading the findings (``audit_findings``):
-- **leak**: the pre-cue window decodes above chance (its 95% CI over people excludes 50%) in any
-  region. Stop: labels or event timing are wrong.
+- **leak**: the pre-cue window decodes above chance (its 95% CI over people excludes 50%) by at
+  least ``LEAK_MARGIN``, in any region. Stop: labels or event timing are wrong.
+- **warn**: a pre-cue effect whose CI excludes chance but which is smaller than ``LEAK_MARGIN``.
+  With hundreds of trials per person, a 1–2-point effect passes the CI test from chance across
+  the ~10 pre-cue cells, or from slow drifts; a timing or label bug shows up at the size of the
+  task effect instead. Check timing and trial order when the dataset is used.
 - **cue-dominated**: in the task window, the eyes or the visual cortex decode the class within
   ``NON_MOTOR_MARGIN`` of the motor strip, or better. Down-weight the dataset for training and
   never quote it without its controls.
@@ -65,6 +69,10 @@ MIN_REGION_CHANNELS = 2
 # How close (in balanced accuracy) a non-motor region may come to the motor strip on the task
 # window before the dataset counts as cue-dominated. Two points is about one seed's noise in E0.
 NON_MOTOR_MARGIN = 0.02
+# How far above chance a pre-cue effect must be to count as a leak (see "warn" above). Set after
+# BNCI2014-004 (4 Oct): pre-cue 51.4%, CI [50.7, 52.2], 720 trials per person, no trial-order
+# structure (classes switch on 50.5% of consecutive trials); its cue-onset window was at 50.6%.
+LEAK_MARGIN = 0.03
 CHANCE = 0.5
 
 
@@ -218,7 +226,7 @@ def run_audit(
 def audit_findings(cells: Sequence[Mapping[str, Any]]) -> list[dict[str, str]]:
     """Plain-language findings from the scored cells (rules in the module docstring).
 
-    Each finding has a ``level`` ("leak", "cue", "ok" or "info") and a ``message``.
+    Each finding has a ``level`` ("leak", "warn", "cue", "ok" or "info") and a ``message``.
     """
 
     def mean(cell: Mapping[str, Any]) -> float:
@@ -227,20 +235,32 @@ def audit_findings(cells: Sequence[Mapping[str, Any]]) -> list[dict[str, str]]:
     by_key = {(c["window"], c["region"]): c for c in cells}
     findings: list[dict[str, str]] = []
 
-    leaks = [
+    above_chance = [
         c
         for c in cells
         if c["window"] == "pre_cue" and c["summary_balanced_accuracy"]["ci95_low"] > CHANCE
     ]
-    for cell in leaks:
-        findings.append(
-            {
-                "level": "leak",
-                "message": f"the pre-cue window decodes at {mean(cell):.1%} from {cell['region']}"
-                " (95% CI above chance): check labels and event timing before anything else",
-            }
-        )
-    if not leaks and any(c["window"] == "pre_cue" for c in cells):
+    for cell in above_chance:
+        low = cell["summary_balanced_accuracy"]["ci95_low"]
+        if mean(cell) >= CHANCE + LEAK_MARGIN:
+            findings.append(
+                {
+                    "level": "leak",
+                    "message": f"the pre-cue window decodes at {mean(cell):.1%} from "
+                    f"{cell['region']} (CI from {low:.1%}): check labels and event timing "
+                    "before anything else",
+                }
+            )
+        else:
+            findings.append(
+                {
+                    "level": "warn",
+                    "message": f"a small pre-cue effect from {cell['region']}: {mean(cell):.1%} "
+                    f"(CI from {low:.1%}), below the {LEAK_MARGIN:.0%} leak threshold; check "
+                    "timing and trial order when this dataset is used",
+                }
+            )
+    if not above_chance and any(c["window"] == "pre_cue" for c in cells):
         findings.append({"level": "ok", "message": "the pre-cue window is at chance everywhere"})
 
     onset = [c for c in cells if c["window"] == "cue_onset" and c["region"] != "all"]

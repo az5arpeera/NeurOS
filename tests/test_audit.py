@@ -11,7 +11,7 @@ from neuros.data.channels import require_canonical
 from neuros.data.montage import SCALP_REGIONS, region_channels
 from neuros.data.registry import TaskEpoch, get_spec
 from neuros.errors import NeurOSConfigError
-from neuros.eval.audit import audit_windows, run_audit
+from neuros.eval.audit import audit_findings, audit_windows, run_audit
 from neuros.signal.windows import WindowSet
 
 from .conftest import REPO_ROOT
@@ -126,6 +126,24 @@ def test_audit_flags_a_leak_and_a_cue_dominated_task_window() -> None:
     assert "cue" in levels
     # PhysionetMI's task window keeps the target on screen: the D-030 flag is reported.
     assert any("on screen" in f["message"] for f in result["findings"])
+
+
+def test_small_pre_cue_effects_warn_and_large_ones_leak() -> None:
+    def pre_cue(mean: float, low: float) -> dict[str, object]:
+        return {
+            "window": "pre_cue",
+            "region": "all",
+            "cue_free": True,
+            "summary_balanced_accuracy": {"mean": mean, "ci95_low": low},
+        }
+
+    def levels(*cells: dict[str, object]) -> list[str]:
+        return [f["level"] for f in audit_findings(cells)]
+
+    # BNCI2014-004 (4 Oct): significant, but too small for a timing or label bug.
+    assert levels(pre_cue(0.514, 0.507)) == ["warn"]
+    assert levels(pre_cue(0.56, 0.53)) == ["leak"]
+    assert levels(pre_cue(0.52, 0.48)) == ["ok"]
 
 
 def test_regions_with_too_few_channels_are_skipped_and_reported() -> None:
