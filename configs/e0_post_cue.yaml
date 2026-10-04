@@ -1,0 +1,45 @@
+# E0 diagnostic 3: motor imagery only, after the cue is gone.
+# BNCI2014-001 shows a left/right arrow from the cue to cue + 1.25 s. The cue-only diagnostic
+# (4 Oct) decoded left vs right at 75.8% from [cue, cue + 0.5 s] alone, before motor imagery
+# develops: the cue itself is decodable. This 2-s window, [cue + 1.5 s, cue + 3.5 s], starts
+# 0.25 s after the arrow disappears and well after the brain's response to its onset, so what
+# remains should be motor imagery. Compare it with e0 (2 s from cue + 0.5 s): 75.0%.
+#
+# Regenerate: uv run neuros --config configs/data.yaml loso --experiment configs/e0_post_cue.yaml
+name: e0_post_cue
+description: >
+  Diagnostic: EEGNet + EA on [cue + 1.5 s, cue + 3.5 s], 2 s after the arrow is gone.
+dataset: BNCI2014_001
+labels: [left_hand, right_hand]
+channels: all
+reference: as_recorded
+alignments: [ea]
+alignment_unit: session
+seeds: [20261005]
+validation_people: 0
+
+signal:                  # overrides of configs/data.yaml for this experiment only
+  window_s: 2.0
+  epoch_s: [1.5, 3.5]
+
+model:
+  f1: 16
+  depth: 2
+  f2: 32
+  kernel_samples: 64
+  dropout: 0.5
+  embedding_dim: 64
+  spatial_max_norm: 1.0
+  head_max_norm: 0.25
+
+train:
+  max_epochs: 300
+  lr: 0.001
+  min_lr: 0.0
+  weight_decay: 0.05
+  label_smoothing: 0.0
+  swa_fraction: 0.25
+  patience: null
+  people_per_batch: 8
+  windows_per_person: 8
+  log_every: 50
