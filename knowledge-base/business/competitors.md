@@ -110,7 +110,7 @@
      - **an open developer SDK and simulator** versus professional services;
      - **published, protocol-controlled evidence** (public data, leave-one-dataset-out, and the cue-artefact controls we just added) versus claims without published numbers;
      - **adaptation in seconds** (L1) rather than betting everything on one universal model.
-2. **The brain-state channel overlaps Zander's core.** Keep it secondary (it's E6, already on the cut list) and lead with intent.
+2. **The brain-state channel overlaps Zander's core.** Lead with intent and ship one validated state (rest vs mental effort) as the second channel; no parity claim (D-031, 4 Oct).
 3. **Investor appetite is real:** Mark Cuban backing Synaptrix, the €30M contract for Zander. Both are "why now" evidence.
 4. **Hardware makers do buy EEG software** (Synaptrix → IDUN). That supports our B2B channel. IDUN is on our backup contact list; it may already have a software partner.
 5. **Data:** Zander's proprietary recordings and Synaptrix's "Cortex" both aggregate data. Public-dataset aggregation (which we do too) is not a moat for anyone. Ours has to come from the cross-headset evaluation, the adaptation runtime and, later, opt-in data from deployed users.

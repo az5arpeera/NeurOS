@@ -4,6 +4,23 @@ Newest first. Format: **ID · date · decision** — why · who. Superseded deci
 
 ## Decided
 
+- **D-032 · 2026-10-04 · Training compute: AWS, paid with credits.** The founders plan to train on AWS. The school cluster (D-010, Q6b) becomes a fallback. · Founder (plan of record)
+  - **Implications:**
+    - PyTorch's CUDA build for Linux, and a trainer device option (the trainer is CPU-only today).
+    - Raw data staged on EBS or S3 in one region. The full pool is several hundred GB (Stieger2021 alone is 377 GB).
+    - The founders own the account, credentials, budget alarms and instance quotas; Claude never handles credentials.
+    - New AWS accounts often start with a GPU instance quota of 0, so the increase should be requested early.
+- **D-031 · 2026-10-04 · MVP positioning: intent first, a headline led by adaptation, one validated mental state.** · Founder (accepted recommendation)
+  - **Intent stays the product's core:** LEFT / RIGHT / REST from motor imagery, read from the motor cortex.
+  - **The headline leads with time-to-usable,** the seconds of normal use until accuracy is usable, with no calibration task (E2), rather than zero-calibration accuracy. With the cue controlled, a stranger starts at ≈ 60% on BNCI2014-001, against 72% for a calibrated model (E0); closing that gap is the product.
+  - **One validated mental state ships in the MVP:** rest vs mental effort, from frontal-midline theta and parietal alpha. E6 leaves the cut list but stays small.
+    - No claim of parity with Zander Labs by 1 Nov: they hold 1,000+ proprietary recordings of exactly these states.
+    - Positioning: complementary on day one (any headset, a developer SDK, active intent plus one passive state), converging later through opt-in data across headset brands.
+  - **Every published number is cue-controlled** (D-030). Rigour is the wedge: we found no published accuracy from Zander.
+  - **Architecture follow-ups:**
+    - the intent head reads the motor strip and the state head frontal and parietal channels (E0b tests motor strip only vs C-core);
+    - E1 tests on cue-free people the model never saw.
+  - **Decision gate:** if E2 (mid-October) shows that adaptation can't reach usable accuracy within a minute or two, decide by ≈ 16 Oct whether the application leads with the state channel and the rigour story.
 - **D-030 · 2026-10-04 · Cue-controlled evaluation windows (Q25).** Every motor-imagery result reports a window that starts after the cue has left the screen, next to a cue-only control ([cue, cue + 0.5 s]). Training uses the same windows. Datasets whose cue stays up report the control and carry a flag. Why: E0's 75.0% came largely from the on-screen arrow. After the arrow had gone, zero-calibration EEGNet scored 60.6% against 72.2% for a calibrated model ([E0 results](../results/2026-10-03-e0-eegnet-bnci2014-001.md)). Amends §4.2's offline epoch (🔒). · Founder (adopted the Q25 recommendation)
   - **Implementation** (Claude; founder may veto):
     - **The offline epoch is per dataset.** It starts `cue_margin_s` = 0.25 s after the class has left the screen.

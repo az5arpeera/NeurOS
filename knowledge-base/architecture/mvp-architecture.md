@@ -362,11 +362,11 @@ First numbers, BNCI2014-001 left/right, 9 people (3 Oct): [Riemannian baselines]
 | S1–S4 | Side experiments: DANN and Deep CORAL (D-019), RA vs EA, ShallowConvNet | Reported, but not on the critical path |
 
 ### 8.6 Headline (P-4): targets are hypotheses, not promises
-The headline sentence:
+The headline sentence, led by adaptation since D-031 (4 Oct):
 
-> "**X%** balanced accuracy, left vs right, on **N** people the model never saw, from **M** recording setups, usable after **S** seconds of normal use with no calibration task."
+> "Usable after **S** seconds of normal use, with no calibration task: left vs right rises from **X₀%** to **X%** balanced accuracy on **N** people the model never saw, from **M** recording setups, with no class cue on screen."
 
-It's published together with the adaptation curve, the LODO number and the virtual-headset table.
+X₀ is the zero-calibration start; X is the accuracy after S seconds. Both are cue-controlled (D-030). The headline is published together with the adaptation curve, the LODO number and the virtual-headset table.
 
 **Working hypotheses:**
 - X ≈ 75% (pooled). ⚠️ Set from numbers whose windows include the cue; with the cue controlled, E0 gives 60.6% for one dataset (4 Oct). Revisit after E1 (D-030);

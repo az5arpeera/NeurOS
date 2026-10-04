@@ -11,7 +11,10 @@ Priority: 🔴 blocking · 🟠 this week · 🟡 can wait until after the MVP.
 
 ## 🟠 Still open (2026-10-03): coding has started; these don't block it
 
-### Q6b. Cluster details (founder working on it)
+### Q6b. Cluster details (fallback since D-032: training moves to AWS credits)
+**AWS checklist (founders; Claude never handles credentials):** request a GPU instance quota increase now (new accounts often start at 0), pick one region, set a budget alarm, and decide where the raw data lives (EBS or S3, several hundred GB).
+
+If the school cluster is still wanted as a fallback, its details are:
 - GPU (≥ 8 GB VRAM is plenty);
 - storage (~1 TB);
 - SSH;

@@ -116,9 +116,8 @@ Claude Code pairs on all engineering. **Founders send all outreach;** Claude dra
 2. SSVEP demo insurance.
 3. E4-zs (zero-shot test).
 4. The text-anchored head (ship the linear head; keep the vocabulary table for naming).
-5. E6 / EEGMAT backup demo.
 
-**Never cut:** E0, E1, E2, the engine + simulator, the live demo, the interviews.
+**Never cut:** E0, E1, E2, the engine + simulator, the live demo, the interviews, and since D-031 (4 Oct) one validated mental state (E6, kept small).
 
 ## What YC will want to see (track weekly)
 | Metric | Target by 30 Oct |

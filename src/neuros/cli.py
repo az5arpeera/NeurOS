@@ -12,6 +12,8 @@ Day-2 commands (signal chain, alignment, baselines):
 
     neuros filters                                the causal filter at every native rate in scope
     neuros baseline --dataset KEY [...]           Riemannian baselines (LOSO + session transfer)
+    neuros audit --dataset KEY [...]              cue-contamination audit (D-030): when and where
+                                                  on the head the class is readable
 
 Day-3 command (deep model; needs PyTorch: ``uv sync --extra dev --extra ml``):
 
@@ -37,7 +39,7 @@ from neuros.errors import NeurOSError
 
 if TYPE_CHECKING:
     from neuros.config.experiment import LosoExperimentConfig
-    from neuros.data.registry import TaskEpoch
+    from neuros.data.registry import DatasetSpec, TaskEpoch
     from neuros.signal.windows import WindowSet
 
 log = logging.getLogger("neuros")
@@ -319,6 +321,26 @@ def cmd_filters(args: argparse.Namespace) -> int:
     return status
 
 
+def _dev_subjects(
+    spec: DatasetSpec, subjects_arg: Sequence[int] | None, split_path: str, purpose: str
+) -> list[int]:
+    """The subjects a development run may use: those asked for, or every development person.
+
+    Person-level isolation (principle 2): the locked test set is loaded and checked first, so a
+    locked test person can never enter a development run, even when named explicitly.
+
+    Raises:
+        NeurOSSplitError: if any requested subject is in the locked test set.
+    """
+    from neuros.data.recording import person_id
+    from neuros.eval.splits import load_locked_test_set
+
+    locked = load_locked_test_set(Path(split_path))
+    subjects = list(subjects_arg) if subjects_arg else list(locked.dev_subjects(spec.key))
+    locked.assert_disjoint([person_id(spec.key, s) for s in subjects], purpose)
+    return subjects
+
+
 def _dev_windows(
     config: DataConfig,
     dataset_key: str,
@@ -339,10 +361,8 @@ def _dev_windows(
     from neuros.data.download import prepare_mne_environment
     from neuros.data.montage import load_c_core
     from neuros.data.prepare import subject_epochs
-    from neuros.data.recording import person_id
     from neuros.data.registry import get_spec, moabb_dataset, task_epoch
     from neuros.data.vocabulary import default_vocabulary
-    from neuros.eval.splits import load_locked_test_set
     from neuros.signal.windows import WindowSet
 
     spec = get_spec(dataset_key)
@@ -350,9 +370,7 @@ def _dev_windows(
     epoch = task_epoch(spec, config.signal)
     print(f"{spec.key}: windows {epoch.describe()}", flush=True)
     vocab = default_vocabulary()
-    locked = load_locked_test_set(Path(split_path))
-    subjects = list(subjects_arg) if subjects_arg else list(locked.dev_subjects(spec.key))
-    locked.assert_disjoint([person_id(spec.key, s) for s in subjects], purpose)
+    subjects = _dev_subjects(spec, subjects_arg, split_path, purpose)
     prepare_mne_environment(config.data_dir)
     dataset = moabb_dataset(spec)
 
@@ -493,6 +511,130 @@ def cmd_baseline(args: argparse.Namespace) -> int:
     out.write_text(json.dumps(payload, indent=1), encoding="utf-8", newline="\n")
     print(f"\nresults: {out}")
     return 0
+
+
+def _audit_output_name(spec_key: str, args: argparse.Namespace, task: TaskEpoch) -> str:
+    """Result file name for an audit: every setting that changes the numbers, as for baselines."""
+    name = f"{spec_key}_{'-'.join(args.labels)}_{args.reference}_{args.alignment_unit}"
+    if task.rule == "after_cue":
+        name += "_aftercue"
+    else:
+        name += f"_window{task.start_s:g}-{task.end_s:g}s"
+    if args.subjects:
+        name += "_subj" + "-".join(str(s) for s in args.subjects)
+    return name + ".json"
+
+
+def cmd_audit(args: argparse.Namespace) -> int:
+    from neuros.data.download import prepare_mne_environment
+    from neuros.data.montage import SCALP_REGIONS, region_channels
+    from neuros.data.prepare import prepare_subject
+    from neuros.data.recording import person_id
+    from neuros.data.registry import get_spec, moabb_dataset
+    from neuros.data.vocabulary import default_vocabulary
+    from neuros.errors import NeurOSConfigError
+    from neuros.eval.audit import REGION_ORDER, audit_windows, cut_audit_windows, run_audit
+    from neuros.provenance import stamp
+    from neuros.signal.windows import WindowSet
+
+    config = _config(args)
+    spec = get_spec(args.dataset)
+    # Resolved before anything loads: a dataset without class cues, or one whose task can't host
+    # a window, fails here.
+    windows_spec = audit_windows(spec, config.signal)
+    vocab = default_vocabulary()
+    unknown = sorted(set(args.labels) - set(vocab.labels))
+    if unknown or len(set(args.labels)) < 2:
+        raise NeurOSConfigError(f"--labels needs two or more vocabulary labels; unknown: {unknown}")
+    provenance = stamp(config, dataset=spec.key)  # at the start: the code that runs
+    subjects = _dev_subjects(spec, args.subjects, args.split, "a cue audit")
+    for window in windows_spec:
+        print(f"{window.name}: {window.epoch.describe()}", flush=True)
+    prepare_mne_environment(config.data_dir)
+    dataset = moabb_dataset(spec)
+
+    parts: dict[str, list[WindowSet]] = {w.name: [] for w in windows_spec}
+    per_subject: list[dict[str, object]] = []
+    for subject in subjects:
+        recordings = prepare_subject(spec, subject, vocab, config, dataset=dataset)
+        cut, skipped = cut_audit_windows(recordings, windows_spec, config.validation, args.labels)
+        counts = {name: len(windows) for name, windows in cut.items()}
+        for name, windows in cut.items():
+            parts[name].append(windows)
+        person = person_id(spec.key, subject)
+        per_subject.append({"person": person, "windows": counts, "skipped_outside": skipped})
+        print(
+            f"{person}: "
+            + ", ".join(f"{name} {counts[name]} (skipped {skipped[name]})" for name in counts),
+            flush=True,
+        )
+    window_sets = {name: WindowSet.concat(sets) for name, sets in parts.items()}
+    ch_names = next(iter(window_sets.values())).ch_names
+    region_sizes = {"all": len(ch_names)} | {
+        region: len(region_channels(region, ch_names)) for region in SCALP_REGIONS
+    }
+    print(
+        f"\n{len(subjects)} people, {len(ch_names)} channels; per region: "
+        + ", ".join(f"{region} {n}" for region, n in region_sizes.items())
+        + "\n",
+        flush=True,
+    )
+    result = run_audit(
+        window_sets,
+        {w.name: w.epoch for w in windows_spec},
+        reference=args.reference,
+        unit=args.alignment_unit,
+        progress=print,
+    )
+
+    by_cell = {(c["window"], c["region"]): c for c in result["cells"]}
+    rows = []
+    for window in windows_spec:
+        row = [
+            window.name,
+            f"[{window.epoch.start_s:g}, {window.epoch.end_s:g}]",
+            "yes" if window.epoch.cue_free else "no",
+        ]
+        for region in REGION_ORDER:
+            cell = by_cell.get((window.name, region))
+            row.append(
+                "-" if cell is None else f"{cell['summary_balanced_accuracy']['mean'] * 100:.1f}"
+            )
+        rows.append(row)
+    print(
+        f"\nbalanced accuracy %, {result['method']} leave-one-person-out ('-' = too few channels)"
+    )
+    print(_table(rows, ["window", "epoch s", "cue-free", *REGION_ORDER]))
+    print()
+    for finding in result["findings"]:
+        print(f"[{finding['level']}] {finding['message']}")
+
+    task = windows_spec[-1].epoch
+    out = config.results_dir / "audit" / _audit_output_name(spec.key, args, task)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "provenance": _finished(provenance),
+        "protocol": {
+            "dataset": spec.key,
+            "labels": list(args.labels),
+            "channels": list(ch_names),
+            "region_channels": {
+                region: list(region_channels(region, ch_names)) for region in SCALP_REGIONS
+            },
+            "class_on_screen_s": spec.class_on_screen_s,
+            "cue_margin_s": config.signal.cue_margin_s,
+            "windows": {w.name: w.epoch.to_dict() for w in windows_spec},
+            "sfreq": config.signal.sfreq,
+            "subjects": subjects,
+            "split_file": str(args.split),
+        },
+        "subjects": per_subject,
+        **result,
+    }
+    out.write_text(json.dumps(payload, indent=1), encoding="utf-8", newline="\n")
+    print(f"\nresults: {out}")
+    # Exit 1 ("checks found problems") on a leak; a cue-dominated dataset is a finding, not a bug.
+    return 1 if any(f["level"] == "leak" for f in result["findings"]) else 0
 
 
 def _require_torch() -> None:
@@ -733,6 +875,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--split", default=str(DEFAULT_SPLIT_PATH), help="locked test set file")
     p.set_defaults(func=cmd_baseline)
+
+    p = sub.add_parser("audit", help="cue-contamination audit of a cued dataset (D-030)")
+    p.add_argument("--dataset", required=True)
+    p.add_argument(
+        "--subjects",
+        type=int,
+        nargs="+",
+        default=None,
+        help="default: the dataset's development people (usable, not in the locked test set)",
+    )
+    p.add_argument("--labels", nargs="+", default=["left_hand", "right_hand"])
+    p.add_argument("--reference", choices=["as_recorded", "car"], default="as_recorded")
+    p.add_argument(
+        "--alignment-unit",
+        choices=["person", "session"],
+        default="session",
+        help="one EA reference per recording session (as in E0) or per person",
+    )
+    p.add_argument("--split", default=str(DEFAULT_SPLIT_PATH), help="locked test set file")
+    p.set_defaults(func=cmd_audit)
 
     p = sub.add_parser("loso", help="train + test EEGNet leave-one-person-out (E0)")
     p.add_argument("--experiment", required=True, help="experiment YAML, e.g. configs/e0.yaml")

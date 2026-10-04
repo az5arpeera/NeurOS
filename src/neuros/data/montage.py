@@ -19,9 +19,10 @@ Channels a headset has *outside* C-core (e.g. Unicorn's Oz) are ignored by the m
 from __future__ import annotations
 
 import functools
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from importlib import resources
 from pathlib import Path
+from types import MappingProxyType
 from typing import Literal
 
 import yaml
@@ -33,6 +34,46 @@ from neuros.errors import NeurOSChannelError, NeurOSConfigError
 
 # Channels any motor-imagery layout must keep: left/right hand imagery is read from C3 vs C4.
 MOTOR_ESSENTIAL: tuple[str, ...] = ("C3", "Cz", "C4")
+
+# Scalp regions for the cue-contamination audit (D-030): which part of the head carries the
+# class? Canonical 10-10 names; each dataset uses the ones its montage has. The regions don't
+# overlap, so a score can be traced to one of them.
+
+# Glances and blinks (EOG) dominate here; F7/F8 (and F9/F10) see horizontal glances.
+_EYE_CHANNELS = ("Fp1", "Fpz", "Fp2", "AF7", "AF3", "AFz", "AF4", "AF8", "F9", "F7", "F8", "F10")
+# The motor strip, the intent target: imagining a hand dims mu and beta here, over the opposite
+# hemisphere (C4 for the left hand, C3 for the right).
+_MOTOR_CHANNELS = (
+    "FC5", "FC3", "FC1", "FCz", "FC2", "FC4", "FC6", "C5", "C3", "C1", "Cz", "C2", "C4", "C6",
+    "CP5", "CP3", "CP1", "CPz", "CP2", "CP4", "CP6",
+)  # fmt: skip
+# Spatial attention: alpha drops over the side opposite the attended one.
+_PARIETAL_CHANNELS = ("P7", "P5", "P3", "P1", "Pz", "P2", "P4", "P6", "P8")
+# Visual cortex: the cue itself, processed on the side opposite its position on screen.
+_VISUAL_CHANNELS = (
+    "PO9", "PO7", "PO5", "PO3", "POz", "PO4", "PO6", "PO8", "PO10", "O1", "Oz", "O2", "Iz",
+)  # fmt: skip
+
+SCALP_REGIONS: Mapping[str, tuple[str, ...]] = MappingProxyType(
+    {
+        "eyes": _EYE_CHANNELS,
+        "motor": _MOTOR_CHANNELS,
+        "parietal": _PARIETAL_CHANNELS,
+        "visual": _VISUAL_CHANNELS,
+    }
+)
+
+
+def region_channels(region: str, available: Sequence[str]) -> tuple[str, ...]:
+    """The channels of scalp ``region`` present in ``available``, in ``available``'s order.
+
+    Raises:
+        NeurOSConfigError: for an unknown region (the message lists the known ones).
+    """
+    if region not in SCALP_REGIONS:
+        raise NeurOSConfigError(f"unknown scalp region {region!r}; known: {sorted(SCALP_REGIONS)}")
+    wanted = set(SCALP_REGIONS[region])
+    return tuple(ch for ch in available if ch in wanted)
 
 
 def compute_c_core(
