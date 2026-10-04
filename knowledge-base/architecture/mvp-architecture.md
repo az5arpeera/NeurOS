@@ -337,7 +337,7 @@ JavaScript: `new NeurOSClient("ws://localhost:8765").on("intent", e => ...)` (D-
 - All runs logged, including failures.
 
 ### 8.4 Baselines in every table
-First numbers, BNCI2014-001 left/right, 9 people (3 Oct): [results log](../results/2026-10-03-bnci2014-001-riemannian-baselines.md). Best cross-person Riemannian result: 68.8%.
+First numbers, BNCI2014-001 left/right, 9 people (3 Oct): [Riemannian baselines](../results/2026-10-03-bnci2014-001-riemannian-baselines.md) (best cross-person: 68.8%) and [E0](../results/2026-10-03-e0-eegnet-bnci2014-001.md) (EEGNet: 72.1%; EEGNet + EA: 75.0%).
 
 1. Chance.
 2. Riemannian tangent space + logistic regression, and MDM (with and without re-centring).
@@ -349,7 +349,7 @@ First numbers, BNCI2014-001 left/right, 9 people (3 Oct): [results log](../resul
 
 | ID | Question | Go / no-go |
 |---|---|---|
-| **E0** | Does our pipeline reproduce the literature? BNCI2014-001 left/right LOSO, EA + EEGNet + SWA ≈ 74.3% (Sagayaraju 2026) | Within ±3 points; otherwise it's a pipeline bug, so stop and fix |
+| **E0** | Does our pipeline reproduce the literature? BNCI2014-001 left/right LOSO, EA + EEGNet + SWA ≈ 74.3% (Sagayaraju 2026) | Within ±3 points; otherwise it's a pipeline bug, so stop and fix. **✅ Passed 3 Oct: 75.0%** with our causal 2-s pipeline ([results](../results/2026-10-03-e0-eegnet-bnci2014-001.md)) |
 | E0b | Reference scheme (CAR over present channels vs as recorded) and band (4–30 / 8–30 / 4–40 Hz) | Pick on dev folds; record in the decision log |
 | **E1** | Does pooling ~380 people beat single-dataset training? Includes the first LODO numbers. | If pooling doesn't help, fix harmonisation before adding heads |
 | **E2** | Warm-up curve: accuracy at 0/5/10/20/30/45/60/120 s of unlabeled data. **H1:** rest-seeded vs task-seeded vs population prior vs full-session EA (the upper bound). | Sets S in the headline |

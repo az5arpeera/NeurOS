@@ -47,12 +47,28 @@ Claude Code pairs on all engineering. **Founders send all outreach;** Claude dra
 - **Tests:** 422 pass (9 more need downloaded data, and pass with it).
 - **Business:** [15 target contacts](../business/target-contacts.md), across UVA labs, developer communities and BCI companies, with message drafts. ⏰ g.tec's virtual BR41N.IO hackathon runs **Sun 4 – Mon 5 Oct**: the founders decide whether to join.
 
+### Day 3 (planned Mon 5 – Tue 6 Oct), done Sat 3 Oct night
+- **PyTorch** 2.14.1 (CPU) on the laptop. CI installs PyTorch's CPU build on Linux: 196 MB instead of 3.3 GB of CUDA wheels.
+- **The model layer** (details fixed in D-029):
+  - **EEGNet encoder** + 64-d embedding + linear head (`src/neuros/models/`): 20,002 parameters, built to EEGNet's published settings.
+  - **Trainer** (`src/neuros/train/`): subject-balanced batches (8 people × 8 windows), AdamW with a cosine learning rate, optional early stopping on validation people, SWA over the last 25% of epochs, NaN/Inf losses stop the run.
+  - **Leave-one-person-out runner** (`neuros loso --experiment configs/e0.yaml`): the 9 people's folds train in parallel (≈ 50 min per 300-epoch run on the laptop) and results carry full provenance.
+- **EA per recording session** (D-029): the paper's protocol, and what the live engine does. On the Riemannian baselines it changes results by < 1 point.
+- **Tests:** 539 pass (CI green on 3.11 and 3.13, PyTorch tests included).
+- **✅ E0 passes:** EEGNet + EA **75.0%** against the literature's 74.3% ± 3, on our own causal 2-s pipeline (9 people, one seed). See the [E0 results log](../results/2026-10-03-e0-eegnet-bnci2014-001.md).
+  - EEGNet without alignment: 72.1%. EA adds 2.9 points (better for 8 of 9 people; p = 0.074).
+  - **The deep model beats the best Riemannian baseline by 8.1 points** (p = 0.039, better for 7 of 9 people).
+  - The 4-s-window run is now optional: it was only needed if the 2-s run fell short.
+- **Fixed:** result files took their provenance stamp at the end of a run instead of the start. They now record the code that actually ran, plus a code-only "dirty" flag.
+- **Business:** [ready-to-adapt drafts for the first 10 outreach messages](../business/first-10-messages.md); the founders send them.
+- **Next:** cluster access (Q6b) before E1, which is too heavy for the laptop.
+
 ## Week 1: Sat 3 → Fri 9 Oct · data and baselines
 | Day | Engineering | Business / YC |
 |---|---|---|
 | **Sat 3** | Scaffolding (pyproject, CI, src layout, error types). Data registry and harmonisation for BNCI2014-001/004 + PhysionetMI. `validate.py`. Compute C-core. Fix the locked test set by seed. Tests. | Draft the customer-interview script (calibration pain, current workflow, willingness to pay) |
 | Sun 4 | ✅ (done Sat 3 Oct evening) Causal filters, timestamp resampler, windows, offline EA (unit tests: aligned mean covariance = I). Riemannian baselines on BNCI2014-001 | ✅ List 15 target contacts: UVA EEG/BCI labs, OpenBCI forum, BCI startups |
-| Mon 5 – Tue 6 | EEGNet encoder, trainer, subject-wise splits → **E0 sanity** (≈ 74% EA + EEGNet + SWA) | Founders send the first 10 outreach messages |
+| Mon 5 – Tue 6 | ✅ (done Sat 3 Oct night) EEGNet encoder, trainer, subject-wise splits → **E0 sanity** (≈ 74% EA + EEGNet + SWA): **passed, 75.0%** | Founders send the first 10 outreach messages ([drafts ready](../business/first-10-messages.md)) |
 | Wed 7 – Fri 9 | Remaining loaders (Cho2017, Lee2019_MI, Dreyer2023, EEGMAT, Stieger subset). **E0b**, **E1** pooled + first LODO | One-page landing site + waitlist. YC: one-liner, founder bios, "why now" |
 
 ## Week 2: Sat 10 → Fri 16 Oct · live engine and adaptation
