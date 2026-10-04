@@ -82,4 +82,4 @@ uv run neuros --config configs/data.yaml baseline --dataset BNCI2014_001 [--chan
 ```
 - Each run takes about 1.5 minutes on the laptop.
 - Output: `results/baselines/BNCI2014_001_left_hand-right_hand_<channels>_<reference>.json`, with per-person scores, Wilcoxon tests and provenance.
-- First computed from uncommitted Day-2 code (based on `dc48bcc`); a re-run from the committed code is recorded below.
+- **Reproducibility:** first computed from uncommitted Day-2 code, then re-run from the committed code (`dc59206`, `824560b`) the same evening. All four tables were **identical to the last digit**: the pipeline is deterministic.

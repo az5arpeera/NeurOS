@@ -44,13 +44,14 @@ Claude Code pairs on all engineering. **Founders send all outreach;** Claude dra
   - Exact without shrinkage, within 1e-2 with it. After CAR it is I − 11ᵀ/n, as expected.
 - **Riemannian baselines on BNCI2014-001** (`neuros baseline`). Cross-person left/right **65–69%**; within-person sanity check 73–77%. See the [results log](../results/2026-10-03-bnci2014-001-riemannian-baselines.md).
 - **Fixed:** a Day-1 encoding bug in `validate.py` ("§" and "µ" were double-encoded, also in user-facing error messages). A new test checks every text file in the repo for clean UTF-8.
-- **Tests:** 422 pass (7 more need downloaded data, and pass with it).
+- **Tests:** 422 pass (9 more need downloaded data, and pass with it).
+- **Business:** [15 target contacts](../business/target-contacts.md), across UVA labs, developer communities and BCI companies, with message drafts. ⏰ g.tec's virtual BR41N.IO hackathon runs **Sun 4 – Mon 5 Oct**: the founders decide whether to join.
 
 ## Week 1: Sat 3 → Fri 9 Oct · data and baselines
 | Day | Engineering | Business / YC |
 |---|---|---|
 | **Sat 3** | Scaffolding (pyproject, CI, src layout, error types). Data registry and harmonisation for BNCI2014-001/004 + PhysionetMI. `validate.py`. Compute C-core. Fix the locked test set by seed. Tests. | Draft the customer-interview script (calibration pain, current workflow, willingness to pay) |
-| Sun 4 | ✅ (done Sat 3 Oct evening) Causal filters, timestamp resampler, windows, offline EA (unit tests: aligned mean covariance = I). Riemannian baselines on BNCI2014-001 | List 15 target contacts: UVA EEG/BCI labs, OpenBCI forum, BCI startups |
+| Sun 4 | ✅ (done Sat 3 Oct evening) Causal filters, timestamp resampler, windows, offline EA (unit tests: aligned mean covariance = I). Riemannian baselines on BNCI2014-001 | ✅ List 15 target contacts: UVA EEG/BCI labs, OpenBCI forum, BCI startups |
 | Mon 5 – Tue 6 | EEGNet encoder, trainer, subject-wise splits → **E0 sanity** (≈ 74% EA + EEGNet + SWA) | Founders send the first 10 outreach messages |
 | Wed 7 – Fri 9 | Remaining loaders (Cho2017, Lee2019_MI, Dreyer2023, EEGMAT, Stieger subset). **E0b**, **E1** pooled + first LODO | One-page landing site + waitlist. YC: one-liner, founder bios, "why now" |
 
