@@ -7,7 +7,7 @@ Two classifiers on window covariance matrices, each with three per-person alignm
 | ``ts_lr`` | tangent-space map at the training mean (Riemannian metric) + logistic regression |
 | ``mdm``   | minimum distance to the class means (Riemannian metric) |
 
-| alignment | per person, label-free |
+| alignment | per person or per session (``unit``), label-free |
 |---|---|
 | ``none``  | raw covariances: the cross-person shift is left in |
 | ``ea``    | Euclidean Alignment of the windows (our ``neuros.align.ea``) before covariances |
@@ -37,7 +37,7 @@ from typing import Any, Literal
 import numpy as np
 from numpy.typing import NDArray
 
-from neuros.align.ea import apply_alignment, euclidean_reference
+from neuros.align.ea import AlignmentUnit, alignment_groups, apply_alignment, euclidean_reference
 from neuros.errors import DataContext, NeurOSConfigError, NeurOSDataError
 from neuros.eval.metrics import PersonScore, paired_wilcoxon, score_person, summarize
 from neuros.signal.reference import car_basis
@@ -68,6 +68,7 @@ class FeatureSet:
     flagged: NDArray[np.bool_]
     alignment: Alignment
     reference: Reference
+    unit: AlignmentUnit = "person"
 
 
 def _project(windows: WindowSet, reference: Reference) -> NDArray[np.float64]:
@@ -81,11 +82,16 @@ def _project(windows: WindowSet, reference: Reference) -> NDArray[np.float64]:
 
 
 def build_features(
-    windows: WindowSet, *, alignment: Alignment, reference: Reference = "as_recorded"
+    windows: WindowSet,
+    *,
+    alignment: Alignment,
+    reference: Reference = "as_recorded",
+    unit: AlignmentUnit = "person",
 ) -> FeatureSet:
-    """Covariances for a baseline, aligned per person as requested.
+    """Covariances for a baseline, aligned per person or per recording session.
 
-    Each person's alignment uses only that person's windows (person-level isolation).
+    Each group's alignment uses only that group's windows, so it never mixes people
+    (person-level isolation). ``unit="session"`` matches the deep model's E0 protocol.
 
     Raises:
         NeurOSConfigError: on an unknown alignment or reference.
@@ -101,18 +107,22 @@ def build_features(
         raise NeurOSDataError("no windows to build features from")
     data = _project(windows, reference)
     people = np.array(windows.person_ids)
+    group_of = np.array(alignment_groups(windows, unit))
+    groups = list(dict.fromkeys(group_of.tolist()))
     if alignment == "ea":
-        for person in windows.people:
-            rows = np.flatnonzero(people == person)
+        for group in groups:
+            rows = np.flatnonzero(group_of == group)
+            person, _, session = group.partition("/")
             dataset, _, subject = person.partition(":")
             reference_matrix = euclidean_reference(
-                data[rows], context=DataContext(dataset=dataset, subject=subject)
+                data[rows],
+                context=DataContext(dataset=dataset, subject=subject, session=session or None),
             )
             data[rows] = apply_alignment(data[rows], reference_matrix).astype(np.float64)
     covs = np.asarray(covariances(data, estimator=COVARIANCE_ESTIMATOR), dtype=np.float64)
     if alignment == "ra":
-        for person in windows.people:
-            rows = np.flatnonzero(people == person)
+        for group in groups:
+            rows = np.flatnonzero(group_of == group)
             mean = mean_riemann(covs[rows])
             whitener = invsqrtm(mean)
             covs[rows] = whitener @ covs[rows] @ whitener
@@ -126,6 +136,7 @@ def build_features(
         flagged=windows.flags != 0,
         alignment=alignment,
         reference=reference,
+        unit=unit,
     )
 
 
@@ -238,6 +249,7 @@ def run_riemannian_baselines(
     windows: WindowSet,
     *,
     reference: Reference = "as_recorded",
+    unit: AlignmentUnit = "person",
     methods: Sequence[Method] = METHODS,
     alignments: Sequence[Alignment] = ALIGNMENTS,
     with_session_transfer: bool = True,
@@ -252,7 +264,7 @@ def run_riemannian_baselines(
     results: list[dict[str, Any]] = []
     loso_scores: dict[tuple[Method, Alignment], list[PersonScore]] = {}
     for alignment in alignments:
-        features = build_features(windows, alignment=alignment, reference=reference)
+        features = build_features(windows, alignment=alignment, reference=reference, unit=unit)
         for method in methods:
             say(f"LOSO {method}+{alignment} ...")
             scores = leave_one_person_out(method, features)
@@ -288,6 +300,7 @@ def run_riemannian_baselines(
     return {
         "covariance_estimator": COVARIANCE_ESTIMATOR,
         "reference": reference,
+        "alignment_unit": unit,
         "results": results,
         "comparisons": comparisons,
     }

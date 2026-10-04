@@ -13,7 +13,9 @@ from hypothesis import strategies as st
 
 from neuros.align.covariance import is_spd, regularize, symmetrize, window_covariances
 from neuros.align.ea import (
+    align_groups,
     align_per_person,
+    alignment_groups,
     apply_alignment,
     euclidean_reference,
     reference_from_covariances,
@@ -216,3 +218,46 @@ def test_align_per_person_whitens_each_person_separately() -> None:
 def test_symmetrize() -> None:
     m = np.array([[1.0, 2.0], [0.0, 1.0]])
     np.testing.assert_array_equal(symmetrize(m), [[1.0, 1.0], [1.0, 1.0]])
+
+
+def test_align_groups_per_session() -> None:
+    windows = _people_set()
+    n = len(windows)
+    # Split every person's windows into two sessions with different gains.
+    sessions = tuple("a" if i % 2 else "b" for i in range(n))
+    gains = np.where(np.array(sessions) == "a", 1.0, 9.0).astype(np.float32)
+    data = (windows.data * gains[:, None, None]).astype(np.float32)
+    two = WindowSet(
+        data=data,
+        sfreq=windows.sfreq,
+        ch_names=windows.ch_names,
+        labels=windows.labels,
+        datasets=windows.datasets,
+        subjects=windows.subjects,
+        sessions=sessions,
+        runs=windows.runs,
+        starts=windows.starts,
+        flags=windows.flags,
+    )
+    groups = alignment_groups(two, "session")
+    assert set(groups) == {"Synthetic:1/a", "Synthetic:1/b", "Synthetic:2/a", "Synthetic:2/b"}
+    aligned, references = align_groups(two, unit="session", shrinkage=0.0, eigen_floor=0.0)
+    assert set(references) == set(groups)
+    group_of = np.array(groups)
+    for group in references:
+        mean = window_covariances(aligned.data[group_of == group]).mean(axis=0)
+        np.testing.assert_allclose(mean, np.eye(6), atol=1e-4)
+    # Per person instead: the two sessions share one reference, so neither is white alone.
+    per_person, person_refs = align_groups(two, unit="person", shrinkage=0.0, eigen_floor=0.0)
+    assert set(person_refs) == {"Synthetic:1", "Synthetic:2"}
+    loud = window_covariances(per_person.data[group_of == "Synthetic:1/b"]).mean(axis=0)
+    assert np.trace(loud) > 1.5 * 6
+    with pytest.raises(NeurOSConfigError, match="unit"):
+        alignment_groups(two, "trial")  # type: ignore[arg-type]
+
+
+def test_align_per_person_is_align_groups_by_person() -> None:
+    windows = _people_set()
+    a, _ = align_per_person(windows)
+    b, _ = align_groups(windows, unit="person")
+    assert np.array_equal(a.data, b.data)

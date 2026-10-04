@@ -1,5 +1,6 @@
 # Lint, types and unit tests on CPU with synthetic data (architecture §9). No dataset downloads:
-# tests marked `data` are skipped here.
+# tests marked `data` are skipped here. PyTorch (the `ml` extra) installs from PyTorch's CPU-only
+# index on Linux (pyproject [tool.uv.sources]): ~196 MB instead of ~3.3 GB of CUDA wheels.
 name: ci
 
 on:
@@ -29,7 +30,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
       - name: Install (locked)
-        run: uv sync --extra dev --locked
+        run: uv sync --extra dev --extra ml --locked
       - name: Format
         run: uv run ruff format --check src tests
       - name: Lint

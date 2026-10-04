@@ -105,3 +105,17 @@ def test_configuration_errors(shifted_people: WindowSet) -> None:
     one_person = shifted_people.for_people({"Synthetic:1"})
     with pytest.raises(NeurOSDataError, match="at least 2 people"):
         leave_one_person_out("mdm", build_features(one_person, alignment="none"))
+
+
+def test_alignment_per_session(shifted_people: WindowSet) -> None:
+    by_person = build_features(shifted_people, alignment="ea")
+    by_session = build_features(shifted_people, alignment="ea", unit="session")
+    assert (by_person.unit, by_session.unit) == ("person", "session")
+    # Each session has its own reference, so the features differ, yet both decode well.
+    assert not np.allclose(by_person.covariances, by_session.covariances)
+    scores = leave_one_person_out("ts_lr", by_session)
+    assert np.mean([s.balanced_accuracy for s in scores]) >= 0.9
+    result = run_riemannian_baselines(
+        shifted_people, unit="session", methods=["mdm"], alignments=["none", "ea"]
+    )
+    assert result["alignment_unit"] == "session"

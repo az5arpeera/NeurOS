@@ -360,9 +360,12 @@ def cmd_baseline(args: argparse.Namespace) -> int:
     )
     print(
         f"\n{len(windows)} windows, {len(windows.people)} people, {len(windows.ch_names)} "
-        f"channels ({args.channels}), reference {args.reference}\n"
+        f"channels ({args.channels}), reference {args.reference}, alignment per "
+        f"{args.alignment_unit}\n"
     )
-    result = run_riemannian_baselines(windows, reference=args.reference, progress=print)
+    result = run_riemannian_baselines(
+        windows, reference=args.reference, unit=args.alignment_unit, progress=print
+    )
 
     rows = []
     for entry in result["results"]:
@@ -394,7 +397,12 @@ def cmd_baseline(args: argparse.Namespace) -> int:
     out = (
         config.results_dir
         / "baselines"
-        / f"{spec_key}_{'-'.join(args.labels)}_{args.channels}_{args.reference}.json"
+        / (
+            f"{spec_key}_{'-'.join(args.labels)}_{args.channels}_{args.reference}"
+            # Per-person files keep their Day-2 names, so those results regenerate in place.
+            + ("_session" if args.alignment_unit == "session" else "")
+            + ".json"
+        )
     )
     out.parent.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -405,6 +413,7 @@ def cmd_baseline(args: argparse.Namespace) -> int:
             "channels": list(windows.ch_names),
             "channel_set": args.channels,
             "reference": args.reference,
+            "alignment_unit": args.alignment_unit,
             "epoch_s": list(config.signal.epoch_s),
             "sfreq": config.signal.sfreq,
             "subjects": subjects,
@@ -632,6 +641,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--labels", nargs="+", default=["left_hand", "right_hand"])
     p.add_argument("--channels", choices=["all", "c-core"], default="all")
     p.add_argument("--reference", choices=["as_recorded", "car"], default="as_recorded")
+    p.add_argument(
+        "--alignment-unit",
+        choices=["person", "session"],
+        default="person",
+        help="one EA/RA reference per person (the Day-2 default) or per recording session (E0)",
+    )
     p.add_argument("--split", default=str(DEFAULT_SPLIT_PATH), help="locked test set file")
     p.set_defaults(func=cmd_baseline)
 

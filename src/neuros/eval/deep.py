@@ -244,6 +244,8 @@ def run_deep_loso(
         "summary_balanced_accuracy": summarize(accuracies),
         "summary_kappa": summarize([s.kappa for s in scores]),
         "per_person": [s.to_dict() for s in scores],
+        # Unrounded, for comparisons and seed summaries (per_person is rounded for reading).
+        "balanced_accuracy_by_person": {s.person: s.balanced_accuracy for s in scores},
         "folds": outcomes,
         "alignment_references": references,
         "workers": n_workers,
@@ -252,7 +254,7 @@ def run_deep_loso(
 
 
 def _per_person(run: dict[str, Any]) -> dict[str, float]:
-    return {row["person"]: float(row["balanced_accuracy"]) for row in run["per_person"]}
+    return {person: float(value) for person, value in run["balanced_accuracy_by_person"].items()}
 
 
 def compare_runs(runs: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:

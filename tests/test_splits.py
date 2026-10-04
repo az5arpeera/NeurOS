@@ -12,8 +12,10 @@ from neuros.data.registry import get_spec, locked_test_dataset_keys
 from neuros.errors import NeurOSConfigError, NeurOSSplitError
 from neuros.eval.splits import (
     LOCKED_TEST_SEED,
+    Fold,
     _allocate,
     load_locked_test_set,
+    loso_folds,
     make_dev_folds,
     make_locked_test_set,
     save_locked_test_set,
@@ -148,3 +150,48 @@ def test_allocation_property(sizes: dict[str, int]) -> None:
     assert sum(counts.values()) == round(0.2 * sum(sizes.values()))
     for name, size in sizes.items():
         assert int(0.2 * size) <= counts[name] <= size
+
+
+# ---------------------------------------------------------------------- leave-one-person-out
+PEOPLE = [f"BNCI2014_001:{i}" for i in range(1, 10)]
+
+
+def test_loso_tests_everyone_once() -> None:
+    folds = loso_folds(PEOPLE)
+    assert [f.test for f in folds] == [(p,) for p in PEOPLE]
+    for fold in folds:
+        assert fold.validation == ()
+        assert set(fold.train) == set(PEOPLE) - set(fold.test)
+
+
+def test_loso_validation_people_come_from_training_people() -> None:
+    folds = loso_folds(PEOPLE, n_validation=2, seed=7)
+    for fold in folds:
+        assert len(fold.validation) == 2
+        assert len(fold.train) == 6
+        assert set(fold.validation) | set(fold.train) == set(PEOPLE) - set(fold.test)
+    # Deterministic, and each fold's draw doesn't depend on the order of the people.
+    assert folds == loso_folds(PEOPLE, n_validation=2, seed=7)
+    reordered = {f.test: f.validation for f in loso_folds(PEOPLE[::-1], n_validation=2, seed=7)}
+    assert all(reordered[f.test] == f.validation for f in folds)
+    assert folds != loso_folds(PEOPLE, n_validation=2, seed=8)
+
+
+def test_loso_errors() -> None:
+    with pytest.raises(NeurOSConfigError, match="unique"):
+        loso_folds(["a", "a", "b"])
+    with pytest.raises(NeurOSConfigError, match="at least 2"):
+        loso_folds(["a"])
+    with pytest.raises(NeurOSConfigError, match="n_validation"):
+        loso_folds(["a", "b", "c"], n_validation=2)  # nobody left to train on
+    assert len(loso_folds(["a", "b", "c"], n_validation=1)[0].train) == 1
+
+
+def test_fold_refuses_overlaps() -> None:
+    with pytest.raises(NeurOSSplitError, match="both test and train"):
+        Fold(index=0, test=("a",), validation=(), train=("a", "b"))
+    with pytest.raises(NeurOSSplitError, match="both validation and train"):
+        Fold(index=0, test=("a",), validation=("b",), train=("b", "c"))
+    with pytest.raises(NeurOSSplitError, match="non-empty"):
+        Fold(index=0, test=("a",), validation=(), train=())
+    assert Fold(0, ("a",), ("b",), ("c",)).to_dict()["validation"] == ["b"]

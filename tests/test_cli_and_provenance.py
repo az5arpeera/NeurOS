@@ -58,6 +58,30 @@ def test_cli_baseline_refuses_locked_test_people(capsys: pytest.CaptureFixture[s
     assert "locked test people" in capsys.readouterr().err
 
 
+def test_cli_loso_refuses_locked_test_people(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    pytest.importorskip("torch")
+    split = REPO_ROOT / "configs" / "splits" / "locked_test_v1.yaml"
+    experiment = tmp_path / "e.yaml"
+    experiment.write_text("name: e\ndataset: PhysionetMI\n", encoding="utf-8")
+    args = ["loso", "--experiment", str(experiment), "--subjects", "4", "--split", str(split)]
+    assert main(args) == 2
+    assert "locked test people" in capsys.readouterr().err
+
+
+def test_cli_loso_validates_the_experiment(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    e0 = str(REPO_ROOT / "configs" / "e0.yaml")
+    assert main(["loso", "--experiment", str(tmp_path / "missing.yaml")]) == 2
+    assert "not found" in capsys.readouterr().err
+    assert main(["loso", "--experiment", e0, "--seeds", "-1"]) == 2
+    assert "override" in capsys.readouterr().err
+    assert main(["loso", "--experiment", e0, "--threads", "0"]) == 2
+    assert ">= 1" in capsys.readouterr().err
+
+
 def test_cli_unknown_dataset(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["download", "--dataset", "Nope", "--verify"]) == 2
     assert "Unknown dataset" in capsys.readouterr().err
