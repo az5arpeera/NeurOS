@@ -1,0 +1,45 @@
+# E0 (architecture §8.5): does our pipeline reproduce the literature?
+#   Target: EA + EEGNet + SWA ≈ 74.3 % balanced accuracy, BNCI2014-001 left vs right hand,
+#   leave-one-subject-out over 9 people (Sagayaraju 2026; knowledge-base/research/papers/
+#   2026-sagayaraju-ea-swa-calibration-bottleneck.md). Go / no-go: within ±3 points.
+#
+# This file runs OUR signal contract: 2-s windows at [cue + 0.5 s, cue + 2.5 s], 4-30 Hz causal
+# filters, 128 Hz. The paper most likely used MOABB's 4-s window [cue, cue + 4 s];
+# e0_window4s.yaml repeats this run with it, so a shortfall can be traced to the window
+# (protocol) or to a bug (pipeline).
+#
+# Regenerate: uv run neuros --config configs/data.yaml loso --experiment configs/e0.yaml
+name: e0
+description: >
+  EEGNet leave-one-person-out on BNCI2014-001 left/right, without alignment and with EA
+  (results-table rows 3 and 4), with the paper's training recipe.
+dataset: BNCI2014_001
+labels: [left_hand, right_hand]
+channels: all            # the paper's 22 EEG channels
+reference: as_recorded   # the paper doesn't re-reference (it removes EOG components with ICA)
+alignments: [none, ea]   # architecture §8.4 rows 3 (EEGNet) and 4 (EEGNet + EA)
+alignment_unit: session  # one EA reference per recording session, as in the paper
+seeds: [20261005]
+validation_people: 0     # like the paper: train on all 8 other people, no early stopping
+
+model:                   # architecture §6.1
+  f1: 16
+  depth: 2
+  f2: 32
+  kernel_samples: 64     # 0.5 s at 128 Hz
+  dropout: 0.5           # the paper's value
+  embedding_dim: 64
+  spatial_max_norm: 1.0  # EEGNet's constraints
+  head_max_norm: 0.25
+
+train:                   # the paper's recipe: AdamW lr 1e-3, weight decay 0.05, 300 epochs, SWA
+  max_epochs: 300
+  lr: 0.001
+  min_lr: 0.0
+  weight_decay: 0.05
+  label_smoothing: 0.0
+  swa_fraction: 0.25     # average epochs 226-300
+  patience: null
+  people_per_batch: 8    # batches of 8 people x 8 windows = 64
+  windows_per_person: 8
+  log_every: 50

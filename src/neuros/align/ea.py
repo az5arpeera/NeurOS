@@ -11,10 +11,12 @@ shrinkage), so every person's average window looks the same to the model. If one
 is another's mixed by an invertible matrix A (different electrode contact, gains, head shape),
 alignment removes A up to a rotation: (A R̄ Aᵀ)^(-1/2) A = Q R̄^(-1/2) with Q orthogonal.
 
-**What it uses:** no labels, only the person's own unlabeled windows. Offline training uses all
-of a person's windows (the "full-session" reference). Online, the engine estimates R̄ from the
-stream with a population prior (§5 online, E2 measures how fast it converges); this module's
-``reference_from_covariances`` is shared by both.
+**What it uses:** no labels, only the person's own unlabeled windows. Offline, one reference
+covers either all of a person's windows or one recording session's (``align_groups``; the
+"full-session" reference). Per session matches the online engine, which starts a new
+reference each time the headset goes on and estimates it from the stream with a population
+prior (§5 online; E2 measures how fast it converges). ``reference_from_covariances`` is shared
+by both.
 
 **After CAR** (rank |S|-1): R̄ has a zero eigenvalue along the all-ones direction, which
 shrinkage lifts to γ·mean λ. The windows carry no energy in that direction, so alignment
@@ -25,6 +27,7 @@ That's expected and tested.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
 from numpy.typing import NDArray
@@ -37,8 +40,11 @@ from neuros.align.covariance import (
     regularize,
     window_covariances,
 )
-from neuros.errors import DataContext, NeurOSDataError
+from neuros.errors import DataContext, NeurOSConfigError, NeurOSDataError
 from neuros.signal.windows import WindowSet
+
+# Which windows share one EA reference: all of a person's, or one recording session's.
+AlignmentUnit = Literal["person", "session"]
 
 # Below this many windows the reference is noise; E2 measures the real requirement (16-32
 # trials in the literature). Offline training never gets near it; it guards misuse.
@@ -156,6 +162,66 @@ def apply_alignment(
     return np.asarray(aligned, dtype=np.float32)
 
 
+def alignment_groups(windows: WindowSet, unit: AlignmentUnit) -> tuple[str, ...]:
+    """The alignment group of every window: ``dataset:subject`` or ``dataset:subject/session``.
+
+    Raises:
+        NeurOSConfigError: on an unknown unit.
+    """
+    if unit == "person":
+        return windows.person_ids
+    if unit == "session":
+        return tuple(
+            f"{person}/{session}"
+            for person, session in zip(windows.person_ids, windows.sessions, strict=True)
+        )
+    raise NeurOSConfigError(f"unknown alignment unit {unit!r} (person, session)")
+
+
+def align_groups(
+    windows: WindowSet,
+    *,
+    unit: AlignmentUnit = "person",
+    shrinkage: float = DEFAULT_SHRINKAGE,
+    eigen_floor: float = DEFAULT_EIGEN_FLOOR,
+    max_condition: float = DEFAULT_MAX_CONDITION,
+) -> tuple[WindowSet, dict[str, AlignmentReference]]:
+    """Align each group's windows with a reference computed from that group's windows only.
+
+    ``unit="person"`` pools all of a person's sessions; ``unit="session"`` aligns each
+    recording session separately. Per session is the offline twin of the online engine, which
+    estimates a fresh reference every time the headset goes on (electrode contact changes
+    between sessions), and it's the protocol of the EA + EEGNet paper E0 reproduces.
+
+    Either way a group never mixes people: aligning a test person touches no training data,
+    and vice versa (person-level isolation, principle 2).
+
+    Returns:
+        ``(aligned windows in the original order, {group key: reference})``.
+
+    Raises:
+        NeurOSConfigError: on an unknown unit.
+        NeurOSDataError: if a group has too few windows (see ``reference_from_covariances``).
+    """
+    group_of = np.array(alignment_groups(windows, unit))
+    aligned = np.empty_like(windows.data)
+    references: dict[str, AlignmentReference] = {}
+    for group in dict.fromkeys(group_of.tolist()):
+        rows = np.flatnonzero(group_of == group)
+        person, _, session = group.partition("/")
+        dataset, _, subject = person.partition(":")
+        reference = euclidean_reference(
+            windows.data[rows],
+            shrinkage=shrinkage,
+            eigen_floor=eigen_floor,
+            max_condition=max_condition,
+            context=DataContext(dataset=dataset, subject=subject, session=session or None),
+        )
+        aligned[rows] = apply_alignment(windows.data[rows], reference)
+        references[group] = reference
+    return windows.with_data(aligned), references
+
+
 def align_per_person(
     windows: WindowSet,
     *,
@@ -163,30 +229,11 @@ def align_per_person(
     eigen_floor: float = DEFAULT_EIGEN_FLOOR,
     max_condition: float = DEFAULT_MAX_CONDITION,
 ) -> tuple[WindowSet, dict[str, AlignmentReference]]:
-    """Align every person's windows with a reference computed from that person's windows.
-
-    Uses each person's own windows only: aligning a test person touches no training data,
-    and vice versa (person-level isolation, principle 2).
-
-    Returns:
-        ``(aligned windows in the original order, {person_id: reference})``.
-
-    Raises:
-        NeurOSDataError: if a person has too few windows (see ``reference_from_covariances``).
-    """
-    person_of = np.array(windows.person_ids)
-    aligned = np.empty_like(windows.data)
-    references: dict[str, AlignmentReference] = {}
-    for person in windows.people:
-        rows = np.flatnonzero(person_of == person)
-        dataset, _, subject = person.partition(":")
-        reference = euclidean_reference(
-            windows.data[rows],
-            shrinkage=shrinkage,
-            eigen_floor=eigen_floor,
-            max_condition=max_condition,
-            context=DataContext(dataset=dataset, subject=subject),
-        )
-        aligned[rows] = apply_alignment(windows.data[rows], reference)
-        references[person] = reference
-    return windows.with_data(aligned), references
+    """``align_groups`` with one reference per person (all sessions pooled)."""
+    return align_groups(
+        windows,
+        unit="person",
+        shrinkage=shrinkage,
+        eigen_floor=eigen_floor,
+        max_condition=max_condition,
+    )

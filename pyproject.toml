@@ -23,7 +23,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Model layer (encoder, heads, training, test-time adaptation). Needed from week 1, Mon 5 Oct.
+# Model layer (encoder, heads, training, test-time adaptation). Needed from Day 3 (E0).
+# Install with `uv sync --extra dev --extra ml`. On Linux it comes from PyTorch's CPU-only
+# index (see [tool.uv.sources] below).
 ml = ["torch>=2.4"]
 # Online engine (LSL in, WebSocket out). Needed from week 2.
 engine = ["pylsl>=1.16", "brainflow>=5.12", "websockets>=12"]
@@ -44,6 +46,20 @@ neuros = "neuros.cli:main"
 [build-system]
 requires = ["hatchling>=1.24"]
 build-backend = "hatchling.build"
+
+# ---------------------------------------------------------------- package sources
+# PyTorch on Linux comes from PyTorch's own CPU-only index. PyPI's Linux wheel is ~555 MB and
+# pulls ~2.75 GB of NVIDIA CUDA libraries that CI never uses; the CPU build has the same API
+# and numerics on CPU. Windows and macOS wheels on PyPI are already CPU-only, so they stay on
+# PyPI. `explicit = true`: nothing but torch is ever resolved from this index.
+# The cluster (Q6b) will get a separate GPU variant when its CUDA version is known.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/neuros"]
@@ -72,6 +88,8 @@ ignore = [
     # Math code names matrices the way the papers do (X, C, R_bar, U). Readability of the
     # equations beats PEP 8 here; see architecture §5.
     "N803", "N806",
+    # `import torch.nn.functional as F` is PyTorch's universal convention.
+    "N812",
     # Docstrings and comments use µ, γ, ±, × on purpose (units and math).
     "RUF001", "RUF002", "RUF003",
 ]

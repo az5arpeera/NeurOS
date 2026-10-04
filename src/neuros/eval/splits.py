@@ -213,6 +213,77 @@ def load_locked_test_set(path: str | Path) -> LockedTestSet:
     return LockedTestSet(version, seed, fraction, created, test, digest)
 
 
+@dataclass(frozen=True)
+class Fold:
+    """One person-level split: who trains, who validates (early stopping), who is tested.
+
+    Raises:
+        NeurOSSplitError: if the three groups overlap, or the train or test group is empty.
+    """
+
+    index: int
+    test: tuple[str, ...]
+    validation: tuple[str, ...]
+    train: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        groups = {
+            "test": set(self.test),
+            "validation": set(self.validation),
+            "train": set(self.train),
+        }
+        if not self.test or not self.train:
+            raise NeurOSSplitError(f"fold {self.index}: train and test must both be non-empty")
+        for a, b in (("test", "train"), ("test", "validation"), ("validation", "train")):
+            shared = groups[a] & groups[b]
+            if shared:
+                raise NeurOSSplitError(f"fold {self.index}: {sorted(shared)} in both {a} and {b}")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "index": self.index,
+            "test": list(self.test),
+            "validation": list(self.validation),
+            "train": list(self.train),
+        }
+
+
+def loso_folds(
+    people: Sequence[str], *, n_validation: int = 0, seed: int = LOCKED_TEST_SEED
+) -> list[Fold]:
+    """Leave-one-person-out folds, in the order of ``people``.
+
+    Each fold tests one person. If ``n_validation`` > 0, that many validation people (for early
+    stopping and monitoring) are drawn from the fold's *training* people, with an RNG that
+    depends only on (seed, test person): reordering ``people`` changes no fold's draw.
+
+    Raises:
+        NeurOSConfigError: on duplicate people, fewer than 2 people, or so many validation
+            people that no one would be left to train on.
+    """
+    order = list(people)
+    if len(set(order)) != len(order):
+        raise NeurOSConfigError("people must be unique")
+    if len(order) < 2:
+        raise NeurOSConfigError("leave-one-person-out needs at least 2 people")
+    if n_validation < 0 or n_validation > len(order) - 2:
+        raise NeurOSConfigError(
+            f"n_validation must be in [0, {len(order) - 2}] for {len(order)} people "
+            f"(at least one training person per fold), got {n_validation}"
+        )
+    folds: list[Fold] = []
+    for index, test in enumerate(order):
+        rest = sorted(p for p in order if p != test)
+        validation: tuple[str, ...] = ()
+        if n_validation:
+            rng = _dataset_rng(seed, f"loso-validation:{test}")
+            picks = rng.choice(len(rest), size=n_validation, replace=False)
+            validation = tuple(sorted(rest[i] for i in picks))
+        train = tuple(p for p in rest if p not in validation)
+        folds.append(Fold(index=index, test=(test,), validation=validation, train=train))
+    return folds
+
+
 def make_dev_folds(
     people: Mapping[str, Sequence[int]], n_folds: int = 5, seed: int = LOCKED_TEST_SEED
 ) -> list[frozenset[str]]:

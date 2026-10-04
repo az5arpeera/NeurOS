@@ -93,6 +93,14 @@ class NeurOSSignalGapError(NeurOSSignalError):
         self.gap_s = gap_s
 
 
+class NeurOSTrainingError(NeurOSError):
+    """Model training went numerically wrong (e.g. the loss became NaN/Inf).
+
+    Training never continues past such a point: the weights are already corrupt, and a
+    "result" from them would be noise. The message names the epoch, batch and learning rate.
+    """
+
+
 class NeurOSSplitError(NeurOSError):
     """A train/test split integrity violation, e.g. a locked test person reaching training.
 
