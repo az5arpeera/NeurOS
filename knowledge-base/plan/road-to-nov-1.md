@@ -55,10 +55,16 @@ Claude Code pairs on all engineering. **Founders send all outreach;** Claude dra
   - **Leave-one-person-out runner** (`neuros loso --experiment configs/e0.yaml`): the 9 people's folds train in parallel (≈ 50 min per 300-epoch run on the laptop) and results carry full provenance.
 - **EA per recording session** (D-029): the paper's protocol, and what the live engine does. On the Riemannian baselines it changes results by < 1 point.
 - **Tests:** 539 pass (CI green on 3.11 and 3.13, PyTorch tests included).
-- **✅ E0 passes:** EEGNet + EA **75.0%** against the literature's 74.3% ± 3, on our own causal 2-s pipeline (9 people, one seed). See the [E0 results log](../results/2026-10-03-e0-eegnet-bnci2014-001.md).
+- **✅ E0's pipeline check passes:** EEGNet + EA **75.0%** against the literature's 74.3% ± 3, on our own causal 2-s pipeline (9 people, one seed). See the [E0 results log](../results/2026-10-03-e0-eegnet-bnci2014-001.md).
   - EEGNet without alignment: 72.1%. EA adds 2.9 points (better for 8 of 9 people; p = 0.074).
-  - **The deep model beats the best Riemannian baseline by 8.1 points** (p = 0.039, better for 7 of 9 people).
-  - The paper's 4-s window (run 4 Oct, 00:40): 83.7%, but it starts when the arrow appears, and the gains sit in the hardest people. It probably partly decodes the cue itself, not motor imagery. Two diagnostic windows are proposed in the results log; this matters for every cued dataset (E0b).
+  - On this window the deep model beat the best Riemannian baseline by 8.1 points (p = 0.039). It doesn't survive the cue control below.
+- **⚠️ 4 Oct cue diagnostics: the 75.0% is not a motor-imagery number.**
+  - The paper's 4-s window gave 83.7%, but **the arrow alone (its first 0.5 s) decodes at 75.8%**.
+  - **After the arrow has gone** ([1.5, 3.5] s): zero-calibration EEGNet scores **60.6%**, level with TS+LR + EA (60.4%) and **11.6 points below a calibrated model** (72.2%, p = 0.012).
+  - Before the cue, every model scores at chance: nothing leaks.
+  - Retracted: the 83.7%, the deep model's 8.1-point lead, and "zero-calibration on par with calibrated".
+  - **Proposed protocol change ([Q25](../open-questions.md)):** cue-controlled windows plus a cue-only control for every motor-imagery result. The founders decide.
+  - The cue-free [0.5, 4.0] s run is in progress.
 - **Fixed:** result files took their provenance stamp at the end of a run instead of the start. They now record the code that actually ran, plus a code-only "dirty" flag.
 - **Business:** [ready-to-adapt drafts for the first 10 outreach messages](../business/first-10-messages.md); the founders send them.
 - **Next:** cluster access (Q6b) before E1, which is too heavy for the laptop.
@@ -68,8 +74,8 @@ Claude Code pairs on all engineering. **Founders send all outreach;** Claude dra
 |---|---|---|
 | **Sat 3** | Scaffolding (pyproject, CI, src layout, error types). Data registry and harmonisation for BNCI2014-001/004 + PhysionetMI. `validate.py`. Compute C-core. Fix the locked test set by seed. Tests. | Draft the customer-interview script (calibration pain, current workflow, willingness to pay) |
 | Sun 4 | ✅ (done Sat 3 Oct evening) Causal filters, timestamp resampler, windows, offline EA (unit tests: aligned mean covariance = I). Riemannian baselines on BNCI2014-001 | ✅ List 15 target contacts: UVA EEG/BCI labs, OpenBCI forum, BCI startups |
-| Mon 5 – Tue 6 | ✅ (done Sat 3 Oct night) EEGNet encoder, trainer, subject-wise splits → **E0 sanity** (≈ 74% EA + EEGNet + SWA): **passed, 75.0%** | Founders send the first 10 outreach messages ([drafts ready](../business/first-10-messages.md)) |
-| Wed 7 – Fri 9 | Remaining loaders (Cho2017, Lee2019_MI, Dreyer2023, EEGMAT, Stieger subset). **E0b**, **E1** pooled + first LODO | One-page landing site + waitlist. YC: one-liner, founder bios, "why now" |
+| Mon 5 – Tue 6 | ✅ (done Sat 3 Oct night) EEGNet encoder, trainer, subject-wise splits → **E0 sanity** (≈ 74% EA + EEGNet + SWA): **pipeline check passed, 75.0%; cue-controlled 60.6%** (4 Oct) | Founders send the first 10 outreach messages ([drafts ready](../business/first-10-messages.md)) |
+| Wed 7 – Fri 9 | Remaining loaders (Cho2017, Lee2019_MI, Dreyer2023, EEGMAT, Stieger subset), recording how long each dataset's cue stays on screen. **E0b**, **E1** pooled + first LODO, on cue-controlled windows if Q25 is adopted | One-page landing site + waitlist. YC: one-liner, founder bios, "why now" |
 
 ## Week 2: Sat 10 → Fri 16 Oct · live engine and adaptation
 - **Engineering:**

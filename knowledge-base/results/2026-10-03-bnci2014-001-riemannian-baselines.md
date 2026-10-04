@@ -70,6 +70,7 @@
    - E0's target is EA + EEGNet + SWA ≈ **74.3% ± 3** (literature, same protocol family).
    - The literature range for cross-person left/right is 77–83% ([synthesis](../research/synthesis.md)).
    - Our deep model should beat these baselines by about 5 points to be worth its complexity.
+6. **4 Oct, after the arrow:** these windows include the arrow's last 0.75 s on screen. On [cue + 1.5, cue + 3.5 s], after the arrow has gone, cross-person TS+LR + EA falls from 66.9% to 60.4%, and the calibrated TS+LR from 75.8% to 72.2%. Before the cue, everything is at chance. Details in [E0](2026-10-03-e0-eegnet-bnci2014-001.md).
 
 ## Caveats
 - **9 people:** CIs are ±10 points wide. These numbers guide development; they prove nothing about 380 people.
@@ -78,7 +79,7 @@
 
 ## Regenerate
 ```bash
-uv run neuros --config configs/data.yaml baseline --dataset BNCI2014_001 [--channels c-core] [--reference car]
+uv run neuros --config configs/data.yaml baseline --dataset BNCI2014_001 [--channels c-core] [--reference car] [--alignment-unit session] [--window START END]
 ```
 - Each run takes about 1.5 minutes on the laptop.
 - Output: `results/baselines/BNCI2014_001_left_hand-right_hand_<channels>_<reference>.json`, with per-person scores, Wilcoxon tests and provenance.

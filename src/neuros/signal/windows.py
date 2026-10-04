@@ -2,8 +2,8 @@
 
 A window is ``[channels, 256]`` samples (2.0 s at 128 Hz) of the preprocessed signal:
 
-- **Offline task epochs** start at ``cue + 0.5 s`` (skipping the visual response to the cue)
-  and end at ``cue + 2.5 s``: ``extract_epochs``.
+- **Offline task epochs** start at ``cue + 0.5 s`` (skipping the visual response to the cue's
+  onset, though not a cue that stays on screen) and end at ``cue + 2.5 s``: ``extract_epochs``.
 - **Online**, the engine decides every hop (0.125 s = 16 samples) on the latest 256 samples:
   ``WindowStream``. ``sliding_windows`` is the offline equivalent; tests assert both yield the
   same windows from the same signal.

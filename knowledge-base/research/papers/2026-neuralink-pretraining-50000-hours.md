@@ -36,7 +36,7 @@ Link: [neuralink.com/updates/pretraining-on-50000-hours](https://neuralink.com/u
    - NeurOS: non-invasive EEG, any headset, no surgery, people the model has never seen.
    - Their data can't train an EEG model: different signal, physics and scale.
 3. **Their hardest open problem is our core bet.** Cross-person transfer doesn't yet help them online, and they have 50,000 hours. Our method is cross-person by construction: per-session alignment, pooled training on ~380 people, testing on people the model never saw.
-   - E0 (3 Oct) is a first, small sign it works on EEG: 75.0% for never-seen people, on par with a model calibrated on each person's own session (9 people, development numbers).
+   - E0 measures where we stand on EEG, with the on-screen cue controlled (4 Oct): 60.6% for never-seen people, against 72.2% for a model calibrated on each person's own session (9 people, development numbers). That 12-point gap is what NeurOS has to close. (An earlier "on par" reading, 75.0%, came largely from the cue: see the [E0 results](../../results/2026-10-03-e0-eegnet-bnci2014-001.md).)
 4. **"Behind on data" is the wrong axis.**
    - Their 50,000 hours are *deep* (thousands of hours from each of a few people); what we need is *broad* (many people, many headsets).
    - In EEG, scale has bought little so far: INCEPT's 11,000 hours of pretraining gives about +4 points over EEGNet ([synthesis §6](../synthesis.md)).

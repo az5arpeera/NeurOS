@@ -41,7 +41,9 @@ class SignalContract(BaseModel):
     notch_q: float = Field(default=30.0, gt=0)
     window_s: float = Field(default=2.0, gt=0)
     hop_s: float = Field(default=0.125, gt=0)
-    # Offline motor-imagery epoch relative to the cue: skips the visual response to the cue.
+    # Offline motor-imagery epoch relative to the cue: skips the visual response to the cue's
+    # onset. Not the whole cue: BNCI2014-001's arrow stays on screen until 1.25 s, and
+    # zero-calibration models decode it (E0 diagnostics, 4 Oct; proposal Q25).
     epoch_s: tuple[float, float] = (0.5, 2.5)
     reference: Literal["car", "as_recorded"] = "car"
 

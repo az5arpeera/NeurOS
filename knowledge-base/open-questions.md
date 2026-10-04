@@ -22,6 +22,21 @@ Founder (3 Oct): "TBD on specific roles". **Proposal** (in the [plan](plan/road-
 - **Founder:** data pipeline, engine/SDK, evaluation harness, outreach, the YC application.
 - **Cofounder:** model training and experiments.
 
+### Q25. Cue-controlled evaluation windows (proposed 4 Oct)
+**Why:**
+- E0's 75.0% came largely from the on-screen arrow.
+- After the arrow had gone, zero-calibration EEGNet scored 60.6% and a calibrated model 72.2% ([E0 results](results/2026-10-03-e0-eegnet-bnci2014-001.md)).
+- The brain's response to the cue looks alike in everyone, so cross-person models learn it first.
+
+**Recommendation** (would be D-030):
+- Every motor-imagery result reports a window that starts after the cue has left the screen, next to a cue-only control ([cue, cue + 0.5 s]).
+- Training uses the same windows, so the model learns imagery rather than the cue.
+- Each dataset's registry entry records how long its cue stays on screen. On BNCI2014-001 the window becomes [1.5, 3.5] s.
+- Datasets whose cue stays up for the whole trial report the cue-only control and carry a flag in every table.
+- The product contract's epoch (§4.2, 🔒) and the headline target (§8.6, X ≈ 75%) change through the decision log; revisit the target after E1.
+
+**Cost:** every number we publish gets lower, and more honest.
+
 ### Optional: email g.tec
 Ask about a student/startup price for the Unicorn (a second headset for the hardware-agnostic story).
 
