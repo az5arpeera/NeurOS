@@ -43,7 +43,9 @@ def common_average_reference(x: NDArray[np.floating], *, axis: int = -2) -> NDAr
     if n_channels < 2:
         raise NeurOSDataError(f"CAR needs at least 2 channels, got {n_channels}")
     wide = x.astype(np.float64, copy=False)
-    return (wide - wide.mean(axis=axis, keepdims=True)).astype(x.dtype, copy=False)
+    centred = wide - wide.mean(axis=axis, keepdims=True)
+    # Explicit ndarray: numpy 2.4's stubs type this arithmetic as Any (CI on Python 3.11).
+    return np.asarray(centred, dtype=x.dtype)
 
 
 @functools.cache
