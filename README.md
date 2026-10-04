@@ -7,7 +7,7 @@
 | Where | What |
 |---|---|
 | [`knowledge-base/`](knowledge-base/README.md) | Start here: research, datasets, decisions, the [MVP architecture](knowledge-base/architecture/mvp-architecture.md) (the coding guideline) and the [plan](knowledge-base/plan/road-to-nov-1.md) |
-| [`src/neuros/`](src/neuros/__init__.py) | The Python package (architecture §9). So far: the data layer (registry, harmonisation, validation, montage, vocabulary, splits) |
+| [`src/neuros/`](src/neuros/__init__.py) | The Python package (architecture §9). So far: the data layer (registry, harmonisation, validation, montage, vocabulary, splits), the causal signal chain (`signal/`), Euclidean Alignment (`align/`), metrics and Riemannian baselines (`eval/`) |
 | [`configs/`](configs/) | The data config (the signed-off signal contract) and the **locked test set** |
 | [`tests/`](tests/) | Unit and property tests on synthetic EEG; `data`-marked tests run against downloaded datasets |
 
@@ -23,6 +23,8 @@ uv run neuros montage                     # C-core (26 channels) and headset cov
 uv run neuros split                       # verify the locked test set (D-026)
 uv run neuros --config configs/data.yaml download --dataset BNCI2014_001
 uv run neuros --config configs/data.yaml validate --dataset BNCI2014_001
+uv run neuros filters                     # the causal filter's delay and gains at every native rate
+uv run neuros --config configs/data.yaml baseline --dataset BNCI2014_001   # Riemannian baselines
 ```
 
 - Raw data goes to `data/raw/` with a SHA-256 manifest in `data/manifests/`; reports go to `results/`. All three folders are git-ignored. Set `NEUROS_DATA_DIR` to put the data elsewhere (e.g. on the cluster).

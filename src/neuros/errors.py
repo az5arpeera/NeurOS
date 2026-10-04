@@ -72,6 +72,27 @@ class NeurOSLabelError(NeurOSDataError):
     """An event code or label that the canonical vocabulary doesn't map."""
 
 
+class NeurOSSignalError(NeurOSDataError):
+    """A chunk of samples or timestamps that the streaming signal chain can't accept.
+
+    Wrong shape or channel count, NaN/Inf samples, or timestamps that don't strictly increase.
+    Offline this aborts the recording; online the engine turns it into ``HOLD("signal")``.
+    """
+
+
+class NeurOSSignalGapError(NeurOSSignalError):
+    """The stream skipped more time than the signal chain may bridge (architecture §7.1).
+
+    Interpolating across a long gap would invent data, and filter state from before the gap no
+    longer describes the signal. The engine catches this, resets the chain and emits
+    ``HOLD("signal_gap")``.
+    """
+
+    def __init__(self, message: str, gap_s: float, context: DataContext | None = None) -> None:
+        super().__init__(message, context)
+        self.gap_s = gap_s
+
+
 class NeurOSSplitError(NeurOSError):
     """A train/test split integrity violation, e.g. a locked test person reaching training.
 

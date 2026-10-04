@@ -14,7 +14,8 @@ dependencies = [
     "scipy>=1.11",
     "mne>=1.7",
     "moabb>=1.1",
-    "pyriemann>=0.6",
+    "pyriemann>=0.12",
+    "scikit-learn>=1.4",
     "pandas>=2.1",
     "pyarrow>=15",
     "pydantic>=2.6,<3",
@@ -103,4 +104,6 @@ filterwarnings = [
     # MNE/MOABB emit deprecation noise from their own dependencies; our code must stay clean.
     "ignore::DeprecationWarning:mne.*",
     "ignore::DeprecationWarning:moabb.*",
+    # MOABB 1.7 requests the "standard_1005" montage that MNE 1.13 deprecates (MOABB-internal).
+    "ignore:Montage name .standard_1005. is deprecated:FutureWarning",
 ]

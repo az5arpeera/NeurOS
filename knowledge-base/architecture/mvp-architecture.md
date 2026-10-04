@@ -2,6 +2,7 @@
 
 **Status:** **signed off 2026-10-03 (D-022)** · builds on decisions D-001…D-026.
 - **Amended the same day:** D-024 (the command set is configurable; decoys and `HOLD("unrecognized")`), D-026 (which datasets feed the locked test set), and the Day-1 computation of C-core (26 channels, §4.3).
+- **Day 2 (D-028):** the filter order, notch Q, start-up behaviour and resampling method are fixed in code (§4.2), and the CAR/EA interaction is documented (§5). The contract itself is unchanged.
 - 🔒 sections change only through the decision log. Everything else can evolve as experiments report.
 
 This document *is* the "architectural guidelines, mathematical constraints, and data engineering patterns" that the founder's coding rule refers to: *"All generated code must be clean, heavily commented, production-grade, and include thorough error handling and data boundary checks."*
@@ -95,11 +96,11 @@ The training pool (D-011, D-012), each dataset's role and the download order are
 |---|---|---|
 | Units / dtype | **µV, float32** | MNE/MOABB return volts, and unit mistakes are the #1 silent bug. The loader asserts plausible amplitudes (median \|x\| within 0.5–200 µV). |
 | Sampling rate | **128 Hz** | Motor-imagery information sits at 8–30 Hz. It's EEGNet's default, and every source (160–1000 Hz) and headset (200–256 Hz) can reach it. |
-| Band | **4–30 Hz** causal IIR (Butterworth, second-order sections, state carried across chunks) + 50/60 Hz notch | The standard motor-imagery band, and consistent across datasets (EEGMAT's page reports a 30 Hz filter, to check on the data). It excludes most muscle activity, so we decode brain rhythms, not EMG. E0b checks 8–30 and 4–40. |
-| Resampling | Causal and timestamp-based: filter at the native rate, then interpolate onto a 128 Hz grid using sample timestamps | Handles awkward ratios (250 → 128) and LSL clock jitter identically offline and online |
+| Band | **4–30 Hz** causal IIR (Butterworth, second-order sections, state carried across chunks) + 50/60 Hz notch. **D-028:** order 4 per edge, notch Q = 30, steady-state start; ≈ 35 ms delay at 10 Hz, settled within 0.22 s (`neuros filters` prints it per rate) | The standard motor-imagery band, and consistent across datasets (EEGMAT's page reports a 30 Hz filter, to check on the data). It excludes most muscle activity, so we decode brain rhythms, not EMG. E0b checks 8–30 and 4–40. |
+| Resampling | Causal and timestamp-based: filter at the native rate, then interpolate onto a 128 Hz grid using sample timestamps. **D-028:** linear interpolation; gaps ≤ 0.5 s are bridged and counted, longer ones reset the chain | Handles awkward ratios (250 → 128) and LSL clock jitter identically offline and online |
 | Window | **2.0 s** (256 samples); online hop **0.125 s** (8 decisions/s) | 2 s is standard for motor imagery; the hop is configurable |
 | Offline MI epochs | [cue + 0.5 s, cue + 2.5 s] | Skips the visual response to the cue itself |
-| Reference | Default: common average over the canonical channels present. **E0b decides** against "as recorded". | Datasets use different references, and this must also work for 4-channel headsets |
+| Reference | Default: common average over the canonical channels present. **E0b decides** against "as recorded". Applied per window after the channel subset is chosen (D-028); it commutes with the filter chain, so the result is exact | Datasets use different references, and this must also work for 4-channel headsets |
 | Artifact features | Computed in parallel on the **native-rate broadband** signal | Muscle and motion energy live above 30 Hz |
 
 ### 4.3 Canonical montage and missing channels
@@ -172,6 +173,8 @@ R̂^(−1/2)  recomputed once per second (an 8×8 to 18×18 eigendecomposition: 
 R_pop     stored in the model bundle for each headset profile (from training people, identical preprocessing)
 ```
 **Hypothesis H1:** seeding R_user with the first ~30 s of relaxed rest (the "settling" phase) works as well as seeding with task data. E2 tests it.
+
+**After CAR** (rank |S|−1): R̄ has a zero eigenvalue along the all-ones direction, which the shrinkage lifts. The windows carry no energy there, so the aligned mean covariance is I − 11ᵀ/|S| rather than I (tested). Riemannian methods, which need strictly positive-definite matrices, first project onto the zero-sum subspace (D-028).
 
 **Numerical safety:**
 - symmetrise: (R + Rᵀ)/2;
@@ -326,6 +329,8 @@ JavaScript: `new NeurOSClient("ws://localhost:8765").on("intent", e => ...)` (D-
 - All runs logged, including failures.
 
 ### 8.4 Baselines in every table
+First numbers, BNCI2014-001 left/right, 9 people (3 Oct): [results log](../results/2026-10-03-bnci2014-001-riemannian-baselines.md). Best cross-person Riemannian result: 68.8%.
+
 1. Chance.
 2. Riemannian tangent space + logistic regression, and MDM (with and without re-centring).
 3. EEGNet without alignment.

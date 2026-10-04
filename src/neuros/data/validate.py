@@ -1,4 +1,4 @@
-"""Load-time validation of recordings against the data contract (architecture Â§4.5).
+"""Load-time validation of recordings against the data contract (architecture §4.5).
 
 Checks, each with an issue code:
 
@@ -9,7 +9,7 @@ sampling_rate        error    rate differs from the registry's declared native r
 unknown_channel      error    a channel the registry doesn't declare for this dataset
 non_finite           error    NaN or Inf samples (count per channel)
 flat_channel         error    window-detrended std below ``flat_std_uv`` (dead electrode)
-units                error    typical amplitude outside ``amplitude_mad_uv`` (volts vs ÂµV bug)
+units                error    typical amplitude outside ``amplitude_mad_uv`` (volts vs µV bug)
 too_short            error    shorter than one validation window
 unknown_label        error    an event label missing from the vocabulary
 no_events            error    a motor-imagery recording without task events
@@ -19,7 +19,7 @@ epoch_outside        flag     events whose offline epoch runs past the recording
 ==================== ======== ============================================================
 
 Errors make ``ValidationReport.ok`` false and ``raise_if_errors()`` raise
-``NeurOSDataError``. Flags are counted and reported, never silently dropped (Â§4.5).
+``NeurOSDataError``. Flags are counted and reported, never silently dropped (§4.5).
 
 Two measurement aids, neither of which ever feeds the model (that's the causal filter chain in
 ``neuros.signal``):
@@ -29,7 +29,7 @@ Two measurement aids, neither of which ever feeds the model (that's the causal f
   without detrending every channel of such a file would fail although the EEG is fine.
 - **Extreme amplitude and typical amplitude (units)** are measured in the contract band (4-30 Hz,
   zero-phase Butterworth), i.e. on what the model will actually see. Day-1 finding: on raw
-  PhysionetMI (unfiltered: line noise and drift included) 39% of windows exceeded 500 ÂµV
+  PhysionetMI (unfiltered: line noise and drift included) 39% of windows exceeded 500 µV
   peak-to-peak, which said nothing about artifacts the decoder would face.
 """
 
@@ -53,7 +53,7 @@ from neuros.errors import DataContext, NeurOSDataError
 Severity = Literal["error", "flag"]
 
 # Windows processed per chunk: bounds memory on long, high-rate recordings (Stieger: 1 kHz,
-# 60 channels â†’ 64 windows â‰ˆ 60 MB per float64 block).
+# 60 channels → 64 windows ≈ 60 MB per float64 block).
 _CHUNK_WINDOWS = 64
 # Relative tolerance when comparing sampling rates.
 _SFREQ_RTOL = 1e-6
@@ -146,7 +146,7 @@ def _windows(data: NDArray[np.float32], window: int) -> Iterator[NDArray[np.floa
     for start in range(0, n_windows, _CHUNK_WINDOWS):
         stop = min(start + _CHUNK_WINDOWS, n_windows)
         block = data[:, start * window : stop * window].astype(np.float64)
-        # [ch, w*window] â†’ [w, ch, window]
+        # [ch, w*window] → [w, ch, window]
         yield block.reshape(n_channels, stop - start, window).transpose(1, 0, 2)
 
 
@@ -280,7 +280,7 @@ def _window_checks(
         report.add(
             "extreme_amplitude",
             "flag",
-            f"{flagged}/{total} windows exceed {thresholds.ptp_flag_uv} ÂµV peak-to-peak "
+            f"{flagged}/{total} windows exceed {thresholds.ptp_flag_uv} µV peak-to-peak "
             f"in the {contract.band_hz[0]:g}-{contract.band_hz[1]:g} Hz band",
         )
 
@@ -293,16 +293,14 @@ def _window_checks(
         report.add(
             "units",
             "error",
-            f"every channel's std is below {thresholds.flat_std_uv} ÂµV (typical amplitude "
-            f"{report.amplitude_mad_uv:.3g} ÂµV): the data is probably still in volts",
+            f"every channel's std is below {thresholds.flat_std_uv} µV (typical amplitude "
+            f"{report.amplitude_mad_uv:.3g} µV): the data is probably still in volts",
         )
         return
     flat_channels = [recording.ch_names[i] for i in np.flatnonzero(flat_mask)]
     if flat_channels:
         report.flat_channels = flat_channels
-        report.add(
-            "flat_channel", "error", f"std < {thresholds.flat_std_uv} ÂµV on {flat_channels}"
-        )
+        report.add("flat_channel", "error", f"std < {thresholds.flat_std_uv} µV on {flat_channels}")
 
     # Typical amplitude: median over windows and *live* channels of the window MAD. Flat
     # channels are excluded so one dead electrode can't fake a unit error.
@@ -312,8 +310,8 @@ def _window_checks(
         report.add(
             "units",
             "error",
-            f"typical amplitude {report.amplitude_mad_uv:.4g} ÂµV is outside [{low}, {high}] ÂµV; "
-            "check the volts â†’ ÂµV conversion",
+            f"typical amplitude {report.amplitude_mad_uv:.4g} µV is outside [{low}, {high}] µV; "
+            "check the volts → µV conversion",
         )
 
 

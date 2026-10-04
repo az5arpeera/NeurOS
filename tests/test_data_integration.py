@@ -14,10 +14,13 @@ import pytest
 from neuros.config.schemas import DataConfig, load_data_config
 from neuros.data.download import prepare_mne_environment, verify_manifest
 from neuros.data.harmonize import harmonize_moabb_subject
+from neuros.data.prepare import prepare_subject, subject_epochs
 from neuros.data.recording import Recording
 from neuros.data.registry import get_spec
 from neuros.data.validate import validate_recording
 from neuros.data.vocabulary import Vocabulary
+from neuros.errors import NeurOSDataError
+from neuros.signal.windows import WindowFlag
 
 from .conftest import REPO_ROOT
 
@@ -92,3 +95,22 @@ def test_physionet_excluded_subject_fails_validation(config: DataConfig, vocab: 
 @pytest.mark.parametrize("key", ["BNCI2014_001", "BNCI2014_004", "PhysionetMI"])
 def test_manifest_intact(config: DataConfig, key: str) -> None:
     assert verify_manifest(get_spec(key), config.data_dir) == []
+
+
+def test_bnci2014_001_epochs_subject_1(config: DataConfig, vocab: Vocabulary) -> None:
+    """Day 2: the full chain (harmonise → validate → 128 Hz → epochs) on real data."""
+    windows, summary = subject_epochs(
+        get_spec("BNCI2014_001"), 1, vocab, config, ["left_hand", "right_hand"]
+    )
+    assert windows.data.shape == (288, 22, 256)  # 2 × 144 trials, 22 channels, 2 s at 128 Hz
+    assert windows.label_counts() == {"left_hand": 144, "right_hand": 144}
+    assert summary.skipped_outside == 0
+    assert windows.n_flagged(WindowFlag.FILTER_TRANSIENT) == 0
+    assert set(windows.sessions) == {"0train", "1test"}
+    # In-band amplitudes stay in a physiological range after the causal chain.
+    assert 1.0 < float(windows.data.std()) < 50.0
+
+
+def test_prepare_refuses_an_excluded_subject(config: DataConfig, vocab: Vocabulary) -> None:
+    with pytest.raises(NeurOSDataError, match="excluded"):
+        prepare_subject(get_spec("PhysionetMI"), 88, vocab, config)

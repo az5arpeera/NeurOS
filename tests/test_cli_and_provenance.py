@@ -41,6 +41,23 @@ def test_cli_split_check_and_write(tmp_path: Path, capsys: pytest.CaptureFixture
     assert main(["split", "--path", str(target), "--write"]) == 2  # refuses to overwrite
 
 
+def test_cli_filters(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["filters"]) == 0
+    out = capsys.readouterr().out
+    for rate in ("160", "200", "250", "1000"):
+        assert any(line.startswith(rate + " ") for line in out.splitlines()), rate
+    assert "headset:ganglion" in out
+    assert "PROBLEM" not in out
+
+
+def test_cli_baseline_refuses_locked_test_people(capsys: pytest.CaptureFixture[str]) -> None:
+    # PhysionetMI 4 is in the locked test set (D-026): no development run may touch it.
+    split = REPO_ROOT / "configs" / "splits" / "locked_test_v1.yaml"
+    args = ["baseline", "--dataset", "PhysionetMI", "--subjects", "4", "--split", str(split)]
+    assert main(args) == 2
+    assert "locked test people" in capsys.readouterr().err
+
+
 def test_cli_unknown_dataset(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["download", "--dataset", "Nope", "--verify"]) == 2
     assert "Unknown dataset" in capsys.readouterr().err

@@ -28,7 +28,15 @@ class SignalContract(BaseModel):
     # Motor-imagery information sits in mu (8-12 Hz) and beta (13-30 Hz); 4 Hz keeps theta for
     # the brain-state channel and drops slow drift. The 30 Hz top excludes most muscle activity.
     band_hz: tuple[float, float] = (4.0, 30.0)
+    # Butterworth order per band edge (scipy doubles it for a band-pass: 4 → 8 poles). Measured
+    # 2026-10-03 at every native rate in scope (160-1000 Hz): group delay ≈ 35 ms at 10 Hz,
+    # 99 % of the impulse-response energy within 0.22 s, ≥ 30 dB down at 64 Hz (the 128 Hz
+    # Nyquist, so the band-pass doubles as the resampler's anti-alias filter). Order 2 halves the
+    # delay but leaves only 15-29 dB at 64 Hz.
+    filter_order: int = Field(default=4, ge=1, le=8)
     notch_hz: tuple[float, ...] = (50.0, 60.0)
+    # Quality factor of each notch: -3 dB width = f0 / Q (1.7 Hz at 50 Hz).
+    notch_q: float = Field(default=30.0, gt=0)
     window_s: float = Field(default=2.0, gt=0)
     hop_s: float = Field(default=0.125, gt=0)
     # Offline motor-imagery epoch relative to the cue: skips the visual response to the cue.

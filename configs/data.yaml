@@ -8,7 +8,9 @@ results_dir: ../results
 signal:
   sfreq: 128.0
   band_hz: [4.0, 30.0]
+  filter_order: 4
   notch_hz: [50.0, 60.0]
+  notch_q: 30.0
   window_s: 2.0
   hop_s: 0.125
   epoch_s: [0.5, 2.5]
