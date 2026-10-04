@@ -64,7 +64,7 @@ Claude Code pairs on all engineering. **Founders send all outreach;** Claude dra
   - Before the cue, every model scores at chance: nothing leaks.
   - Retracted: the 83.7%, the deep model's 8.1-point lead, and "zero-calibration on par with calibrated".
   - **Proposed protocol change ([Q25](../open-questions.md)):** cue-controlled windows plus a cue-only control for every motor-imagery result. The founders decide.
-  - The cue-free [0.5, 4.0] s run is in progress.
+  - Without the arrow's first half-second, the 4-s window's 83.7% falls to 72.3% ([0.5, 4.0] s), no better than our 2-s window: its gain was the cue's onset, not the window's length.
 - **Fixed:** result files took their provenance stamp at the end of a run instead of the start. They now record the code that actually ran, plus a code-only "dirty" flag.
 - **Business:** [ready-to-adapt drafts for the first 10 outreach messages](../business/first-10-messages.md); the founders send them.
 - **Next:** cluster access (Q6b) before E1, which is too heavy for the laptop.
