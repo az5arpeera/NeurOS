@@ -24,6 +24,7 @@ Start with **[`synthesis.md`](synthesis.md)**: the cross-cutting conclusions and
 | 16 | Hoffmann et al. 2022, Chinchilla | arXiv | Full text available; summary-level use | [note](papers/2020-2025-scaling-laws-chinchilla-densing.md) |
 | 17 | Denk et al. 2023, Brain2Music | ar5iv HTML | Full | [note](papers/2023-denk-brain2music.md) |
 | 18 | An et al. 2021, EEG headphones music attention (ICASSP) | Microsoft Research PDF | Targeted full | [note](papers/2021-an-eeg-headphones-music-attention.md) |
+| 19 | Neuralink 2026, Pretraining on 50,000 hours of unlabeled brain data (company blog, 1 Oct). Founder-supplied, 4 Oct. | neuralink.com (rendered in the browser) | Full | [note](papers/2026-neuralink-pretraining-50000-hours.md) |
 
 ## Layer 1
 See [`layer-1-references.md`](layer-1-references.md): 25 references across alignment/UDA, backbones, contrastive/CLAP decoding and datasets, each with its read depth.
