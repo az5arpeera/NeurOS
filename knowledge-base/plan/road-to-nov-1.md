@@ -81,9 +81,21 @@ Claude Code pairs on all engineering. **Founders send all outreach;** Claude dra
   - The [AWS runbook](aws-runbook.md) and `scripts/aws/bootstrap.sh` are ready. The download list is measured at ≈ 282 GB, and each download waits for approval.
   - The preprocessed-recording cache (§4.5) makes every person's loading and filtering a one-time cost.
   - **E0b, Riemannian part**, running on the laptop: BNCI2014-001 (cue-free) × reference × band × channel set. PhysionetMI's development people follow.
+- **5 Oct, early hours: E0b's Riemannian part decides the band, and the E1 runner is built.**
+  - **8–30 Hz beats 4–30 Hz** with every method on both datasets: +2.4 to +4.2 points on BNCI2014-001 and +1.1 to +2.5 on PhysionetMI (84 people). The reference makes no difference, and the motor strip matches all channels.
+    - [Results](../results/2026-10-04-e0b-riemannian-band-reference-channels.md); [D-034](../decisions/decision-log.md).
+    - E1 runs at 8–30 Hz on the motor strip. The contract's default changes once EEGNet's check on AWS agrees.
+  - **`neuros e1`** (`configs/e1.yaml`): pooled vs single-dataset over 5 development folds, leave-one-dataset-out, and the cue-only control for every dataset.
+    - Test-only datasets are never trained on.
+    - Workers share the assembled windows read-only, and the result file is saved after every model.
+    - Smoke-tested on the laptop's three datasets.
+  - **Every command that loads data** now refuses people that `neuros download` didn't fetch. MOABB would otherwise download them unasked.
 - **Next:**
   - The founders: GPU quota, budget alarm, instance, download approvals ([runbook](aws-runbook.md)) and Q27.
-  - Claude: the E1 runner. Pooled training over every dataset on C-core with zero-fill, single-dataset and leave-one-dataset-out comparisons, and the cue-only control computed automatically for every dataset that isn't cue-free.
+  - On AWS, in order:
+    1. downloads, validation and a cue audit of every new dataset;
+    2. E0b's EEGNet check;
+    3. E1 (`neuros e1 --experiment configs/e1.yaml --device cuda --workers 8`).
 
 ## Week 1: Sat 3 → Fri 9 Oct · data and baselines
 | Day | Engineering | Business / YC |
