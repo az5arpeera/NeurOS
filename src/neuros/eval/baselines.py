@@ -29,7 +29,9 @@ because CAR makes covariances singular and Riemannian geometry needs them positi
 
 from __future__ import annotations
 
+import functools
 import logging
+import os
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -168,28 +170,74 @@ def _fit_predict(
     return np.asarray(model.predict(features.covariances[test]))
 
 
-def leave_one_person_out(method: Method, features: FeatureSet) -> list[PersonScore]:
+# The feature set a parallel fold worker scores, set once per worker process by
+# ``_init_fold_worker`` so the (possibly large) covariance array crosses the process boundary
+# once per worker rather than once per fold. Unused in the parent process.
+_WORKER_FEATURES: FeatureSet | None = None
+
+
+def _init_fold_worker(features: FeatureSet, threads: int) -> None:
+    """Worker start-up: keep the features and cap the BLAS threads (no oversubscription)."""
+    global _WORKER_FEATURES
+    _WORKER_FEATURES = features
+    try:
+        from threadpoolctl import threadpool_limits  # ships with scikit-learn
+
+        threadpool_limits(limits=threads)
+    except ImportError:  # pragma: no cover - scikit-learn always installs threadpoolctl
+        log.warning("threadpoolctl unavailable: BLAS threads in fold workers are not capped")
+
+
+def _loso_fold(method: Method, person: str, features: FeatureSet | None = None) -> PersonScore:
+    """Score one held-out person (module-level, so worker processes can run it)."""
+    data = features if features is not None else _WORKER_FEATURES
+    if data is None:
+        raise NeurOSConfigError("fold worker has no features (initializer not run)")
+    test = data.people == person
+    predicted = _fit_predict(method, data, ~test, test)
+    return score_person(
+        person,
+        data.labels[test],
+        predicted,
+        n_flagged=int(np.count_nonzero(data.flagged[test])),
+    )
+
+
+def leave_one_person_out(
+    method: Method, features: FeatureSet, *, workers: int = 1
+) -> list[PersonScore]:
     """Train on all people but one, test on that person; repeat for everyone.
 
+    Folds are independent, so ``workers > 1`` runs them in parallel processes with the same
+    results in the same order. Each fold refits the Riemannian mean of every training
+    covariance, which is what makes many-channel datasets slow: run one fold at a time, a
+    PhysionetMI audit (84 people, 64 channels) needed about 10 minutes per cell (4 Oct).
+
     Raises:
+        NeurOSConfigError: if ``workers`` < 1.
         NeurOSDataError: with fewer than 2 people.
     """
+    if workers < 1:
+        raise NeurOSConfigError(f"workers must be >= 1, got {workers}")
     people = list(dict.fromkeys(features.people.tolist()))
     if len(people) < 2:
         raise NeurOSDataError("leave-one-person-out needs at least 2 people")
-    scores: list[PersonScore] = []
-    for person in people:
-        test = features.people == person
-        predicted = _fit_predict(method, features, ~test, test)
-        scores.append(
-            score_person(
-                person,
-                features.labels[test],
-                predicted,
-                n_flagged=int(np.count_nonzero(features.flagged[test])),
-            )
-        )
-    return scores
+    workers = min(workers, len(people))
+    if workers == 1:
+        return [_loso_fold(method, person, features) for person in people]
+
+    import multiprocessing
+    from concurrent.futures import ProcessPoolExecutor
+
+    # Spawn, as for the deep folds: identical behaviour on Windows, macOS and Linux.
+    threads = max(1, (os.cpu_count() or 1) // workers)
+    with ProcessPoolExecutor(
+        max_workers=workers,
+        mp_context=multiprocessing.get_context("spawn"),
+        initializer=_init_fold_worker,
+        initargs=(features, threads),
+    ) as pool:
+        return list(pool.map(functools.partial(_loso_fold, method), people))
 
 
 def session_transfer(
@@ -253,9 +301,12 @@ def run_riemannian_baselines(
     methods: Sequence[Method] = METHODS,
     alignments: Sequence[Alignment] = ALIGNMENTS,
     with_session_transfer: bool = True,
+    workers: int = 1,
     progress: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     """Run every (method × alignment) baseline under LOSO, plus the session-transfer check.
+
+    ``workers`` parallelises the LOSO folds (``leave_one_person_out``); results are identical.
 
     Returns a JSON-serialisable dict: per-person scores, across-people summaries, and paired
     Wilcoxon tests of each alignment against ``none``.
@@ -267,7 +318,7 @@ def run_riemannian_baselines(
         features = build_features(windows, alignment=alignment, reference=reference, unit=unit)
         for method in methods:
             say(f"LOSO {method}+{alignment} ...")
-            scores = leave_one_person_out(method, features)
+            scores = leave_one_person_out(method, features, workers=workers)
             loso_scores[(method, alignment)] = scores
             results.append(_result(f"{method}+{alignment}", "loso", scores))
 

@@ -107,7 +107,10 @@ plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
 # Third-party scientific packages without complete type stubs.
-module = ["mne.*", "moabb.*", "pyriemann.*", "scipy.*", "pyarrow.*", "pandas.*", "sklearn.*"]
+module = [
+    "mne.*", "moabb.*", "pyriemann.*", "scipy.*", "pyarrow.*", "pandas.*", "sklearn.*",
+    "threadpoolctl",  # installed by scikit-learn; caps BLAS threads in baseline fold workers
+]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------- tests

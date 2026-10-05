@@ -154,6 +154,17 @@ def test_regions_with_too_few_channels_are_skipped_and_reported() -> None:
     assert set(_means(result)) == {("task", "all"), ("task", "motor")}
 
 
+def test_audit_reports_progress_after_every_cell() -> None:
+    # An interrupted audit keeps the cells it finished: the CLI saves them on each call.
+    calls: list[tuple[int, int]] = []
+    run_audit(
+        {"task": _people(("C4", "C3"), seed=7)},
+        _epochs("BNCI2014_001"),
+        on_cell=lambda cells, skipped: calls.append((len(cells), len(skipped))),
+    )
+    assert calls == [(1, 0), (2, 0), (3, 0), (4, 0), (5, 0)]  # all, eyes, motor, parietal, visual
+
+
 def test_run_audit_rejects_inconsistent_inputs() -> None:
     with pytest.raises(NeurOSConfigError, match="no epoch"):
         run_audit({"surprise": _people(None)}, _epochs("BNCI2014_001"))
@@ -166,6 +177,10 @@ def test_cli_audit_guards(capsys: pytest.CaptureFixture[str]) -> None:
     # All refused before any data loads.
     assert main(["audit", "--dataset", "EEGMAT", "--split", SPLIT]) == 2
     assert "cued motor-imagery" in capsys.readouterr().err
+    assert main(["audit", "--dataset", "BNCI2014_001", "--workers", "0"]) == 2
+    assert "--workers" in capsys.readouterr().err
+    assert main(["baseline", "--dataset", "BNCI2014_001", "--workers", "0"]) == 2
+    assert "--workers" in capsys.readouterr().err
     assert main(["audit", "--dataset", "BNCI2014_001", "--labels", "left_hand"]) == 2
     assert "--labels" in capsys.readouterr().err
     # PhysionetMI 4 is in the locked test set (D-026).

@@ -434,9 +434,12 @@ def _baseline_output_name(spec_key: str, args: argparse.Namespace, epoch: TaskEp
 def cmd_baseline(args: argparse.Namespace) -> int:
     from neuros.config.experiment import apply_signal_overrides
     from neuros.data.registry import get_spec
+    from neuros.errors import NeurOSConfigError
     from neuros.eval.baselines import run_riemannian_baselines
     from neuros.provenance import stamp
 
+    if args.workers < 1:
+        raise NeurOSConfigError("--workers must be >= 1")
     config = _config(args)
     if args.window is not None:
         # A diagnostic window (e.g. one that starts after the on-screen cue has gone), applied
@@ -456,7 +459,11 @@ def cmd_baseline(args: argparse.Namespace) -> int:
         f"{epoch.describe()}, reference {args.reference}, alignment per {args.alignment_unit}\n"
     )
     result = run_riemannian_baselines(
-        windows, reference=args.reference, unit=args.alignment_unit, progress=print
+        windows,
+        reference=args.reference,
+        unit=args.alignment_unit,
+        workers=args.workers,
+        progress=print,
     )
 
     rows = []
@@ -513,6 +520,17 @@ def cmd_baseline(args: argparse.Namespace) -> int:
     return 0
 
 
+def _default_fold_workers() -> int:
+    """Parallel folds for the Riemannian baselines: half the CPUs, at most 12.
+
+    Each worker holds its own copy of the covariance matrices (≈ 125 MB for PhysionetMI at 64
+    channels) plus its fitting buffers, so the cap keeps memory well inside a 16 GB laptop.
+    """
+    import os
+
+    return max(1, min(12, (os.cpu_count() or 2) // 2))
+
+
 def _audit_output_name(spec_key: str, args: argparse.Namespace, task: TaskEpoch) -> str:
     """Result file name for an audit: every setting that changes the numbers, as for baselines."""
     name = f"{spec_key}_{'-'.join(args.labels)}_{args.reference}_{args.alignment_unit}"
@@ -537,6 +555,8 @@ def cmd_audit(args: argparse.Namespace) -> int:
     from neuros.provenance import stamp
     from neuros.signal.windows import WindowSet
 
+    if args.workers < 1:
+        raise NeurOSConfigError("--workers must be >= 1")
     config = _config(args)
     spec = get_spec(args.dataset)
     # Resolved before anything loads: a dataset without class cues, or one whose task can't host
@@ -576,14 +596,50 @@ def cmd_audit(args: argparse.Namespace) -> int:
     print(
         f"\n{len(subjects)} people, {len(ch_names)} channels; per region: "
         + ", ".join(f"{region} {n}" for region, n in region_sizes.items())
-        + "\n",
+        + f"; {args.workers} fold workers\n",
         flush=True,
     )
+
+    task = windows_spec[-1].epoch
+    out = config.results_dir / "audit" / _audit_output_name(spec.key, args, task)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    header = {
+        "protocol": {
+            "dataset": spec.key,
+            "labels": list(args.labels),
+            "channels": list(ch_names),
+            "region_channels": {
+                region: list(region_channels(region, ch_names)) for region in SCALP_REGIONS
+            },
+            "class_on_screen_s": spec.class_on_screen_s,
+            "cue_margin_s": config.signal.cue_margin_s,
+            "windows": {w.name: w.epoch.to_dict() for w in windows_spec},
+            "sfreq": config.signal.sfreq,
+            "subjects": subjects,
+            "split_file": str(args.split),
+            "workers": args.workers,
+        },
+        "subjects": per_subject,
+    }
+
+    def save_progress(cells: list[dict[str, Any]], skipped: list[dict[str, Any]]) -> None:
+        # Rewritten after every cell, so an interrupted audit keeps the cells it finished.
+        partial = {
+            "provenance": provenance,
+            "complete": False,
+            **header,
+            "cells": cells,
+            "skipped_cells": skipped,
+        }
+        out.write_text(json.dumps(partial, indent=1), encoding="utf-8", newline="\n")
+
     result = run_audit(
         window_sets,
         {w.name: w.epoch for w in windows_spec},
         reference=args.reference,
         unit=args.alignment_unit,
+        workers=args.workers,
+        on_cell=save_progress,
         progress=print,
     )
 
@@ -609,28 +665,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
     for finding in result["findings"]:
         print(f"[{finding['level']}] {finding['message']}")
 
-    task = windows_spec[-1].epoch
-    out = config.results_dir / "audit" / _audit_output_name(spec.key, args, task)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "provenance": _finished(provenance),
-        "protocol": {
-            "dataset": spec.key,
-            "labels": list(args.labels),
-            "channels": list(ch_names),
-            "region_channels": {
-                region: list(region_channels(region, ch_names)) for region in SCALP_REGIONS
-            },
-            "class_on_screen_s": spec.class_on_screen_s,
-            "cue_margin_s": config.signal.cue_margin_s,
-            "windows": {w.name: w.epoch.to_dict() for w in windows_spec},
-            "sfreq": config.signal.sfreq,
-            "subjects": subjects,
-            "split_file": str(args.split),
-        },
-        "subjects": per_subject,
-        **result,
-    }
+    payload = {"provenance": _finished(provenance), "complete": True, **header, **result}
     out.write_text(json.dumps(payload, indent=1), encoding="utf-8", newline="\n")
     print(f"\nresults: {out}")
     # Exit 1 ("checks found problems") on a leak; a cue-dominated dataset is a finding, not a bug.
@@ -873,6 +908,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="a fixed epoch [START, END] s from the cue instead of the contract's after-cue "
         "rule (D-030): e.g. 0 0.5 for the cue-only control, -0.5 0 for a pre-cue null check",
     )
+    p.add_argument(
+        "--workers",
+        type=int,
+        default=_default_fold_workers(),
+        help="parallel leave-one-person-out folds (identical results; default: half the CPUs, "
+        "at most 12)",
+    )
     p.add_argument("--split", default=str(DEFAULT_SPLIT_PATH), help="locked test set file")
     p.set_defaults(func=cmd_baseline)
 
@@ -892,6 +934,13 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["person", "session"],
         default="session",
         help="one EA reference per recording session (as in E0) or per person",
+    )
+    p.add_argument(
+        "--workers",
+        type=int,
+        default=_default_fold_workers(),
+        help="parallel leave-one-person-out folds (identical results; default: half the CPUs, "
+        "at most 12, since each worker holds a copy of the covariances)",
     )
     p.add_argument("--split", default=str(DEFAULT_SPLIT_PATH), help="locked test set file")
     p.set_defaults(func=cmd_audit)

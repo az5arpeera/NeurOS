@@ -119,3 +119,18 @@ def test_alignment_per_session(shifted_people: WindowSet) -> None:
         shifted_people, unit="session", methods=["mdm"], alignments=["none", "ea"]
     )
     assert result["alignment_unit"] == "session"
+
+
+@pytest.mark.slow
+def test_parallel_folds_match_sequential_folds(shifted_people: WindowSet) -> None:
+    # Spawned worker processes must give the same scores, in the same order.
+    features = build_features(shifted_people, alignment="ea")
+    sequential = leave_one_person_out("ts_lr", features)
+    parallel = leave_one_person_out("ts_lr", features, workers=2)
+    assert [s.to_dict() for s in parallel] == [s.to_dict() for s in sequential]
+
+
+def test_fold_workers_must_be_positive(shifted_people: WindowSet) -> None:
+    features = build_features(shifted_people, alignment="none")
+    with pytest.raises(NeurOSConfigError, match="workers"):
+        leave_one_person_out("ts_lr", features, workers=0)

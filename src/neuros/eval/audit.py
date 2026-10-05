@@ -165,9 +165,15 @@ def run_audit(
     *,
     reference: Reference = "as_recorded",
     unit: AlignmentUnit = "session",
+    workers: int = 1,
+    on_cell: Callable[[list[dict[str, Any]], list[dict[str, Any]]], None] | None = None,
     progress: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     """Score every (window × region) cell with TS+LR + EA, leave-one-person-out.
+
+    ``workers`` runs each cell's folds in parallel (identical results). ``on_cell`` is called
+    with the scored and skipped cells so far after every cell, so a caller can save progress:
+    a long audit that's interrupted keeps what it finished.
 
     Returns a JSON-serialisable dict: the cells (summaries and per-person scores), the skipped
     cells with their reason, and the plain-language findings.
@@ -208,8 +214,10 @@ def run_audit(
             features = build_features(
                 subset, alignment=AUDIT_ALIGNMENT, reference=reference, unit=unit
             )
-            scores = leave_one_person_out(AUDIT_METHOD, features)
+            scores = leave_one_person_out(AUDIT_METHOD, features, workers=workers)
             cells.append(_cell(name, epochs[name], region, channels, scores))
+            if on_cell is not None:
+                on_cell(cells, skipped)
     return {
         "method": f"{AUDIT_METHOD}+{AUDIT_ALIGNMENT}",
         "protocol": "loso",
