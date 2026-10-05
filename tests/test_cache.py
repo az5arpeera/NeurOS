@@ -71,6 +71,7 @@ def test_key_covers_preprocessing_not_windows(vocab: Vocabulary) -> None:
     assert _key(spec, vocab, with_signal(band_hz=[8.0, 30.0])) != base
     assert _key(make_spec(cue_offset_s=0.5), vocab, config) != base
     assert _key(make_spec(excluded_channels={"Pz": "faulty"}), vocab, config) != base
+    assert _key(make_spec(unit_scale=1 / 32), vocab, config) != base  # D-035: rescales samples
     other_maps = {**vocab.event_maps, "Synthetic": {"left_hand": "left_hand"}}
     assert _key(spec, vocab.model_copy(update={"event_maps": other_maps}), config) != base
     # Descriptive fields don't.

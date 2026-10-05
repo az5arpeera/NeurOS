@@ -257,3 +257,14 @@ def test_spec_validation(
 ) -> None:
     with pytest.raises(error, match=message):
         make_spec(**overrides)
+
+
+def test_unit_scale_d035() -> None:
+    # Only Cho2017 is rescaled, by exactly BioSemi's raw step, and it's flagged as inferred.
+    cho = get_spec("Cho2017")
+    assert cho.unit_scale == pytest.approx(1 / 32)
+    assert "unit_scale" in cho.unverified
+    assert all(spec.unit_scale == 1.0 for key, spec in DATASETS.items() if key != "Cho2017")
+    for bad in (0.0, -1.0, 1e-4, 1e4, float("inf"), float("nan")):
+        with pytest.raises(NeurOSConfigError, match="unit_scale"):
+            make_spec(unit_scale=bad)

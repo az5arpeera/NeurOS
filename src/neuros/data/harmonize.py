@@ -184,7 +184,10 @@ def harmonize_raw(
     )
     events = extract_events(raw, event_id, spec, vocabulary, context)
     volts = raw.get_data(picks=picks)
-    data = (np.asarray(volts, dtype=np.float64) * VOLTS_TO_MICROVOLTS).astype(np.float32)
+    # The contract unit is µV. unit_scale corrects files that aren't in the unit MOABB assumes
+    # (Cho2017 holds BioSemi's raw 31.25-nV steps: D-035); 1.0 everywhere else.
+    to_microvolts = VOLTS_TO_MICROVOLTS * spec.unit_scale
+    data = (np.asarray(volts, dtype=np.float64) * to_microvolts).astype(np.float32)
     return Recording(
         data=data,
         sfreq=float(raw.info["sfreq"]),

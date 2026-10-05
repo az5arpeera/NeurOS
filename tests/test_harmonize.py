@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Sequence
 
 import mne
@@ -180,3 +181,13 @@ def test_negative_cue_offset_moves_events_back_to_the_cue(fake_vocab: Vocabulary
     assert rec.events.onsets.tolist() == [500, 2500]  # 2 s = 500 samples earlier
     with pytest.raises(NeurOSDataError, match="outside the recording"):
         _harmonize(_raw(events=((250, 1),)), early, fake_vocab)  # the cue would precede t = 0
+
+
+def test_unit_scale_corrects_files_not_in_the_assumed_unit(fake_vocab: Vocabulary) -> None:
+    # Cho2017 style (D-035): the files hold BioSemi's raw 31.25-nV steps, read by MOABB as µV.
+    base = make_spec(key="FakeMI", eeg_channels=("FC3", "C3", "Cz", "C4"), cue_offset_s=2.0)
+    raw = _raw()
+    plain = _harmonize(raw, base, fake_vocab)
+    scaled = _harmonize(raw, dataclasses.replace(base, unit_scale=1 / 32), fake_vocab)
+    np.testing.assert_allclose(scaled.data, plain.data / 32, rtol=1e-6)
+    assert scaled.events.onsets.tolist() == plain.events.onsets.tolist()  # timing untouched

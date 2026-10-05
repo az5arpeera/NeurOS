@@ -4,6 +4,23 @@ Newest first. Format: **ID · date · decision** — why · who. Superseded deci
 
 ## Decided
 
+- **D-035 · 2026-10-05 · Cho2017's files are 32× too large: rescale by 1/32 when harmonising.** A data-correctness fix found by validation on AWS. · Claude (data layer); the founders may veto
+  - **Evidence (5 Oct):**
+    - Read as µV, every one of the 52 recordings has a typical 4–30 Hz amplitude of 160–260 µV, and every window exceeds 500 µV peak to peak. Three people (12, 39, 48) fail the units check outright (> 200 µV).
+    - **Common average doesn't explain it:** 107–143 µV after it.
+    - **The spectrum is EEG-shaped**, falling with frequency and with an alpha peak at 10 Hz, but **20–26× Dreyer2023's at every frequency** from 4 to 30 Hz (C3/Cz/C4, two people each). A unit error scales everything; noise wouldn't keep EEG's shape.
+    - **The paper's own rule only fits a smaller scale:** a trial was bad if its 8–30 Hz signal exceeded ±100 µV. At our reading almost every trial would fail; at 1/32 only artifacts do.
+    - **The mechanism:** BioSemi's raw step is 31.25 nV = 1/32 µV, so the files hold raw steps, which MOABB reads as µV.
+    - The publisher's documentation doesn't state the unit. The factor is therefore inferred, and `unit_scale` is listed as unverified for Cho2017.
+  - **Applied:**
+    - registry field `unit_scale` (default 1.0, bounded to [0.001, 1000]); Cho2017 = 1/32;
+    - `harmonize_raw` multiplies by it;
+    - it's part of the cache key, like every data-shaping field.
+  - **Effect:**
+    - **None on aligned models** (EEGNet + EA, E1): per-session Euclidean alignment divides out a session's scale.
+    - **It matters for:** validation thresholds, unaligned Riemannian baselines, and the online quality gate, whose thresholds §7.1 tunes on Cho2017's non-task recordings.
+    - Without it, the three failing people would have stopped E1 at data preparation.
+
 - **D-034 · 2026-10-04 · E0b, Riemannian part: 8–30 Hz, common average reference, motor strip.** Made by the E0b rule ("pick on dev folds; record in the decision log", architecture §8.5). · Claude (E0b rule); the founders may veto
   - **Evidence** ([results](../results/2026-10-04-e0b-riemannian-band-reference-channels.md)):
     - **Band:** 8–30 Hz beats the contract's 4–30 Hz with every method on both datasets.

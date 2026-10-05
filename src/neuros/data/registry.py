@@ -107,6 +107,11 @@ class DatasetSpec:
     # EEG channels in the files that must not be used (publisher-reported faults), with reasons.
     # They stay in eeg_channels, so the file check still sees them; harmonisation drops them.
     excluded_channels: Mapping[str, str] = field(default_factory=dict)
+    # Factor from what MOABB returns (after the volts -> µV conversion) to true µV. 1.0 for
+    # correctly scaled files. Cho2017 (D-035): its files hold BioSemi's raw steps (31.25 nV each)
+    # rather than µV, so MOABB's values read 32x too large; 1/32 corrects them. Applied in
+    # harmonize_raw and part of the cache key (every non-descriptive field is).
+    unit_scale: float = 1.0
     unverified: tuple[str, ...] = ()
     # Named subgroups with inclusive subject-id ranges, used to stratify splits.
     subgroups: Mapping[str, tuple[int, int]] = field(default_factory=dict)
@@ -133,6 +138,11 @@ class DatasetSpec:
         # Negative is allowed: the marker may come after the cue (see the field's comment).
         if not math.isfinite(self.cue_offset_s):
             raise NeurOSConfigError(f"{self.key}: cue_offset_s must be finite")
+        # A unit correction, not a gain knob: anything beyond 1000x either way is a mistake.
+        if not (math.isfinite(self.unit_scale) and 1e-3 <= self.unit_scale <= 1e3):
+            raise NeurOSConfigError(
+                f"{self.key}: unit_scale must be within [0.001, 1000], got {self.unit_scale}"
+            )
         if not (math.isfinite(self.task_from_s) and 0 <= self.task_from_s < self.task_s):
             raise NeurOSConfigError(
                 f"{self.key}: task_from_s must be within [0, task_s={self.task_s}) s, "
@@ -476,7 +486,14 @@ _SPECS: tuple[DatasetSpec, ...] = (
         licence="GigaDB, CC0 (verify, Q7b)",
         url="https://doi.org/10.5524/100295",
         channels_source=_MOABB_SOURCE,
-        unverified=("pre_cue_fixation_s", "licence", "class_on_screen_s"),
+        # D-035 (5 Oct): read as µV, every recording's typical 4-30 Hz amplitude was 160-260 µV
+        # (107-143 after common average) and every window exceeded 500 µV peak-to-peak; the
+        # spectrum is EEG-shaped (1/f, alpha peak) but 20-26x Dreyer2023's at every frequency.
+        # The paper's own bad-trial rule (±100 µV, 8-30 Hz) only works at a ~32x smaller scale,
+        # and BioSemi's raw step is 31.25 nV = 1/32 µV: the files hold raw steps. Inferred, not
+        # documented by the publisher, hence listed as unverified.
+        unit_scale=1 / 32,
+        unverified=("pre_cue_fixation_s", "licence", "class_on_screen_s", "unit_scale"),
         notes=(
             "Biosemi, DC-coupled: large offsets and drift are expected in raw data. Also has "
             "non-task recordings (blinks, eye/head movement, jaw clench) for the artifact gate."
