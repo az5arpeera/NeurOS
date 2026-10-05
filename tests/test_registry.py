@@ -7,12 +7,15 @@ import pytest
 from neuros.config.schemas import SignalContract
 from neuros.data.registry import (
     DATASETS,
+    assert_may_train,
     check_against_moabb,
     check_registry,
     get_spec,
     keys_with_role,
     locked_test_dataset_keys,
+    moabb_dataset,
     task_epoch,
+    trainable_keys,
 )
 from neuros.data.vocabulary import Vocabulary
 from neuros.errors import NeurOSChannelError, NeurOSConfigError
@@ -30,15 +33,99 @@ def test_registry_shape() -> None:
     )
     assert keys_with_role("literature") == ("BNCI2014_001", "BNCI2014_004")
     assert keys_with_role("brain_state") == ("EEGMAT",)
-    # ~364 core people (D-011) + 18 literature + 36 EEGMAT.
+    # D-033 (4 Oct): the cue-free and gaze-diagnostic datasets.
+    assert keys_with_role("cue_free") == ("Yang2025", "Shin2017A")
+    assert keys_with_role("diagnostic") == ("GuttmannFlury2025",)
+    # ~364 core people (D-011) + 18 literature + 36 EEGMAT + 51 + 29 + 31 (D-033).
     assert sum(DATASETS[k].n_subjects for k in keys_with_role("core")) == 364
+    assert [DATASETS[k].n_subjects for k in ("Yang2025", "Shin2017A", "GuttmannFlury2025")] == [
+        51,
+        29,
+        31,
+    ]
 
 
 def test_locked_test_datasets_exclude_bnci() -> None:
     keys = locked_test_dataset_keys()
     assert "BNCI2014_001" not in keys
     assert "BNCI2014_004" not in keys
-    assert set(keys) == {*keys_with_role("core"), "EEGMAT"}
+    assert set(keys) == {
+        *keys_with_role("core"),
+        "EEGMAT",
+        "Yang2025",
+        "Shin2017A",
+        "GuttmannFlury2025",
+    }
+
+
+def test_training_restrictions_d033() -> None:
+    # Shin2017A is GPL-3.0 (testing only until the founders decide); GuttmannFlury2025 is a
+    # diagnostic. Everything else may train a model we ship.
+    assert [k for k, s in DATASETS.items() if not s.may_train] == ["Shin2017A", "GuttmannFlury2025"]
+    assert get_spec("Shin2017A").use == "test"
+    assert get_spec("GuttmannFlury2025").use == "diagnostic"
+    assert get_spec("Yang2025").use == "train"
+    pool = ("PhysionetMI", "Shin2017A", "Yang2025", "GuttmannFlury2025")
+    assert trainable_keys(pool) == ("PhysionetMI", "Yang2025")
+    assert_may_train(("PhysionetMI", "Yang2025"), "pooled training")  # no error
+    with pytest.raises(NeurOSConfigError, match=r"Shin2017A: GPL-3\.0") as info:
+        assert_may_train(pool, "pooled training")
+    assert "GuttmannFlury2025: diagnostic only" in str(info.value)
+    with pytest.raises(NeurOSConfigError, match="declare train_restriction"):
+        make_spec(role="diagnostic")
+    with pytest.raises(NeurOSConfigError, match="not blank"):
+        make_spec(train_restriction="  ")
+
+
+def test_d033_epochs_time_imagery_from_the_cue() -> None:
+    contract = SignalContract()
+    # Yang2025: 1.5-s video, imagery 1.5-5.5 s. Shin2017A: 2-s arrow, imagery 2-12 s, marker at
+    # the task start (cue_offset_s = -2). Both cue-free. GuttmannFlury2025: rectangle all along.
+    expected = {
+        "Yang2025": (1.75, 3.75, True),
+        "Shin2017A": (2.25, 4.25, True),
+        "GuttmannFlury2025": (2.0, 4.0, False),
+    }
+    for key, values in expected.items():
+        epoch = task_epoch(get_spec(key), contract)
+        assert (epoch.start_s, epoch.end_s, epoch.cue_free) == values, key
+    assert get_spec("Shin2017A").cue_offset_s == -2.0
+    # The cue-only control may cover the cue before imagery starts.
+    cue_only = task_epoch(get_spec("Yang2025"), SignalContract(window_s=0.5, epoch_s=(0.0, 0.5)))
+    assert (cue_only.cue_free, cue_only.rule) == (False, "fixed")
+    # The after-cue rule never starts before imagery, even when the class leaves earlier.
+    early = make_spec(task_from_s=2.0, task_s=6.0, class_on_screen_s=0.5)
+    assert task_epoch(early, contract).start_s == 2.0
+    with pytest.raises(NeurOSConfigError, match=r"imagery \(1 s\) is shorter than one window"):
+        task_epoch(make_spec(task_from_s=3.0, task_s=4.0, class_on_screen_s=3.0), contract)
+
+
+def test_excluded_channels_d033() -> None:
+    spec = get_spec("GuttmannFlury2025")
+    assert len(spec.eeg_channels) == 60
+    assert len(spec.usable_eeg_channels) == 49
+    assert {"F3", "FC3", "P4"} <= set(spec.excluded_channels)
+    assert all("recommend" in reason for reason in spec.excluded_channels.values())
+    with pytest.raises(NeurOSConfigError, match="not declared EEG channels"):
+        make_spec(excluded_channels={"O1": "faulty"})
+    with pytest.raises(NeurOSConfigError, match="needs a reason"):
+        make_spec(excluded_channels={"C3": " "})
+    with pytest.raises(NeurOSConfigError, match="every EEG channel is excluded"):
+        make_spec(eeg_channels=("C3",), excluded_channels={"C3": "faulty"})
+
+
+def test_moabb_arguments_d033() -> None:
+    yang = moabb_dataset(get_spec("Yang2025"))
+    assert yang.paradigm_type == "2C"
+    assert list(yang.subject_list) == list(range(1, 52))
+    with pytest.raises(NeurOSConfigError, match="contradict the registry"):
+        moabb_dataset(get_spec("Yang2025"), paradigm_type="3C")
+    # A licence is accepted per download by a person, never by the registry.
+    with pytest.raises(NeurOSConfigError, match="'accept' can't be a registry argument"):
+        make_spec(moabb_class="Shin2017A", moabb_kwargs={"accept": True})
+    with pytest.raises(NeurOSConfigError, match="no moabb_class"):
+        make_spec(moabb_kwargs={"paradigm_type": "2C"})
+    assert get_spec("Shin2017A").licence_acceptance is not None
 
 
 def test_check_registry_passes(vocab: Vocabulary) -> None:
@@ -155,7 +242,9 @@ def test_subgroups() -> None:
         ({"subjects": (2, 1)}, NeurOSConfigError, "sorted"),
         ({"subjects": ()}, NeurOSConfigError, "no subjects"),
         ({"native_sfreq": 0.0}, NeurOSConfigError, "positive"),
-        ({"cue_offset_s": -1.0}, NeurOSConfigError, "cue_offset_s"),
+        ({"cue_offset_s": float("nan")}, NeurOSConfigError, "cue_offset_s"),
+        ({"task_from_s": 4.0}, NeurOSConfigError, "task_from_s"),
+        ({"task_from_s": -0.5}, NeurOSConfigError, "task_from_s"),
         ({"pre_cue_fixation_s": None}, NeurOSConfigError, "pre_cue"),
         ({"subgroups": {"A": (1, 2)}}, NeurOSConfigError, "cover the subjects"),
         ({"subgroups": {"A": (1, 2), "B": (2, 3)}}, NeurOSConfigError, "subgroups"),

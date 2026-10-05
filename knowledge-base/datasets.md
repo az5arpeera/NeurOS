@@ -14,8 +14,16 @@ Locked by D-011, D-012 and [architecture §4](architecture/mvp-architecture.md).
 | 5 | Dreyer2023 | Motor imagery (EEG channels; EOG/EMG only for artifact analysis) | Core | Verify |
 | 6 | EEGMAT | Rest vs mental arithmetic | E6 brain state | Small |
 | 7 | Stieger2021 | **Sessions 1–2 per person first** | Core (62 people) | **377 GB** for all 598 sessions |
+| 8 | Yang2025 (D-033) | The two-class paradigm: 51 people × 3 sessions × 200 left/right trials; eyes-open/closed baselines (H1) | **Cue-free**: training and cue-free testing | **65.6 GB** (one Figshare+ ZIP, MD5 published) |
+| 9 | Shin2017A (D-033) | Left/right imagery, 29 people × 60 trials | **Cue-free, testing only** (GPL-3.0); montage needs Q27 | **6.26 GB** (six zips; also hold dataset B, rest vs arithmetic) |
+| 10 | GuttmannFlury2025 (D-033) | Motor imagery, 31 people × 1–3 sessions × 40 trials, with Tobii gaze (300 Hz) and eye video | **Gaze diagnostic**; never trains | **26.2 GB** (31 Zenodo zips, MD5s published) |
 
-**Storage ask:** about 1 TB on the cluster (about 0.5 TB with the Stieger subset).
+**Storage ask:** about 1 TB on the cluster (about 0.5 TB with the Stieger subset). Since D-032 the data goes to AWS. D-033 adds about 100 GB, plus room to extract the Yang2025 ZIP.
+
+**D-033 (4 Oct):**
+- Rows 8–10 were checked at their papers and repositories. MOABB's metadata got two other candidates wrong.
+- Brandl2020, HefmiIch2025 and Chang2025 were left out: their CC BY-NC-ND licences don't allow commercial use.
+- Facts and corrections are in the [cue audit write-up](results/2026-10-04-cue-audit-and-cue-free-datasets.md).
 
 **In code (3 Oct):** every dataset above is declared in `src/neuros/data/registry.py`: channels (copied from MOABB 1.7.2's source), sampling rate, cue timing, subject ids, event names, licence, plus an `unverified` list of facts still to confirm on the files. `neuros datasets --check` cross-checks the declarations against MOABB's metadata (all agree). Downloads go through `neuros download`, which writes a SHA-256 manifest per dataset.
 

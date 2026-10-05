@@ -1,7 +1,7 @@
 # Cue audit of three datasets, and the cue-free datasets we could add (development numbers)
 
 **Date:** Sun 4 Oct 2026, the two tasks after D-030 and D-031.
-**Status:** development numbers (no locked test people). **Decision needed:** which datasets to add ([Q26](../open-questions.md)).
+**Status:** development numbers (no locked test people). **Q26 approved the same evening:** all three candidates were added ([D-033](../decisions/decision-log.md)). Three facts in §2 were corrected while registering them (see the note under the table).
 
 **Summary:**
 - **Nothing leaks.** Before the cue, every dataset is at chance. Two small effects (1.4 and 2.4 points) are reported as warnings, below the 3-point leak threshold.
@@ -11,7 +11,7 @@
   - On both, the motor strip alone matches or beats all channels (60.9 vs 60.4; 61.4 vs 59.7). That supports D-031's motor-strip intent head.
 - **PhysionetMI's training window still carries some eye signal** (56.6% from the eye channels). It stays usable for training on the motor strip, and is never quoted without its controls.
 - **Cue-free data exists.**
-  - Yang2025 (51 people, CC BY 4.0, 65.6 GB) is the clean addition.
+  - Yang2025 (51 people, CC BY 4.0, 65.6 GB) is the clean addition. Its paper doesn't say what the screen shows during imagery, so the audit confirms it on the data.
   - Shin2017A (29 people) is cue-free but GPL-3.0.
   - GuttmannFlury2025 (31 people, CC0) isn't cue-free, but it records gaze.
   - Three other candidates are non-commercial.
@@ -69,12 +69,18 @@ The task row reproduces diagnostic 3's Riemannian number (TS+LR + EA, 60.4%). PO
 ## 2. The cue-free candidates (checked against papers and repositories, 4 Oct)
 | Dataset | Left/right people | On screen during imagery | Cue-free? | Licence | Size | Use |
 |---|---|---|---|---|---|---|
-| **Yang2025** (WBCIC-SHU) | 51 (+11 three-class), 3 sessions × 200 trials | A white fixation cross after a 1.5-s video-and-sound cue; no feedback | ✅ (paper) | CC BY 4.0 (paper, Figshare) | 65.6 GB | **Training and cue-free testing** |
-| Shin2017A | 29 | A central arrow for 2 s, then a fixation cross for 10 s | ✅ per MOABB's account; the paper is paywalled | GPL-3.0 (TU Berlin page) | small (30 channels, 200 Hz) | **Testing only**, until a licence decision |
-| GuttmannFlury2025 | 31 | A red rectangle on the left or right for the whole 4 s; a 300 Hz eye tracker | ❌ (paper) | CC0 (paper, Zenodo) | 26.2 GB | **Diagnostic**: how much decoding follows gaze |
+| **Yang2025** (WBCIC-SHU) | 51 (+11 three-class), 3 sessions × 200 trials | A 1.5-s video-and-sound cue, then imagery with no feedback. What the screen shows during imagery isn't stated (corrected: the white cross on black marks the break *after* it) | ✅ likely ("no unnecessary visual and auditory stimuli"); the audit checks it | CC BY 4.0 (paper, Figshare) | 65.6 GB | **Training and cue-free testing** |
+| Shin2017A | 29 | A central arrow for 2 s, then a fixation cross for 10 s | ✅ per MOABB's account; the paper is paywalled | GPL-3.0 (TU Berlin page) | 6.26 GB (six zips; corrected from "small"; they also hold dataset B) | **Testing only**, until a licence decision |
+| GuttmannFlury2025 | 31 | A red rectangle on the left or right for the whole 4 s; a 300 Hz eye tracker | ❌ (paper) | CC0 for the data (paper's Data Records, Zenodo); the *article* is CC BY-NC-ND | 26.2 GB (31 per-person zips with gaze and eye video) | **Diagnostic**: how much decoding follows gaze |
 | Brandl2020 | 16 | A spoken cue, nothing on screen | ✅ | CC BY-NC-ND 4.0 | | ❌ non-commercial |
 | HefmiIch2025 | 37 patients | A 2-s arrow and beep, then 10 s of imagery | likely | CC BY-NC-ND 4.0 | | ❌ non-commercial |
 | Chang2025 | 28 | A square whose side signals the class; persistence not stated | ❌ likely | CC BY-NC-ND 4.0 (paper; MOABB says CC BY) | | ❌ |
+
+**Corrections made while registering the datasets (D-033, 4 Oct evening):**
+- **Yang2025's screen during imagery:** the table first said "a white fixation cross". Re-reading the paper: the white cross on black is the *break* cue after imagery. During imagery the paper only says there are "no unnecessary visual and auditory stimuli", and its figure is too small to read. So Yang2025 is cue-free *if* the screen is blank or neutral then; the audit's eye and visual channels will show it.
+- **Shin2017A's size:** six zips, 6.26 GB in all (each also holds dataset B), not "small".
+- **GuttmannFlury2025's licence:** the data is CC0 (Data Records section), but the article is CC BY-NC-ND. We use the data, not the article's figures. MOABB's Zenodo re-host includes the Tobii gaze files and eye video.
+- **GuttmannFlury2025's electrodes:** its authors recommend excluding 11 faulty or bridged electrodes, including F3, FC3 and P4. The registry drops them.
 
 **Lessons:**
 - **MOABB's metadata isn't a source of record.** It gets Chang2025's licence wrong and repeats BNCI2014-001's text for BNCI2014-004.

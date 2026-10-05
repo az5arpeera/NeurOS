@@ -310,6 +310,9 @@ JavaScript: `new NeurOSClient("ws://localhost:8765").on("intent", e => ...)` (D-
   - Chosen by seed **on Day 1**.
   - Untouched until the freeze on Sat 24 Oct.
   - **As locked on 2026-10-03 (D-026):** `configs/splits/locked_test_v1.yaml`, seed 20261003, SHA-256-protected. 72 motor-imagery people from the five core datasets (PhysionetMI 22, Dreyer2023 17, Stieger2021 12, Lee2019_MI 11, Cho2017 10; Dreyer stratified A/B/C 12/4/1) + 7 EEGMAT people.
+  - **Extended on 2026-10-04 (D-033):** `configs/splits/locked_test_v2.yaml` adds Yang2025 10, Shin2017A 6 and GuttmannFlury2025 6 (101 people). They were drawn with the same seed before any of their data was downloaded.
+    - v1 is unchanged, and v2 records v1's digest. Loading v2 re-checks that v1's people are identical.
+    - Shin2017A and GuttmannFlury2025 are tested, never trained on (`train_restriction`).
   - BNCI2014-001/004 are **not** in it: E0 uses all of their people during development. They're evaluated by their standard leave-one-subject-out protocol, and in the post-freeze 10-fold and LODO runs.
   - `LockedTestSet.assert_disjoint()` guards every place data enters training or tuning.
 - **Development:** subject-wise 5-fold cross-validation on the other 80%, with inner validation people for early stopping and thresholds.

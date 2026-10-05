@@ -1,0 +1,12 @@
+{
+ "dataset": "Yang2025",
+ "source": "Figshare API, article 22671172 (https://api.figshare.com/v2/articles/22671172), read 2026-10-04: supplied_md5 = computed_md5",
+ "note": "One archive for both paradigms (raw and processed). Keys are path suffixes of the local files: MOABB renames the download to the name below.",
+ "algorithm": "md5",
+ "files": {
+  "WBCIC_SHU_Motor_Imagery_dataset.zip": {
+   "bytes": 65630556299,
+   "md5": "e5384a58ac51b0d0c78a28a500185479"
+  }
+ }
+}

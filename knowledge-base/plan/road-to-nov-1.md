@@ -69,6 +69,11 @@ Claude Code pairs on all engineering. **Founders send all outreach;** Claude dra
   - `neuros audit` measures when and where on the head each cued dataset's class is readable. BNCI2014-001, BNCI2014-004 and PhysionetMI: no leaks; the motor strip carries the class in the training windows; PhysionetMI's eyes still decode it (56.6%). See the [audit results](../results/2026-10-04-cue-audit-and-cue-free-datasets.md).
   - Cue-free candidates checked against their papers. Yang2025 (51 people, CC BY) is the clean addition: [Q26](../open-questions.md) is for the founders.
   - Riemannian folds now run in parallel (the first PhysionetMI audit hit the 2-hour limit).
+  - **Q26 approved → [D-033](../decisions/decision-log.md):** Yang2025, Shin2017A (test only) and GuttmannFlury2025 (gaze diagnostic) are in the registry.
+    - Their timing was checked at the papers; three facts were corrected along the way.
+    - The locked test set grew to v2 (+22 people, v1 unchanged).
+    - Downloads now check the publishers' MD5s, and GPL-3.0 must be accepted per download.
+    - The downloads themselves wait for approval and for AWS. Open: Shin2017A's montage ([Q27](../open-questions.md)).
 - **Fixed:** result files took their provenance stamp at the end of a run instead of the start. They now record the code that actually ran, plus a code-only "dirty" flag.
 - **Business:** [ready-to-adapt drafts for the first 10 outreach messages](../business/first-10-messages.md); the founders send them.
 - **Next:** cluster access (Q6b) before E1, which is too heavy for the laptop.

@@ -188,7 +188,9 @@ def validate_recording(
         )
 
     # 2. Channels vs the registry.
-    undeclared = [ch for ch in recording.ch_names if ch not in spec.eeg_channels]
+    # Excluded channels (publisher-reported faults) count as undeclared here: harmonisation
+    # drops them, so finding one means a recording bypassed it.
+    undeclared = [ch for ch in recording.ch_names if ch not in spec.usable_eeg_channels]
     if undeclared:
         report.add(
             "unknown_channel", "error", f"channels not declared for {spec.key}: {undeclared}"

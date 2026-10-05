@@ -4,6 +4,38 @@ Newest first. Format: **ID · date · decision** — why · who. Superseded deci
 
 ## Decided
 
+- **D-033 · 2026-10-04 · Add the cue-free and gaze-diagnostic datasets (Q26).** Amends the data lock (D-011) and §8.1. · Founder (approved the Q26 recommendation)
+  - **Why:** under D-030 only BNCI2014-001 (9 people) had a cue-free window.
+  - **Yang2025** (51 people) trains and gives cue-free test numbers.
+  - **Shin2017A** (29 people) is test-only (GPL-3.0) until the founders decide whether GPL data may train a model we ship.
+  - **GuttmannFlury2025** (31 people) is a gaze diagnostic and never trains.
+  - **The locked test set grows to v2:** round(20%) of each new dataset's people, drawn with the D-026 seed before any of their data was downloaded.
+    - Yang2025 10, Shin2017A 6, GuttmannFlury2025 6.
+    - v1's 79 people are unchanged; 101 in all.
+  - **Implementation (4 Oct):**
+    - **Registry:**
+      - roles `cue_free` and `diagnostic`;
+      - `train_restriction` says who may train a model we ship, and `assert_may_train` guards pooled training;
+      - `task_from_s`, for imagery that starts after the cue (Yang2025 1.5 s, Shin2017A 2 s);
+      - a negative `cue_offset_s` (Shin2017A's marker is at the task start);
+      - `excluded_channels` (GuttmannFlury2025: the 11 electrodes its authors flag as faulty or bridged);
+      - `moabb_kwargs` (Yang2025's two-class paradigm);
+      - `licence_acceptance`: Shin2017A downloads only with `neuros download --accept-licence`, never through config.
+    - **D-030 windows:**
+      - Yang2025 [1.75, 3.75] s and Shin2017A [2.25, 4.25] s after the cue, both cue-free;
+      - GuttmannFlury2025 [2, 4] s, not cue-free.
+    - **Downloads** check archives against the publishers' MD5s (Zenodo, Figshare).
+    - **Locked test set v2** (`configs/splits/locked_test_v2.yaml`) records v1's file and digest. Loading it re-checks that v1's people are unchanged.
+    - **Audit regions** are now electrode-row rules, so 10-5 caps work (Shin2017A's motor strip is FCC*h/CCP*h). On 10-10 names they match the 4 Oct audits.
+  - **Interpretation (the founders may object):**
+    - "Testing only" means no model trained on Shin2017A ships.
+    - Internal diagnostics (the cue audit, within-dataset baselines) may still fit throwaway models on it. GPL-3.0 sets no conditions on internal use.
+  - **Corrections found while implementing:**
+    - Yang2025's paper doesn't say what the screen shows during imagery; the white cross on black marks the break *after* it. Its cue-free status is therefore checked by the audit on the data.
+    - Shin2017A is 6.3 GB, not small.
+    - GuttmannFlury2025's *article* is CC BY-NC-ND but its *data* is CC0. MOABB's Zenodo re-host includes the gaze data.
+  - **Open:** Shin2017A's montage ([Q27](../open-questions.md)); downloads await approval.
+
 - **D-032 · 2026-10-04 · Training compute: AWS, paid with credits.** The founders plan to train on AWS. The school cluster (D-010, Q6b) becomes a fallback. · Founder (plan of record)
   - **Implications:**
     - PyTorch's CUDA build for Linux, and a trainer device option (the trainer is CPU-only today).
@@ -103,4 +135,5 @@ Newest first. Format: **ID · date · decision** — why · who. Superseded deci
 ## Pending (see [open questions](../open-questions.md))
 - P-6b: cluster GPU/storage. Founder is working on it. (Q6b)
 - P-22: role split. Founder (3 Oct): "TBD on specific roles". Proposal in the [plan](../plan/road-to-nov-1.md). (Q22)
-- Resolved on 3 Oct: P-21 and P-8 → D-022; P-1 → D-023; P-4 → D-024; P-5 → D-025. On 4 Oct: P-25 → D-030.
+- P-27: Shin2017A's montage (10-5 half positions, no C3/C4). (Q27)
+- Resolved on 3 Oct: P-21 and P-8 → D-022; P-1 → D-023; P-4 → D-024; P-5 → D-025. On 4 Oct: P-25 → D-030; P-26 → D-033.

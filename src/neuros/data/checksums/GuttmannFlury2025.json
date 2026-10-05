@@ -1,0 +1,132 @@
+{
+ "dataset": "GuttmannFlury2025",
+ "source": "Zenodo API, record 18970793 (https://zenodo.org/api/records/18970793), read 2026-10-04",
+ "note": "Per-person archives of the MOABB re-host (EEG as BDF; eye tracking and video byte for byte). Keys are path suffixes of the local files (MOABB stores Zenodo files under zenodo/<record>/).",
+ "algorithm": "md5",
+ "files": {
+  "zenodo/18970793/S01.zip": {
+   "bytes": 492065101,
+   "md5": "fb56109542a13aa7879778833fe4cbaa"
+  },
+  "zenodo/18970793/S02.zip": {
+   "bytes": 1173719072,
+   "md5": "55e2707ee5d4e5c2bcd2f9a34d5abca2"
+  },
+  "zenodo/18970793/S03.zip": {
+   "bytes": 1277719958,
+   "md5": "8daffb1490065f527ae530531208c4f0"
+  },
+  "zenodo/18970793/S04.zip": {
+   "bytes": 1401952148,
+   "md5": "5e59fe7e1d6e7fbdfd16155c0ec623f5"
+  },
+  "zenodo/18970793/S05.zip": {
+   "bytes": 1068298527,
+   "md5": "51eed24275984b2cdbcb73865301238a"
+  },
+  "zenodo/18970793/S06.zip": {
+   "bytes": 383898780,
+   "md5": "aea03c72a9505ac622a2b16f06dfc25e"
+  },
+  "zenodo/18970793/S07.zip": {
+   "bytes": 1143538877,
+   "md5": "52bb88eb1a49f02e529dc00834bb2f1c"
+  },
+  "zenodo/18970793/S08.zip": {
+   "bytes": 1074797739,
+   "md5": "68074f8bc102b59dca60bfa462215bde"
+  },
+  "zenodo/18970793/S09.zip": {
+   "bytes": 1400029809,
+   "md5": "9430d244edc334eeb9fc43ac58b2ce31"
+  },
+  "zenodo/18970793/S10.zip": {
+   "bytes": 857795885,
+   "md5": "1a4c00b91b00482903debe9b527399ad"
+  },
+  "zenodo/18970793/S11.zip": {
+   "bytes": 491007711,
+   "md5": "a0977b9e7188b789035786bde9c4ac68"
+  },
+  "zenodo/18970793/S12.zip": {
+   "bytes": 1180289385,
+   "md5": "a74d839eeae9b0c6cb9669d8fbc1e0d4"
+  },
+  "zenodo/18970793/S13.zip": {
+   "bytes": 1187260138,
+   "md5": "5688c29a7a2f5147acef70ccab8c6dbe"
+  },
+  "zenodo/18970793/S14.zip": {
+   "bytes": 1068586928,
+   "md5": "a6dc16ff1ff0f8c1d7d5c0c94379ac25"
+  },
+  "zenodo/18970793/S15.zip": {
+   "bytes": 1153601449,
+   "md5": "09eee39b703cbe9bc6cdf1f1b74d6bd4"
+  },
+  "zenodo/18970793/S16.zip": {
+   "bytes": 1161005639,
+   "md5": "66f874af0ce70c16976405074e6aa39d"
+  },
+  "zenodo/18970793/S17.zip": {
+   "bytes": 1250036662,
+   "md5": "3ff32932175054964e42b6a369735567"
+  },
+  "zenodo/18970793/S18.zip": {
+   "bytes": 1122891660,
+   "md5": "19ef42a34a626989431484d1fe5b18e3"
+  },
+  "zenodo/18970793/S19.zip": {
+   "bytes": 390968277,
+   "md5": "07568ab3e4dd84757e3f59eedbd2b160"
+  },
+  "zenodo/18970793/S20.zip": {
+   "bytes": 413532082,
+   "md5": "15ebd803f27eaa33443e7389d57de881"
+  },
+  "zenodo/18970793/S21.zip": {
+   "bytes": 365497857,
+   "md5": "6d8e515cb08aa5ee13941132a5b34628"
+  },
+  "zenodo/18970793/S22.zip": {
+   "bytes": 353630613,
+   "md5": "263b058c201913ecf1cfac11bc834122"
+  },
+  "zenodo/18970793/S23.zip": {
+   "bytes": 1388484197,
+   "md5": "f13860b1310d90fa7464c730229129df"
+  },
+  "zenodo/18970793/S24.zip": {
+   "bytes": 345600876,
+   "md5": "3e8eb615d4a3415115f61dad5265ef12"
+  },
+  "zenodo/18970793/S25.zip": {
+   "bytes": 870515223,
+   "md5": "30c599cd058d76ca3737d494191b8771"
+  },
+  "zenodo/18970793/S26.zip": {
+   "bytes": 441849828,
+   "md5": "8645b4b84a1b87b140e38e5975d6bb08"
+  },
+  "zenodo/18970793/S27.zip": {
+   "bytes": 566627316,
+   "md5": "cd5f63f01efa99854e42e9c8d97436b8"
+  },
+  "zenodo/18970793/S28.zip": {
+   "bytes": 559771447,
+   "md5": "613e7e9a16ac804bb2f4a9930ceed675"
+  },
+  "zenodo/18970793/S29.zip": {
+   "bytes": 461443682,
+   "md5": "c27e2bb4a6101028f0caf37535fbe525"
+  },
+  "zenodo/18970793/S30.zip": {
+   "bytes": 548172536,
+   "md5": "22c6c6c3ccd30853ccb34f2b64b1229f"
+  },
+  "zenodo/18970793/S31.zip": {
+   "bytes": 604098427,
+   "md5": "c5fcead434c2e351e9253c1946790af2"
+  }
+ }
+}

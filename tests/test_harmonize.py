@@ -146,3 +146,37 @@ def test_unknown_annotation(spec: DatasetSpec, fake_vocab: Vocabulary) -> None:
 def test_dataset_without_event_map(spec: DatasetSpec, vocab: Vocabulary) -> None:
     with pytest.raises(NeurOSLabelError, match="No event map"):
         _harmonize(_raw(), spec, vocab)
+
+
+# ---------------------------------------------------------------------- D-033 additions
+def test_excluded_channels_must_exist_but_are_dropped(fake_vocab: Vocabulary) -> None:
+    # GuttmannFlury2025 style: the publisher flags FC3 as faulty. It must still be in the file
+    # (the registry describes the file), but it never reaches a recording.
+    faulty = make_spec(
+        key="FakeMI",
+        eeg_channels=("FC3", "C3", "Cz", "C4"),
+        non_eeg_channels=("EOG1", "stim"),
+        cue_offset_s=2.0,
+        excluded_channels={"FC3": "bridged (publisher)"},
+    )
+    rec = _harmonize(_raw(), faulty, fake_vocab)
+    assert rec.ch_names == ("C3", "Cz", "C4")
+    with pytest.raises(NeurOSChannelError, match="missing from the file"):
+        _harmonize(_raw(names=("C3..", "Cz..", "C4..", "EOG1", "stim")), faulty, fake_vocab)
+
+
+def test_negative_cue_offset_moves_events_back_to_the_cue(fake_vocab: Vocabulary) -> None:
+    # Shin2017A style: the marker sits at the task start, 2 s after the arrow appeared.
+    early = make_spec(
+        key="FakeMI",
+        eeg_channels=("FC3", "C3", "Cz", "C4"),
+        non_eeg_channels=("EOG1", "stim"),
+        cue_offset_s=-2.0,
+        task_from_s=2.0,
+        task_s=12.0,
+        class_on_screen_s=2.0,
+    )
+    rec = _harmonize(_raw(events=((1000, 1), (3000, 2))), early, fake_vocab)
+    assert rec.events.onsets.tolist() == [500, 2500]  # 2 s = 500 samples earlier
+    with pytest.raises(NeurOSDataError, match="outside the recording"):
+        _harmonize(_raw(events=((250, 1),)), early, fake_vocab)  # the cue would precede t = 0

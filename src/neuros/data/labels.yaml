@@ -93,3 +93,13 @@ event_maps:
   EEGMAT:
     background: state_rest
     task: state_arithmetic
+  # D-033 (4 Oct): cue-free and diagnostic motor-imagery datasets, left vs right hand only.
+  Yang2025:                # the two-class paradigm (MOABB paradigm_type="2C")
+    left_hand: left_hand
+    right_hand: right_hand
+  Shin2017A:
+    left_hand: left_hand
+    right_hand: right_hand
+  GuttmannFlury2025:
+    left_hand: left_hand
+    right_hand: right_hand

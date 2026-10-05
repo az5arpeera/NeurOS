@@ -16,18 +16,28 @@ Provenance of the declarations (2026-10-03):
 - Fields still unconfirmed on the actual files are listed in ``unverified``. ``neuros validate``
   confirms them once the data is downloaded; then the entry is updated and the field removed.
 
-Roles (D-011, D-012, D-026):
+Roles (D-011, D-012, D-026, D-033):
 
-- ``core``: the five motor-imagery training datasets (~364 people).
+- ``core``: the five motor-imagery training datasets (~364 people). C-core, the model's input
+  layout, is computed from these alone.
 - ``literature``: BNCI2014-001/004, for comparison with published leave-one-subject-out numbers.
   E0 uses all of their people during development, so they're excluded from the locked test set.
 - ``brain_state``: EEGMAT (rest vs mental arithmetic), the brain-state channel.
+- ``cue_free``: motor-imagery datasets whose screen shows nothing class-related during imagery
+  (D-033, 4 Oct): the cue-free evidence that D-030 asks for. Yang2025 trains and tests;
+  Shin2017A only tests (GPL-3.0, see ``train_restriction``).
+- ``diagnostic``: GuttmannFlury2025 (D-033). Its cue stays on screen, but it records gaze, so it
+  measures how much decoding follows the eyes. Never trains a model we ship.
+
+Which data may train a model we ship is a separate question from the role: ``train_restriction``
+says why a dataset may not (licence, or a decision). Internal diagnostics on such a dataset (the
+cue audit, within-dataset baselines) are allowed; their models are thrown away (D-033).
 """
 
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal
@@ -39,7 +49,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from neuros.config.schemas import SignalContract
     from neuros.data.vocabulary import Vocabulary
 
-DatasetRole = Literal["core", "literature", "brain_state"]
+DatasetRole = Literal["core", "literature", "brain_state", "cue_free", "diagnostic"]
 Paradigm = Literal["motor_imagery", "mental_arithmetic"]
 RestSource = Literal["explicit", "pre_cue", "none"]
 EpochRule = Literal["after_cue", "fixed"]
@@ -63,9 +73,12 @@ class DatasetSpec:
     non_eeg_channels: tuple[str, ...]
     native_sfreq: float
     # Seconds from the event marker to the cue onset. MOABB places some markers at trial start
-    # (BNCI2014-001: cue at +2 s) and others at the cue itself.
+    # (BNCI2014-001: cue at +2 s), others at the cue itself, and a few after it: Shin2017A marks
+    # the start of imagery, 2 s after its arrow appeared, so its offset is negative (-2 s).
+    # "The cue onset" is always when the class is first shown; every epoch is timed from it.
     cue_offset_s: float
-    # Seconds of task (imagery, or the whole labelled segment for EEGMAT) after the cue.
+    # Seconds from the cue onset to the end of the task (imagery, or the whole labelled segment
+    # for EEGMAT). Includes the cue period when imagery starts only after it (see task_from_s).
     task_s: float
     # Seconds from the cue's onset during which the screen shows something that depends on the
     # class: the cue itself, or feedback driven by a classifier. Equal to task_s when it stays up
@@ -78,6 +91,22 @@ class DatasetSpec:
     licence: str
     url: str
     channels_source: str
+    # Seconds from the cue onset to the start of imagery. 0 when people start imagining as the
+    # cue appears (most datasets); Yang2025 plays a 1.5-s video first and Shin2017A shows its
+    # arrow for 2 s, then imagery starts. MOABB's interval covers [task_from_s, task_s].
+    task_from_s: float = 0.0
+    # Keyword arguments for the MOABB class (e.g. Yang2025's paradigm_type="2C"). Never a
+    # licence acceptance: that is given per download, explicitly (licence_acceptance below).
+    moabb_kwargs: Mapping[str, Any] = field(default_factory=dict)
+    # Why this dataset may NOT train a model we ship (None = it may). Internal diagnostics are
+    # still allowed; nothing trained on it ships (D-033).
+    train_restriction: str | None = None
+    # A licence MOABB makes the downloader accept first (Shin2017A: GPL-3.0). `neuros download`
+    # refuses such a dataset unless the person running it passes --accept-licence.
+    licence_acceptance: str | None = None
+    # EEG channels in the files that must not be used (publisher-reported faults), with reasons.
+    # They stay in eeg_channels, so the file check still sees them; harmonisation drops them.
+    excluded_channels: Mapping[str, str] = field(default_factory=dict)
     unverified: tuple[str, ...] = ()
     # Named subgroups with inclusive subject-id ranges, used to stratify splits.
     subgroups: Mapping[str, tuple[int, int]] = field(default_factory=dict)
@@ -101,8 +130,15 @@ class DatasetSpec:
         for name, value in (("native_sfreq", self.native_sfreq), ("task_s", self.task_s)):
             if not (math.isfinite(value) and value > 0):
                 raise NeurOSConfigError(f"{self.key}: {name} must be positive, got {value}")
-        if not math.isfinite(self.cue_offset_s) or self.cue_offset_s < 0:
-            raise NeurOSConfigError(f"{self.key}: cue_offset_s must be >= 0")
+        # Negative is allowed: the marker may come after the cue (see the field's comment).
+        if not math.isfinite(self.cue_offset_s):
+            raise NeurOSConfigError(f"{self.key}: cue_offset_s must be finite")
+        if not (math.isfinite(self.task_from_s) and 0 <= self.task_from_s < self.task_s):
+            raise NeurOSConfigError(
+                f"{self.key}: task_from_s must be within [0, task_s={self.task_s}) s, "
+                f"got {self.task_from_s}"
+            )
+        self._check_usage_fields()
         if self.paradigm == "motor_imagery" and self.class_on_screen_s is None:
             raise NeurOSConfigError(
                 f"{self.key}: a cued paradigm must declare class_on_screen_s (D-030)"
@@ -126,6 +162,37 @@ class DatasetSpec:
         if any(not reason.strip() for reason in self.excluded_subjects.values()):
             raise NeurOSConfigError(f"{self.key}: every excluded subject needs a reason")
         self._check_subgroups()
+
+    def _check_usage_fields(self) -> None:
+        """MOABB arguments, training restrictions, licence acceptance and excluded channels."""
+        if self.moabb_kwargs and self.moabb_class is None:
+            raise NeurOSConfigError(f"{self.key}: moabb_kwargs given but no moabb_class")
+        if any(not isinstance(name, str) or not name for name in self.moabb_kwargs):
+            raise NeurOSConfigError(f"{self.key}: moabb_kwargs keys must be non-empty strings")
+        if "accept" in self.moabb_kwargs:
+            # A licence is accepted by a person, per download, never by a config file.
+            raise NeurOSConfigError(
+                f"{self.key}: 'accept' can't be a registry argument; declare "
+                "licence_acceptance and pass --accept-licence to `neuros download`"
+            )
+        for name in ("train_restriction", "licence_acceptance"):
+            value = getattr(self, name)
+            if value is not None and not value.strip():
+                raise NeurOSConfigError(f"{self.key}: {name} must be None or a reason, not blank")
+        if self.role == "diagnostic" and self.train_restriction is None:
+            raise NeurOSConfigError(
+                f"{self.key}: a diagnostic dataset never trains a model we ship; "
+                "declare train_restriction"
+            )
+        unknown = sorted(set(self.excluded_channels) - set(self.eeg_channels))
+        if unknown:
+            raise NeurOSConfigError(
+                f"{self.key}: excluded channels {unknown} are not declared EEG channels"
+            )
+        if any(not reason.strip() for reason in self.excluded_channels.values()):
+            raise NeurOSConfigError(f"{self.key}: every excluded channel needs a reason")
+        if not self.usable_eeg_channels:
+            raise NeurOSConfigError(f"{self.key}: every EEG channel is excluded")
 
     def _check_subgroups(self) -> None:
         if not self.subgroups:
@@ -158,6 +225,23 @@ class DatasetSpec:
     def usable_subjects(self) -> tuple[int, ...]:
         """Declared subjects minus documented exclusions: everyone eligible for any use."""
         return tuple(s for s in self.subjects if s not in self.excluded_subjects)
+
+    @property
+    def usable_eeg_channels(self) -> tuple[str, ...]:
+        """Declared EEG channels minus excluded ones, in declaration order: the model inputs."""
+        return tuple(ch for ch in self.eeg_channels if ch not in self.excluded_channels)
+
+    @property
+    def may_train(self) -> bool:
+        """True if this dataset's people may train a model we ship (see train_restriction)."""
+        return self.train_restriction is None
+
+    @property
+    def use(self) -> str:
+        """One word for tables: 'train' (and test), 'test' only, or 'diagnostic'."""
+        if self.role == "diagnostic":
+            return "diagnostic"
+        return "train" if self.may_train else "test"
 
     def subgroup_of(self, subject: int) -> str:
         """Subgroup name of a subject, or ``"all"`` when the dataset has no subgroups."""
@@ -219,7 +303,43 @@ _EEGMAT_CHANNELS = (
     "P4", "P8", "O1", "O2",
 )  # fmt: skip
 
+# Neuracle NeuSen W 64-channel cap: 59 EEG channels (no AFz or CPz: probably ground and
+# reference), then ECG and four EOG channels. MOABB's order.
+_YANG2025_CHANNELS = (
+    "Fpz", "Fp1", "Fp2", "AF3", "AF4", "AF7", "AF8", "Fz", "F1", "F2", "F3", "F4", "F5", "F6",
+    "F7", "F8", "FCz", "FC1", "FC2", "FC3", "FC4", "FC5", "FC6", "FT7", "FT8", "Cz", "C1", "C2",
+    "C3", "C4", "C5", "C6", "T7", "T8", "CP1", "CP2", "CP3", "CP4", "CP5", "CP6", "TP7", "TP8",
+    "Pz", "P3", "P4", "P5", "P6", "P7", "P8", "POz", "PO3", "PO4", "PO5", "PO6", "PO7", "PO8",
+    "Oz", "O1", "O2",
+)  # fmt: skip
+
+# 30 electrodes on 10-5 positions. The motor strip is sampled at half positions (FCC*h, CCP*h)
+# around C3 and C4, not at C3 and C4 themselves. MOABB reads the names from the files; these
+# come from its metadata.
+_SHIN2017A_CHANNELS = (
+    "AFp1", "AFp2", "AFF1h", "AFF2h", "AFF5h", "AFF6h", "F3", "F4", "F7", "F8", "FCC3h",
+    "FCC4h", "FCC5h", "FCC6h", "T7", "T8", "Cz", "CCP3h", "CCP4h", "CCP5h", "CCP6h", "Pz", "P3",
+    "P4", "P7", "P8", "PPO1h", "PPO2h", "POO1", "POO2",
+)  # fmt: skip
+
+# Neuroscan Quik-Cap: 62 electrodes, of which CB1 and CB2 (over the cerebellum) have no 10-05
+# position and are declared non-EEG. MOABB's order, in canonical spelling.
+_GUTTMANNFLURY2025_CHANNELS = (
+    "Fp1", "Fpz", "Fp2", "AF3", "AF4", "F7", "F5", "F3", "F1", "Fz", "F2", "F4", "F6", "F8",
+    "FT7", "FC5", "FC3", "FC1", "FCz", "FC2", "FC4", "FC6", "FT8", "T7", "C5", "C3", "C1", "Cz",
+    "C2", "C4", "C6", "T8", "TP7", "CP5", "CP3", "CP1", "CPz", "CP2", "CP4", "CP6", "TP8", "P7",
+    "P5", "P3", "P1", "Pz", "P2", "P4", "P6", "P8", "PO7", "PO5", "PO3", "POz", "PO4", "PO6",
+    "PO8", "O1", "Oz", "O2",
+)  # fmt: skip
+
+# Guttmann-Flury 2025, Technical Validation: "It is recommended that any channel marked as
+# defective in any session be excluded from the entire analysis." Their list, verbatim.
+_GUTTMANNFLURY2025_DEFECTIVE = (
+    "PO3", "F1", "POz", "Oz", "F3", "O2", "P8", "PO7", "FC3", "P7", "P4",
+)  # fmt: skip
+
 _MOABB_SOURCE = "MOABB 1.7.2 source (hard-coded channel list), copied 2026-10-03"
+_MOABB_SOURCE_D033 = "MOABB 1.7.2 source (hard-coded channel list), copied 2026-10-04"
 
 _SPECS: tuple[DatasetSpec, ...] = (
     DatasetSpec(
@@ -433,6 +553,131 @@ _SPECS: tuple[DatasetSpec, ...] = (
             "our own loader arrives with the other loaders (week 1)."
         ),
     ),
+    # ------------------------------------------------------------------ added by D-033 (4 Oct)
+    # Timing and licences checked at the papers and repositories on 4 Oct, not taken from
+    # MOABB's metadata (which got Chang2025's licence and BNCI2014-004's paradigm wrong).
+    DatasetSpec(
+        key="Yang2025",
+        title="Yang et al. 2025, WBCIC-SHU multi-day MI dataset (two-class part)",
+        role="cue_free",
+        paradigm="motor_imagery",
+        moabb_class="Yang2025",
+        moabb_kwargs={"paradigm_type": "2C"},
+        subjects=tuple(range(1, 52)),
+        eeg_channels=_YANG2025_CHANNELS,
+        non_eeg_channels=("ECG", "HEOR", "HEOL", "VEOU", "VEOL", "stim"),
+        native_sfreq=1000.0,
+        cue_offset_s=0.0,
+        # "The first 1.5 seconds of a single trial involve brief visual and auditory cues. After
+        # the brief cues, participants perform the corresponding MI task ... lasting for 4
+        # seconds" (paper). The marker is the video's onset (MOABB: interval [1.5, 5.5]).
+        task_from_s=1.5,
+        task_s=5.5,
+        # The class is shown by a 1.5-s video of the hand plus a sound. The paper doesn't say
+        # what the screen shows during imagery ("no unnecessary visual and auditory stimuli");
+        # the white cross on black marks the break *after* it. Unverified: the cue audit's eye
+        # and visual channels check it on the data.
+        class_on_screen_s=1.5,
+        # The 2-s break (white cross on black) before each video. It follows the previous
+        # trial's imagery, so its first second may still carry the post-imagery beta rebound.
+        pre_cue_fixation_s=2.0,
+        rest_source="pre_cue",
+        licence="CC BY 4.0 (paper and Figshare record, checked 2026-10-04)",
+        url="https://doi.org/10.25452/figshare.plus.22671172",
+        channels_source=_MOABB_SOURCE_D033,
+        unverified=("class_on_screen_s", "pre_cue_fixation_s", "non_eeg_channels"),
+        notes=(
+            "Two-class paradigm only: 51 people x 3 sessions on different days x 200 trials. "
+            "The three-class paradigm's 11 people (left/right/feet) are a separate MOABB "
+            "instance, not registered. Each session starts with 60 s eyes open and 60 s eyes "
+            "closed (baseline-run rest for H1; needs a loader). Raw Neuracle BDF in nV (MOABB "
+            "rescales). One 65.6 GB ZIP on Figshare+ with a published MD5."
+        ),
+    ),
+    DatasetSpec(
+        key="Shin2017A",
+        title="Shin et al. 2017, hybrid EEG-NIRS dataset A (left vs right hand MI)",
+        role="cue_free",
+        paradigm="motor_imagery",
+        moabb_class="Shin2017A",
+        subjects=tuple(range(1, 30)),
+        eeg_channels=_SHIN2017A_CHANNELS,
+        non_eeg_channels=("HEOG", "VEOG", "Stim"),
+        native_sfreq=200.0,
+        # MOABB: "marker is for *task* start not cue start". The black arrow is shown for 2 s
+        # before the task (MOABB's docstring, from the paper), so the cue onset is 2 s earlier.
+        cue_offset_s=-2.0,
+        task_from_s=2.0,
+        task_s=12.0,
+        # "A black arrow pointing to either the left or right side appeared at the center of the
+        # screen for 2 s. The arrow disappeared with a short beep sound and then a black
+        # fixation cross was displayed during the task period."
+        class_on_screen_s=2.0,
+        # A 15-17 s rest with the fixation cross follows each 1-s 'STOP'; at least 14 s of it
+        # precedes every arrow.
+        pre_cue_fixation_s=14.0,
+        rest_source="pre_cue",
+        licence="GPL-3.0 (TU Berlin data page; MOABB makes the downloader accept it)",
+        url="https://doi.org/10.1109/TNSRE.2016.2628057",
+        channels_source="MOABB 1.7.2 dataset metadata (sensors list), copied 2026-10-04",
+        train_restriction=(
+            "GPL-3.0: testing only until the founders decide whether GPL data may train a model "
+            "we ship (D-033)"
+        ),
+        licence_acceptance="GPL-3.0 (https://www.gnu.org/licenses/gpl-3.0.txt)",
+        unverified=("cue_offset_s", "eeg_channels", "non_eeg_channels"),
+        notes=(
+            "3 MI sessions x 20 trials (10 per class): 60 trials per person, 10 s of imagery "
+            "each. 200 Hz release; MOABB loads the 'with occular artifact' (uncleaned) files. "
+            "Only 6 of the 26 C-core channels (F3, F4, Cz, P3, Pz, P4), and no C3 or C4: the "
+            "model can't read it without a montage decision (Q27). Six zips, 6.26 GB, which "
+            "also hold dataset B (mental arithmetic vs rest, a candidate for testing E6). The "
+            "paper is paywalled: the timing comes from MOABB's account of it."
+        ),
+    ),
+    DatasetSpec(
+        key="GuttmannFlury2025",
+        title="Guttmann-Flury et al. 2025, Eye-BCI multimodal dataset (motor imagery)",
+        role="diagnostic",
+        paradigm="motor_imagery",
+        moabb_class="GuttmannFlury2025_MI",
+        subjects=tuple(range(1, 32)),
+        eeg_channels=_GUTTMANNFLURY2025_CHANNELS,
+        non_eeg_channels=("CB1", "CB2", "M1", "M2", "HEO", "VEO", "Trig", "stim"),
+        native_sfreq=1000.0,
+        cue_offset_s=0.0,
+        task_s=4.0,
+        # "A red rectangle cue randomly appears on either side of the cross for 4 seconds. Upon
+        # cue onset, participants initiate the mental task" (paper): lateral, for the whole task.
+        class_on_screen_s=4.0,
+        # "Each trial begins with a white fixation cross displayed at the screen's center for 2
+        # seconds" (paper).
+        pre_cue_fixation_s=2.0,
+        rest_source="pre_cue",
+        licence="CC0 1.0 (the data: paper's Data Records and the Zenodo re-host); the article "
+        "itself is CC BY-NC-ND",
+        url="https://doi.org/10.7303/syn64005218",
+        channels_source=_MOABB_SOURCE_D033,
+        train_restriction=(
+            "diagnostic only (D-033): it measures how much decoding follows gaze, so it never "
+            "trains a model we ship"
+        ),
+        excluded_channels=dict.fromkeys(
+            _GUTTMANNFLURY2025_DEFECTIVE,
+            "malfunctioning or bridged in at least one session; the authors recommend excluding "
+            "it from the entire analysis (paper, Technical Validation)",
+        ),
+        unverified=("cue_offset_s", "non_eeg_channels"),
+        notes=(
+            "1-3 sessions per person (63 in all) x 40 trials (20 per class). Gaze: Tobii TX300 "
+            "at 300 Hz (MIxxx_tobii.csv), plus high-speed eye video and E-Prime timing. MOABB "
+            "loads a Zenodo re-host (record 18970793; EEG converted from Neuroscan CSV to BDF, "
+            "eye data copied byte for byte): 31 per-person zips, 26.2 GB, with published MD5s. "
+            "The original trigger codes are trial numbers; the re-host encodes 1 = left, "
+            "2 = right (to check: 20 + 20 per session). C-core coverage 23 of 26 (F3, FC3 and "
+            "P4 are among the defective channels)."
+        ),
+    ),
 )
 
 DATASETS: Mapping[str, DatasetSpec] = MappingProxyType({spec.key: spec for spec in _SPECS})
@@ -456,8 +701,33 @@ def keys_with_role(*roles: DatasetRole) -> tuple[str, ...]:
 
 
 def locked_test_dataset_keys() -> tuple[str, ...]:
-    """Datasets that contribute people to the locked test set (D-026)."""
-    return keys_with_role("core", "brain_state")
+    """Datasets that contribute people to the locked test set (D-026, D-033).
+
+    Every role except ``literature``. ``neuros.eval.splits`` pins each version of the locked
+    test set to an explicit list; a test checks that the current version matches this one, so
+    a newly registered dataset can't be left out of the test set by accident.
+    """
+    return keys_with_role("core", "brain_state", "cue_free", "diagnostic")
+
+
+def trainable_keys(keys: Sequence[str]) -> tuple[str, ...]:
+    """The datasets among ``keys`` whose people may train a model we ship, in the given order."""
+    return tuple(key for key in keys if get_spec(key).may_train)
+
+
+def assert_may_train(keys: Sequence[str], purpose: str) -> None:
+    """Raise unless every dataset in ``keys`` may train a model we ship (D-033).
+
+    Call it wherever data enters the training of a model that could ship: pooled training,
+    model export. Internal diagnostics on restricted datasets don't call it.
+
+    Raises:
+        NeurOSConfigError: naming each restricted dataset and its reason.
+    """
+    restricted = [get_spec(key) for key in keys if not get_spec(key).may_train]
+    if restricted:
+        reasons = "; ".join(f"{spec.key}: {spec.train_restriction}" for spec in restricted)
+        raise NeurOSConfigError(f"Datasets that may not train for {purpose}: {reasons}")
 
 
 @dataclass(frozen=True)
@@ -495,18 +765,20 @@ def task_epoch(spec: DatasetSpec, contract: SignalContract) -> TaskEpoch:
     """The offline task epoch for ``spec`` under ``contract`` (D-030).
 
     With the contract's rule (``epoch_s`` is None), the window starts ``cue_margin_s`` after the
-    class has left the screen. When that window doesn't fit in the task, because the class
-    stays on screen too long, the *latest* window inside the task is used instead: the one
-    furthest from the cue's onset, whose brain response is the strongest and most alike across
-    people. That window is marked ``cue_free=False``.
+    class has left the screen, and never before imagery starts (``task_from_s``). When that
+    window doesn't fit in the task, because the class stays on screen too long, the *latest*
+    window inside the task is used instead: the one furthest from the cue's onset, whose brain
+    response is the strongest and most alike across people. That window is marked
+    ``cue_free=False``.
 
     A fixed ``epoch_s`` (diagnostics, the cue-only control) is used as given, and ``cue_free``
-    says whether it happens to avoid the class display.
+    says whether it happens to avoid the class display. It may start before imagery does: the
+    cue-only control [0, 0.5] s is meant to cover the cue.
 
     Raises:
-        NeurOSConfigError: for a paradigm without class cues, a task shorter than one window, or
-            a fixed epoch that runs past the end of the task (it would cut into the next phase
-            of the trial and mislabel it).
+        NeurOSConfigError: for a paradigm without class cues, imagery shorter than one window,
+            or a fixed epoch that runs past the end of the task (it would cut into the next
+            phase of the trial and mislabel it).
     """
     if spec.class_on_screen_s is None:
         raise NeurOSConfigError(f"{spec.key}: no class cue (paradigm {spec.paradigm}), no epochs")
@@ -514,12 +786,12 @@ def task_epoch(spec: DatasetSpec, contract: SignalContract) -> TaskEpoch:
     if contract.epoch_s is None:
         rule: EpochRule = "after_cue"
         latest_start = spec.task_s - contract.window_s
-        if latest_start < -_EPOCH_TOL_S:
+        if latest_start < spec.task_from_s - _EPOCH_TOL_S:
             raise NeurOSConfigError(
-                f"{spec.key}: the task ({spec.task_s} s) is shorter than one window "
-                f"({contract.window_s} s)"
+                f"{spec.key}: imagery ({spec.task_s - spec.task_from_s:g} s) is shorter than "
+                f"one window ({contract.window_s} s)"
             )
-        start = min(clear_from, max(latest_start, 0.0))
+        start = max(spec.task_from_s, min(clear_from, latest_start))
         end = start + contract.window_s
     else:
         rule = "fixed"
@@ -561,11 +833,20 @@ def check_registry(vocabulary: Vocabulary, contract: SignalContract) -> None:
 def moabb_dataset(spec: DatasetSpec, **kwargs: Any) -> Any:
     """Instantiate the MOABB dataset class for ``spec`` (no data is downloaded).
 
+    The registry's ``moabb_kwargs`` come first; ``kwargs`` add to them but may not change them
+    (a caller can't quietly load Yang2025's three-class paradigm under the two-class key).
+
     Raises:
-        NeurOSConfigError: if the dataset isn't served by MOABB or the class is missing.
+        NeurOSConfigError: if the dataset isn't served by MOABB, the class is missing, or
+            ``kwargs`` contradicts the registry.
     """
     if spec.moabb_class is None:
         raise NeurOSConfigError(f"{spec.key} is not a MOABB dataset; use its dedicated loader")
+    clashes = sorted(
+        k for k in kwargs if k in spec.moabb_kwargs and kwargs[k] != spec.moabb_kwargs[k]
+    )
+    if clashes:
+        raise NeurOSConfigError(f"{spec.key}: arguments {clashes} contradict the registry")
     import moabb.datasets  # imported lazily: slow to import, and only needed here
 
     cls = getattr(moabb.datasets, spec.moabb_class, None)
@@ -573,7 +854,7 @@ def moabb_dataset(spec: DatasetSpec, **kwargs: Any) -> Any:
         raise NeurOSConfigError(
             f"MOABB has no class {spec.moabb_class!r} for {spec.key}; check the MOABB version"
         )
-    return cls(**kwargs)
+    return cls(**{**spec.moabb_kwargs, **kwargs})
 
 
 def check_against_moabb(spec: DatasetSpec, vocabulary: Vocabulary) -> list[str]:
@@ -596,14 +877,20 @@ def check_against_moabb(spec: DatasetSpec, vocabulary: Vocabulary) -> list[str]:
     stale = sorted(set(mapping) - set(dataset.event_id))
     if stale:
         problems.append(f"{spec.key}: labels.yaml maps events MOABB doesn't emit: {stale}")
+    # MOABB's interval is the imagery period, in seconds from its event marker. Ours is timed
+    # from the cue onset, which sits cue_offset_s after the marker; imagery starts task_from_s
+    # after the cue onset.
     interval = [float(x) for x in dataset.interval]
-    if not math.isclose(interval[0], spec.cue_offset_s):
+    imagery_start = spec.cue_offset_s + spec.task_from_s
+    if not math.isclose(interval[0], imagery_start, abs_tol=1e-9):
         problems.append(
-            f"{spec.key}: MOABB interval starts at {interval[0]} s "
-            f"but cue_offset_s={spec.cue_offset_s}"
+            f"{spec.key}: MOABB interval starts at {interval[0]} s but cue_offset_s + "
+            f"task_from_s = {imagery_start} s"
         )
-    if not math.isclose(interval[1] - interval[0], spec.task_s):
+    imagery_s = spec.task_s - spec.task_from_s
+    if not math.isclose(interval[1] - interval[0], imagery_s):
         problems.append(
-            f"{spec.key}: MOABB task length {interval[1] - interval[0]} s but task_s={spec.task_s}"
+            f"{spec.key}: MOABB task length {interval[1] - interval[0]} s but task_s - "
+            f"task_from_s = {imagery_s} s"
         )
     return problems

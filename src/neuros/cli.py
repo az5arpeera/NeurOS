@@ -4,8 +4,9 @@ Day-1 commands (data layer):
 
     neuros datasets [--check]                     registry table; --check cross-checks MOABB
     neuros montage                                C-core + headset coverage
-    neuros split [--write]                        the locked test set (D-026)
-    neuros download --dataset KEY [--subjects …]  fetch raw data + integrity manifest
+    neuros split [--write] [--split-version N]    the locked test set (D-026; v2 since D-033)
+    neuros download --dataset KEY [--subjects …]  fetch raw data + integrity manifest; datasets
+                    [--accept-licence]            whose licence must be accepted need the flag
     neuros validate --dataset KEY [--subjects …]  harmonise + validate, write a JSON report
 
 Day-2 commands (signal chain, alignment, baselines):
@@ -44,7 +45,8 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("neuros")
 
-DEFAULT_SPLIT_PATH = Path("configs/splits/locked_test_v1.yaml")
+# The current locked test set (D-033: v2 extends D-026's v1 with the cue-free datasets).
+DEFAULT_SPLIT_PATH = Path("configs/splits/locked_test_v2.yaml")
 
 
 # ---------------------------------------------------------------------- helpers
@@ -96,21 +98,22 @@ def cmd_datasets(args: argparse.Namespace) -> int:
             [
                 spec.key,
                 spec.role,
+                spec.use,
                 str(spec.n_subjects),
-                str(len(spec.eeg_channels)),
+                str(len(spec.usable_eeg_channels)),
                 f"{spec.native_sfreq:g}",
                 ",".join(labels),
                 window,
                 ",".join(spec.unverified) or "-",
             ]
         )
-    print(
-        _table(
-            rows,
-            ["dataset", "role", "people", "EEG ch", "Hz", "labels", "window s", "unverified"],
-        )
-    )
+    header = ["dataset", "role", "use", "people", "EEG ch", "Hz", "labels", "window s"]
+    print(_table(rows, [*header, "unverified"]))
     print("\n'!' = the class is on screen during the window: report the cue-only control (D-030)")
+    print(
+        "use: train = may train a model we ship (and test); test = testing only; "
+        "diagnostic = never trains (D-033)"
+    )
     if not args.check:
         return 0
     problems: list[str] = []
@@ -144,7 +147,8 @@ def cmd_montage(args: argparse.Namespace) -> int:
         present, _ = profile.coverage(committed)
         rows.append([f"headset:{name}", str(len(present)), ",".join(present)])
     for spec in DATASETS.values():
-        present = tuple(ch for ch in committed if ch in spec.eeg_channels)
+        # Usable channels only: a publisher-reported fault (excluded_channels) is never an input.
+        present = tuple(ch for ch in committed if ch in spec.usable_eeg_channels)
         rows.append([f"dataset:{spec.key}", str(len(present)), ",".join(present)])
     print()
     print(_table(rows, ["layout", "in C-core", "channels present"]))
@@ -152,18 +156,31 @@ def cmd_montage(args: argparse.Namespace) -> int:
 
 
 def cmd_split(args: argparse.Namespace) -> int:
-    from neuros.eval.splits import load_locked_test_set, make_locked_test_set, save_locked_test_set
+    from neuros.eval.splits import (
+        LOCKED_TEST_DECISIONS,
+        LOCKED_TEST_FILES,
+        LOCKED_TEST_VERSION,
+        load_locked_test_set,
+        make_locked_test_set,
+        save_locked_test_set,
+    )
 
-    computed = make_locked_test_set()
-    path = Path(args.path)
+    version = LOCKED_TEST_VERSION if args.split_version is None else args.split_version
+    computed = make_locked_test_set(version=version)  # raises for an unknown version
+    path = Path(args.path) if args.path else Path(LOCKED_TEST_FILES[version])
+    print(f"locked test set v{version} ({LOCKED_TEST_DECISIONS[version]})")
     if args.write:
-        save_locked_test_set(computed, path)
+        # Each version after the first extends the one before; the save checks it's unchanged.
+        extends = None
+        if version > 1:
+            extends = Path(args.extends) if args.extends else Path(LOCKED_TEST_FILES[version - 1])
+        save_locked_test_set(computed, path, extends=extends)
         print(f"wrote {path} (sha256 {computed.digest[:16]}…)")
     rows = [[k, str(len(v)), " ".join(map(str, v))] for k, v in computed.test.items()]
     print(_table(rows, ["dataset", "test people", "subjects"]))
     print(f"total: {sum(len(v) for v in computed.test.values())} people")
     if path.is_file():
-        stored = load_locked_test_set(path)
+        stored = load_locked_test_set(path)  # also checks the version it extends
         same = dict(stored.test) == dict(computed.test) and stored.digest == computed.digest
         print(f"{path}: integrity OK; {'matches' if same else 'DIFFERS FROM'} the recomputation")
         return 0 if same else 1
@@ -181,7 +198,9 @@ def cmd_download(args: argparse.Namespace) -> int:
         problems = verify_manifest(spec, config.data_dir)
         print("manifest intact" if not problems else "\n".join(problems))
         return 1 if problems else 0
-    manifest = download(spec, _subjects(args, spec.subjects), config.data_dir)
+    manifest = download(
+        spec, _subjects(args, spec.subjects), config.data_dir, accept_licence=args.accept_licence
+    )
     print(
         f"{spec.key}: {manifest['n_files']} files, {manifest['total_bytes'] / 1e9:.2f} GB "
         f"recorded in {config.data_dir / 'manifests' / (spec.key + '.json')}"
@@ -856,7 +875,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("split", help="show or write the locked test set")
     p.add_argument("--write", action="store_true", help="write the split file (only if absent)")
-    p.add_argument("--path", default=str(DEFAULT_SPLIT_PATH))
+    p.add_argument(
+        "--split-version", type=int, default=None, help="which version (default: the current one)"
+    )
+    p.add_argument("--path", default=None, help="split file (default: the version's own file)")
+    p.add_argument(
+        "--extends",
+        default=None,
+        help="with --write: the previous version's file (default: its own)",
+    )
     p.set_defaults(func=cmd_split)
 
     for name, func, text in (
@@ -869,6 +896,12 @@ def build_parser() -> argparse.ArgumentParser:
         if name == "download":
             p.add_argument(
                 "--verify", action="store_true", help="re-hash files against the manifest"
+            )
+            p.add_argument(
+                "--accept-licence",
+                action="store_true",
+                help="you, the person running this, accept the dataset's licence (needed for "
+                "datasets whose download requires it, e.g. Shin2017A: GPL-3.0)",
             )
         else:
             p.add_argument(

@@ -34,13 +34,23 @@ def test_cli_montage(capsys: pytest.CaptureFixture[str]) -> None:
 
 
 def test_cli_split_check_and_write(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    committed = REPO_ROOT / "configs" / "splits" / "locked_test_v1.yaml"
-    assert main(["split", "--path", str(committed)]) == 0
-    assert "integrity OK; matches" in capsys.readouterr().out
+    splits = REPO_ROOT / "configs" / "splits"
+    v1, v2 = splits / "locked_test_v1.yaml", splits / "locked_test_v2.yaml"
+    assert main(["split", "--path", str(v2)]) == 0  # the current version (D-033)
+    out = capsys.readouterr().out
+    assert "locked test set v2 (D-033)" in out
+    assert "integrity OK; matches" in out
+    assert "total: 101 people" in out
+    assert main(["split", "--split-version", "1", "--path", str(v1)]) == 0
+    assert "total: 79 people" in capsys.readouterr().out
+    assert main(["split", "--path", str(v1)]) == 1  # v1's file isn't the current version
+    assert "DIFFERS FROM" in capsys.readouterr().out
     target = tmp_path / "split.yaml"
-    assert main(["split", "--path", str(target), "--write"]) == 0
+    args = ["split", "--path", str(target), "--write", "--extends", str(v1)]
+    assert main(args) == 0
     assert target.is_file()
-    assert main(["split", "--path", str(target), "--write"]) == 2  # refuses to overwrite
+    assert main(args) == 2  # refuses to overwrite
+    assert main(["split", "--split-version", "7"]) == 2
 
 
 def test_cli_filters(capsys: pytest.CaptureFixture[str]) -> None:

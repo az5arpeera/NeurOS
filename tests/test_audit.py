@@ -18,7 +18,7 @@ from .conftest import REPO_ROOT
 
 # Two channels per region, so every region can be scored.
 CHANNELS = ("Fp1", "Fp2", "C3", "Cz", "C4", "P3", "P4", "O1", "O2")
-SPLIT = str(REPO_ROOT / "configs" / "splits" / "locked_test_v1.yaml")
+SPLIT = str(REPO_ROOT / "configs" / "splits" / "locked_test_v2.yaml")
 
 
 def _people(
@@ -68,16 +68,55 @@ def _means(result: dict[str, object]) -> dict[tuple[str, str], float]:
     return {(c["window"], c["region"]): c["summary_balanced_accuracy"]["mean"] for c in cells}
 
 
+# The explicit 10-10 lists the 4 Oct audits used. The row rules must reproduce them exactly on
+# 10-10 names (plus P9/P10, which now count as parietal), so those results stay comparable.
+AUDIT_4_OCT_REGIONS = {
+    "eyes": ("Fp1", "Fpz", "Fp2", "AF7", "AF3", "AFz", "AF4", "AF8", "F9", "F7", "F8", "F10"),
+    "motor": (
+        "FC5", "FC3", "FC1", "FCz", "FC2", "FC4", "FC6", "C5", "C3", "C1", "Cz", "C2", "C4",
+        "C6", "CP5", "CP3", "CP1", "CPz", "CP2", "CP4", "CP6",
+    ),
+    "parietal": ("P7", "P5", "P3", "P1", "Pz", "P2", "P4", "P6", "P8"),
+    "visual": (
+        "PO9", "PO7", "PO5", "PO3", "POz", "PO4", "PO6", "PO8", "PO10", "O1", "Oz", "O2", "Iz",
+    ),
+}  # fmt: skip
+
+
 def test_scalp_regions_are_canonical_and_disjoint() -> None:
-    seen: set[str] = set()
-    for region, names in SCALP_REGIONS.items():
+    from neuros.data.channels import canonical_names
+
+    every = sorted(canonical_names())
+    members = {region: set(region_channels(region, every)) for region in SCALP_REGIONS}
+    for region, names in members.items():
         require_canonical(names)
-        assert not seen & set(names), region
-        seen |= set(names)
-    assert {"C3", "Cz", "C4"} <= set(SCALP_REGIONS["motor"])
+        for other, other_names in members.items():
+            assert other == region or not names & other_names, (region, other)
+    assert {"C3", "Cz", "C4", "FCC3h", "CCP4h"} <= members["motor"]  # 10-5 half positions too
+    assert {"AFp1", "AFp2"} <= members["eyes"]
+    assert {"PPO1h", "P9"} <= members["parietal"]
+    assert "POO1" in members["visual"]
     assert region_channels("motor", ("O1", "C4", "Fz", "C3")) == ("C4", "C3")  # caller's order
     with pytest.raises(NeurOSConfigError, match="unknown scalp region"):
         region_channels("temporal", CHANNELS)
+
+
+def test_scalp_regions_match_the_4_oct_audits_on_10_10_names() -> None:
+    ten_ten = set().union(*(set(get_spec(k).eeg_channels) for k in ("PhysionetMI", "Lee2019_MI")))
+    ten_ten |= set().union(*AUDIT_4_OCT_REGIONS.values())
+    names = sorted(ten_ten - {"P9", "P10"})
+    for region, listed in AUDIT_4_OCT_REGIONS.items():
+        assert set(region_channels(region, names)) == set(listed) & set(names), region
+
+
+def test_scalp_regions_cover_a_10_5_cap() -> None:
+    # Shin2017A samples the motor strip only at half positions: the row rules still find it.
+    shin = get_spec("Shin2017A").eeg_channels
+    assert region_channels("motor", shin) == (
+        "FCC3h", "FCC4h", "FCC5h", "FCC6h", "Cz", "CCP3h", "CCP4h", "CCP5h", "CCP6h",
+    )  # fmt: skip
+    assert region_channels("eyes", shin) == ("AFp1", "AFp2", "F7", "F8")
+    assert region_channels("visual", shin) == ("POO1", "POO2")
 
 
 def test_audit_windows_follow_d030() -> None:

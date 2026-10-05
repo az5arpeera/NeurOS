@@ -25,17 +25,22 @@ Founder (3 Oct): "TBD on specific roles". **Proposal** (in the [plan](plan/road-
 - **Founder:** data pipeline, engine/SDK, evaluation harness, outreach, the YC application.
 - **Cofounder:** model training and experiments.
 
-### Q26. Add cue-free datasets (proposed 4 Oct)
-**Why:** under D-030, only BNCI2014-001 (9 people) has a cue-free window. The checks on 4 Oct found commercially usable cue-free data ([results](results/2026-10-04-cue-audit-and-cue-free-datasets.md)).
+### Q27. Shin2017A's montage (raised 4 Oct, D-033)
+**Why:** Shin2017A's cap samples the motor strip at 10-5 half positions (FCC3h, CCP3h, …) and has no C3 or C4.
+- The model's input (C-core) shares only 6 of its 26 positions with it: F3, F4, Cz, P3, Pz and P4.
+- As things stand, the model would read it like a 6-channel headset *without* the channels that carry left vs right. A test on it would say little.
 
-**Recommendation** (would be D-033; amends the data lock):
-- **Yang2025:** 51 left/right people; fixation cross only during imagery; CC BY 4.0; 65.6 GB. Training, and cue-free testing.
-- **Shin2017A:** 29 people, cue-free; GPL-3.0. **Testing only** until you decide whether GPL data may train a model we ship.
-- **GuttmannFlury2025:** 31 people; CC0; 26.2 GB. Not cue-free, but it records gaze, so it measures how much decoding follows the eyes. **Diagnostic only.**
-- **The locked test set** grows by round(20%) of each new dataset's people, chosen with the D-026 seed before anyone looks at the data.
-- **Downloads** go to AWS (D-032), each listed for approval first.
+**Options:**
+1. **Two-neighbour averages onto C-core positions (recommended).**
+   - C3 ≈ mean(FCC3h, CCP3h) and C5 ≈ mean(FCC5h, CCP5h); C4 and C6 likewise. Each pair sits half a step in front of and behind its target.
+   - Test-only, recorded as a montage profile, and never used in training.
+   - It replaces 8 channels with 4, so covariances stay full rank. (The worry about interpolation in §4.3 is rank deficiency, when an interpolated channel sits next to its own sources.)
+2. **Nearest-position relabelling** (FCC3h → C3). Simpler, but it silently shifts each electrode by about 1.5 cm.
+3. **Leave it.** Use Shin2017A only in internal diagnostics (the cue audit), not as a test of the model.
 
-**Not recommended:** Brandl2020, HefmiIch2025, Chang2025 (CC BY-NC-ND: non-commercial).
+**Rec:** 1. It's an exception to "no interpolation in v1" (§4.3), so it needs your decision.
+
+**Related, for week 3:** Shin2017A's download also holds **dataset B** (29 people, rest vs mental arithmetic, GPL-3.0). It's a candidate second dataset for testing E6's mental-state head across datasets, with EEGMAT training it.
 
 ### Optional: email g.tec
 Ask about a student/startup price for the Unicorn (a second headset for the hardware-agnostic story).
@@ -60,6 +65,7 @@ Ask about a student/startup price for the Unicorn (a second headset for the hard
 
 | Date | Q | Answer | Decision |
 |---|---|---|---|
+| 2026-10-04 | Q26: add cue-free datasets | **Approved, all three.** Yang2025 trains and tests (cue-free); Shin2017A tests only (GPL-3.0); GuttmannFlury2025 is a gaze diagnostic. The locked test set grows to v2 (+22 people, v1 unchanged). Brandl2020, HefmiIch2025 and Chang2025 stay out (non-commercial licences) | [D-033](decisions/decision-log.md) |
 | 2026-10-04 | Q25: cue-controlled evaluation windows | **Adopted.** Every motor-imagery result uses windows that start after the class has left the screen (train and test), next to a cue-only control; datasets whose cue stays up carry a flag. Prompted by E0: 75.0% with the arrow on screen, 60.6% after it | [D-030](decisions/decision-log.md) |
 | 2026-10-03 | Q21: architecture sign-off | **Signed off**, including the L0/L1/L2 claim levels and the evaluation protocol | [D-022](decisions/decision-log.md) |
 | 2026-10-03 | Q1: text-anchored head | **Adopt under the rule** (ship it if within 1 point of the linear head, or better, on never-seen people) | [D-023](decisions/decision-log.md) |

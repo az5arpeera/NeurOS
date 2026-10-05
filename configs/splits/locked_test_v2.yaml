@@ -1,0 +1,134 @@
+# LOCKED TEST SET v2 (architecture §8.1, D-033). Do not edit by hand.
+# These people are untouched until the freeze on Sat 24 Oct 2026.
+# Integrity: neuros.eval.splits.load_locked_test_set() recomputes sha256.
+version: 2
+created: '2026-10-04'
+seed: 20261003
+fraction: 0.2
+method: per-dataset sha256(seed:dataset) RNG; stratified by subgroup; largest-remainder
+decision: D-033
+extends:
+  file: locked_test_v1.yaml
+  sha256: 3143e97b2a7fe63c1004e7d2ab2082ee0e71b58ff2ec5b235c856005f496d873
+n_people:
+  PhysionetMI: 22
+  Dreyer2023: 17
+  Stieger2021: 12
+  Lee2019_MI: 11
+  Cho2017: 10
+  EEGMAT: 7
+  Yang2025: 10
+  Shin2017A: 6
+  GuttmannFlury2025: 6
+test:
+  PhysionetMI:
+  - 4
+  - 13
+  - 16
+  - 17
+  - 18
+  - 20
+  - 25
+  - 32
+  - 36
+  - 40
+  - 41
+  - 45
+  - 49
+  - 54
+  - 56
+  - 66
+  - 73
+  - 82
+  - 83
+  - 85
+  - 105
+  - 108
+  Dreyer2023:
+  - 7
+  - 12
+  - 18
+  - 20
+  - 24
+  - 26
+  - 29
+  - 30
+  - 39
+  - 45
+  - 56
+  - 60
+  - 63
+  - 71
+  - 72
+  - 80
+  - 84
+  Stieger2021:
+  - 4
+  - 6
+  - 16
+  - 26
+  - 27
+  - 32
+  - 36
+  - 43
+  - 48
+  - 49
+  - 56
+  - 61
+  Lee2019_MI:
+  - 3
+  - 4
+  - 8
+  - 10
+  - 12
+  - 21
+  - 33
+  - 37
+  - 50
+  - 52
+  - 53
+  Cho2017:
+  - 6
+  - 11
+  - 15
+  - 17
+  - 18
+  - 24
+  - 37
+  - 38
+  - 40
+  - 41
+  EEGMAT:
+  - 1
+  - 2
+  - 6
+  - 17
+  - 22
+  - 26
+  - 31
+  Yang2025:
+  - 3
+  - 8
+  - 11
+  - 13
+  - 17
+  - 20
+  - 27
+  - 32
+  - 48
+  - 49
+  Shin2017A:
+  - 4
+  - 12
+  - 17
+  - 18
+  - 22
+  - 26
+  GuttmannFlury2025:
+  - 3
+  - 6
+  - 11
+  - 12
+  - 13
+  - 17
+sha256: a752b355e16dc032626a905ed52aac1093f62e622092295273f4467466777940

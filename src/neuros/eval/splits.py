@@ -10,6 +10,11 @@ was examined, and stratified by dataset (and by subgroup where the registry defi
 Dreyer2023 A/B/C). It's written once to ``configs/splits/locked_test_v1.yaml`` with a SHA-256
 digest, and stays untouched until the freeze on Sat 24 Oct.
 
+**Version 2 (D-033, 4 Oct)** adds 20% of each dataset D-033 registered (Yang2025, Shin2017A,
+GuttmannFlury2025), drawn the same way before any of their data was downloaded. It's a new file,
+``locked_test_v2.yaml``, that names v1 and its digest; ``extends_check`` proves every v1 dataset
+keeps exactly its v1 people. v1 is never edited.
+
 Determinism: each dataset draws from its own RNG, seeded by hashing ``seed:dataset``. Adding a
 dataset therefore never changes another dataset's test people.
 
@@ -26,18 +31,36 @@ import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 
 import numpy as np
 import yaml
 
 from neuros.data.recording import person_id
-from neuros.data.registry import DatasetSpec, get_spec, locked_test_dataset_keys
+from neuros.data.registry import DatasetSpec, get_spec
 from neuros.errors import NeurOSConfigError, NeurOSSplitError
 
 LOCKED_TEST_SEED = 20261003
 LOCKED_TEST_FRACTION = 0.2
-LOCKED_TEST_VERSION = 1
 SPLIT_METHOD = "per-dataset sha256(seed:dataset) RNG; stratified by subgroup; largest-remainder"
+
+# The datasets of each locked-test-set version, in registry order. Explicit lists, never derived
+# from the registry's roles: what a version contains must not change when the registry grows.
+# tests/test_splits.py checks the current version against registry.locked_test_dataset_keys().
+_V1_DATASETS = ("PhysionetMI", "Dreyer2023", "Stieger2021", "Lee2019_MI", "Cho2017", "EEGMAT")
+LOCKED_TEST_DATASETS: Mapping[int, tuple[str, ...]] = MappingProxyType(
+    {
+        1: _V1_DATASETS,
+        2: (*_V1_DATASETS, "Yang2025", "Shin2017A", "GuttmannFlury2025"),
+    }
+)
+# The decision that created each version.
+LOCKED_TEST_DECISIONS: Mapping[int, str] = MappingProxyType({1: "D-026", 2: "D-033"})
+LOCKED_TEST_VERSION = max(LOCKED_TEST_DATASETS)
+# The committed file of each version (relative to the repository root).
+LOCKED_TEST_FILES: Mapping[int, str] = MappingProxyType(
+    {v: f"configs/splits/locked_test_v{v}.yaml" for v in LOCKED_TEST_DATASETS}
+)
 
 
 def _dataset_rng(seed: int, dataset: str) -> np.random.Generator:
@@ -100,6 +123,8 @@ class LockedTestSet:
     created: str
     test: Mapping[str, tuple[int, ...]]
     digest: str
+    # The earlier version this one extends, as (file, sha256), or None for version 1.
+    extends: tuple[str, str] | None = None
 
     def people(self) -> frozenset[str]:
         """All locked test people as ``dataset:subject`` ids."""
@@ -144,15 +169,27 @@ class LockedTestSet:
 def make_locked_test_set(
     dataset_keys: Sequence[str] | None = None,
     *,
+    version: int = LOCKED_TEST_VERSION,
     fraction: float = LOCKED_TEST_FRACTION,
     seed: int = LOCKED_TEST_SEED,
     created: str | None = None,
 ) -> LockedTestSet:
-    """Compute the locked test set from the registry (pure: doesn't touch the disk)."""
-    keys = tuple(dataset_keys) if dataset_keys is not None else locked_test_dataset_keys()
+    """Compute a version of the locked test set from the registry (pure: no disk access).
+
+    ``dataset_keys`` defaults to the version's own list (``LOCKED_TEST_DATASETS``); passing it
+    explicitly is for tests and inspection.
+
+    Raises:
+        NeurOSConfigError: for an unknown version.
+    """
+    if version not in LOCKED_TEST_DATASETS:
+        raise NeurOSConfigError(
+            f"Unknown locked test set version {version}; known: {sorted(LOCKED_TEST_DATASETS)}"
+        )
+    keys = tuple(dataset_keys) if dataset_keys is not None else LOCKED_TEST_DATASETS[version]
     test = {key: tuple(draw_test_people(get_spec(key), fraction, seed)) for key in keys}
     return LockedTestSet(
-        version=LOCKED_TEST_VERSION,
+        version=version,
         seed=seed,
         fraction=fraction,
         created=created or dt.date.today().isoformat(),
@@ -161,29 +198,80 @@ def make_locked_test_set(
     )
 
 
-def save_locked_test_set(split: LockedTestSet, path: str | Path) -> None:
-    """Write the split once. Refuses to overwrite: the test set is locked (D-026).
+def extends_check(newer: LockedTestSet, older: LockedTestSet) -> None:
+    """Raise unless ``newer`` keeps every dataset of ``older`` with exactly the same people.
+
+    A new version may only *add* datasets: changing anyone's membership after people have been
+    looked at would break the lock (D-026).
 
     Raises:
-        NeurOSSplitError: if the file already exists.
+        NeurOSSplitError: naming the first difference.
+    """
+    if (newer.seed, newer.fraction) != (older.seed, older.fraction):
+        raise NeurOSSplitError(
+            f"version {newer.version} uses seed/fraction {newer.seed}/{newer.fraction}, "
+            f"version {older.version} {older.seed}/{older.fraction}"
+        )
+    for key, subjects in older.test.items():
+        if key not in newer.test:
+            raise NeurOSSplitError(f"version {newer.version} drops {key} from the locked test set")
+        if tuple(newer.test[key]) != tuple(subjects):
+            raise NeurOSSplitError(
+                f"version {newer.version} changes {key}'s locked test people "
+                f"({list(subjects)} → {list(newer.test[key])})"
+            )
+
+
+def save_locked_test_set(
+    split: LockedTestSet, path: str | Path, *, extends: str | Path | None = None
+) -> None:
+    """Write the split once. Refuses to overwrite: the test set is locked (D-026).
+
+    Args:
+        split: the version to write.
+        path: where to write it.
+        extends: the earlier version's file, for every version after the first. It's loaded
+            and integrity-checked, ``split`` must keep its people unchanged (``extends_check``),
+            and its name and digest are recorded in the new file.
+
+    Raises:
+        NeurOSSplitError: if the file already exists or the new version changes the old one.
+        NeurOSConfigError: if ``extends`` is missing for version > 1, or given for version 1.
     """
     file = Path(path)
     if file.exists():
         raise NeurOSSplitError(f"{file} exists; the locked test set is never regenerated in place")
+    if (extends is None) != (split.version == 1):
+        raise NeurOSConfigError(
+            f"version {split.version}: pass `extends` exactly when writing a version after 1"
+        )
+    previous: dict[str, str] | None = None
+    if extends is not None:
+        older = load_locked_test_set(extends)
+        extends_check(split, older)
+        previous = {"file": Path(extends).name, "sha256": older.digest}
     file.parent.mkdir(parents=True, exist_ok=True)
-    body = {
+    decision = LOCKED_TEST_DECISIONS.get(split.version, "unrecorded")
+    body: dict[str, object] = {
         "version": split.version,
         "created": split.created,
         "seed": split.seed,
         "fraction": split.fraction,
         "method": SPLIT_METHOD,
-        "decision": "D-026",
-        "n_people": {key: len(subjects) for key, subjects in split.test.items()},
-        "test": {key: list(subjects) for key, subjects in split.test.items()},
-        "sha256": split.digest,
+        "decision": decision,
     }
+    if previous is not None:
+        body["extends"] = previous
+    body.update(
+        {
+            "n_people": {key: len(subjects) for key, subjects in split.test.items()},
+            "test": {key: list(subjects) for key, subjects in split.test.items()},
+            "sha256": split.digest,
+        }
+    )
+    title = f"# LOCKED TEST SET v{split.version} (architecture §8.1, {decision})."
     header = (
-        "# LOCKED TEST SET (architecture §8.1, D-026). Do not edit by hand.\n"
+        f"{title} Do not edit by hand.\n"
         "# These people are untouched until the freeze on Sat 24 Oct 2026.\n"
         "# Integrity: neuros.eval.splits.load_locked_test_set() recomputes sha256.\n"
     )
@@ -194,9 +282,13 @@ def save_locked_test_set(split: LockedTestSet, path: str | Path) -> None:
 def load_locked_test_set(path: str | Path) -> LockedTestSet:
     """Load and integrity-check the locked test set.
 
+    A version that extends an earlier one is checked against it too, when the earlier file
+    sits next to it: its digest must match the recorded one, and its people must be unchanged.
+
     Raises:
         NeurOSConfigError: if the file is missing or malformed.
-        NeurOSSplitError: if the digest doesn't match the contents (the file was edited).
+        NeurOSSplitError: if the digest doesn't match the contents (the file was edited), or
+            the earlier version it extends was changed or contradicts it.
     """
     file = Path(path)
     if not file.is_file():
@@ -206,11 +298,26 @@ def load_locked_test_set(path: str | Path) -> LockedTestSet:
         test = {str(k): tuple(int(s) for s in v) for k, v in raw["test"].items()}
         seed, fraction, digest = int(raw["seed"]), float(raw["fraction"]), str(raw["sha256"])
         version, created = int(raw["version"]), str(raw["created"])
+        extends_raw = raw.get("extends")
+        extends = (
+            None if extends_raw is None else (str(extends_raw["file"]), str(extends_raw["sha256"]))
+        )
     except (yaml.YAMLError, KeyError, TypeError, ValueError, AttributeError) as exc:
         raise NeurOSConfigError(f"{file}: malformed locked test set: {exc}") from exc
     if _digest(test, seed, fraction) != digest:
         raise NeurOSSplitError(f"{file}: sha256 mismatch; the locked test set was modified")
-    return LockedTestSet(version, seed, fraction, created, test, digest)
+    split = LockedTestSet(version, seed, fraction, created, test, digest, extends)
+    if extends is not None:
+        older_file = file.parent / extends[0]
+        if older_file.is_file():
+            older = load_locked_test_set(older_file)
+            if older.digest != extends[1]:
+                raise NeurOSSplitError(
+                    f"{file}: extends {extends[0]} with sha256 {extends[1][:12]}…, but that "
+                    f"file's is {older.digest[:12]}…"
+                )
+            extends_check(split, older)
+    return split
 
 
 @dataclass(frozen=True)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -11,9 +12,12 @@ from hypothesis import strategies as st
 from neuros.data.registry import get_spec, locked_test_dataset_keys
 from neuros.errors import NeurOSConfigError, NeurOSSplitError
 from neuros.eval.splits import (
+    LOCKED_TEST_DATASETS,
     LOCKED_TEST_SEED,
+    LOCKED_TEST_VERSION,
     Fold,
     _allocate,
+    extends_check,
     load_locked_test_set,
     loso_folds,
     make_dev_folds,
@@ -23,8 +27,10 @@ from neuros.eval.splits import (
 
 from .conftest import REPO_ROOT
 
-COMMITTED = REPO_ROOT / "configs" / "splits" / "locked_test_v1.yaml"
-EXPECTED_COUNTS = {
+SPLITS = REPO_ROOT / "configs" / "splits"
+COMMITTED_V1 = SPLITS / "locked_test_v1.yaml"
+COMMITTED = SPLITS / "locked_test_v2.yaml"
+V1_COUNTS = {
     "PhysionetMI": 22,
     "Dreyer2023": 17,
     "Stieger2021": 12,
@@ -32,13 +38,40 @@ EXPECTED_COUNTS = {
     "Cho2017": 10,
     "EEGMAT": 7,
 }
+# D-033 (4 Oct): round(20%) of 51, 29 and 31 people.
+EXPECTED_COUNTS = {**V1_COUNTS, "Yang2025": 10, "Shin2017A": 6, "GuttmannFlury2025": 6}
 
 
 def test_counts_are_twenty_percent_per_dataset() -> None:
     split = make_locked_test_set()
+    assert split.version == LOCKED_TEST_VERSION == 2
     assert {k: len(v) for k, v in split.test.items()} == EXPECTED_COUNTS
-    assert sum(EXPECTED_COUNTS.values()) == 79  # 72 motor-imagery + 7 EEGMAT people
-    assert set(split.test) == set(locked_test_dataset_keys())
+    assert sum(EXPECTED_COUNTS.values()) == 101  # v1's 79 + 22 from D-033's datasets
+    v1 = make_locked_test_set(version=1)
+    assert {k: len(v) for k, v in v1.test.items()} == V1_COUNTS
+    assert sum(V1_COUNTS.values()) == 79  # 72 motor-imagery + 7 EEGMAT people
+
+
+def test_current_version_covers_every_contributing_dataset() -> None:
+    # A newly registered dataset with a contributing role forces a new version (D-033).
+    assert set(LOCKED_TEST_DATASETS[LOCKED_TEST_VERSION]) == set(locked_test_dataset_keys())
+    with pytest.raises(NeurOSConfigError, match="Unknown locked test set version"):
+        make_locked_test_set(version=99)
+
+
+def test_v2_extends_v1_without_changing_it() -> None:
+    v1, v2 = make_locked_test_set(version=1), make_locked_test_set(version=2)
+    extends_check(v2, v1)  # no error
+    assert {k: v2.test[k] for k in v1.test} == dict(v1.test)
+    moved = {**v2.test, "Cho2017": (*v2.test["Cho2017"][1:], 1)}
+    with pytest.raises(NeurOSSplitError, match="changes Cho2017"):
+        extends_check(replace(v2, test=moved), v1)
+    dropped = {k: v for k, v in v2.test.items() if k != "EEGMAT"}
+    with pytest.raises(NeurOSSplitError, match="drops EEGMAT"):
+        extends_check(replace(v2, test=dropped), v1)
+    reseeded = make_locked_test_set(version=2, seed=LOCKED_TEST_SEED + 1)
+    with pytest.raises(NeurOSSplitError, match="seed/fraction"):
+        extends_check(reseeded, v1)
 
 
 def test_dreyer_is_stratified_by_subgroup() -> None:
@@ -63,16 +96,48 @@ def test_datasets_are_drawn_independently() -> None:
     assert partial.test["EEGMAT"] == full.test["EEGMAT"]
 
 
-def test_committed_file_matches_recomputation() -> None:
-    stored = load_locked_test_set(COMMITTED)
-    recomputed = make_locked_test_set()
-    assert dict(stored.test) == dict(recomputed.test)
-    assert stored.digest == recomputed.digest
-    assert stored.seed == LOCKED_TEST_SEED
+def test_committed_files_match_recomputation() -> None:
+    for version, path in ((1, COMMITTED_V1), (2, COMMITTED)):
+        stored = load_locked_test_set(path)
+        recomputed = make_locked_test_set(version=version)
+        assert stored.version == version
+        assert dict(stored.test) == dict(recomputed.test)
+        assert stored.digest == recomputed.digest
+        assert stored.seed == LOCKED_TEST_SEED
+    v2 = load_locked_test_set(COMMITTED)
+    assert v2.extends == ("locked_test_v1.yaml", load_locked_test_set(COMMITTED_V1).digest)
+
+
+def test_v2_detects_an_edited_v1(tmp_path: Path) -> None:
+    # An edited v1 whose own digest was "fixed up" passes on its own, but v2 recorded the
+    # original digest, so loading v2 next to it fails.
+    from neuros.eval.splits import _digest
+
+    v1 = load_locked_test_set(COMMITTED_V1)
+    test = {**v1.test, "Cho2017": (1, 2, 3)}
+    forged = replace(v1, test=test, digest=_digest(test, v1.seed, v1.fraction))
+    save_locked_test_set(forged, tmp_path / "locked_test_v1.yaml")
+    load_locked_test_set(tmp_path / "locked_test_v1.yaml")  # self-consistent
+    copy = tmp_path / "locked_test_v2.yaml"
+    copy.write_text(COMMITTED.read_text(encoding="utf-8"), encoding="utf-8")
+    with pytest.raises(NeurOSSplitError, match=r"extends locked_test_v1\.yaml"):
+        load_locked_test_set(copy)
+
+
+def test_writing_a_later_version_needs_the_earlier_one(tmp_path: Path) -> None:
+    v2 = make_locked_test_set(version=2)
+    with pytest.raises(NeurOSConfigError, match="pass `extends`"):
+        save_locked_test_set(v2, tmp_path / "v2.yaml")
+    with pytest.raises(NeurOSConfigError, match="pass `extends`"):
+        save_locked_test_set(
+            make_locked_test_set(version=1), tmp_path / "v1.yaml", extends=COMMITTED_V1
+        )
+    save_locked_test_set(v2, tmp_path / "v2.yaml", extends=COMMITTED_V1)
+    assert load_locked_test_set(tmp_path / "v2.yaml").extends is not None
 
 
 def test_save_load_roundtrip_and_no_overwrite(tmp_path: Path) -> None:
-    split = make_locked_test_set(["Cho2017"])
+    split = make_locked_test_set(["Cho2017"], version=1)
     path = tmp_path / "split.yaml"
     save_locked_test_set(split, path)
     assert load_locked_test_set(path).test == split.test
@@ -82,8 +147,8 @@ def test_save_load_roundtrip_and_no_overwrite(tmp_path: Path) -> None:
 
 def test_tampering_is_detected(tmp_path: Path) -> None:
     path = tmp_path / "split.yaml"
-    save_locked_test_set(make_locked_test_set(["Cho2017"]), path)
-    first = make_locked_test_set(["Cho2017"]).test["Cho2017"][0]
+    save_locked_test_set(make_locked_test_set(["Cho2017"], version=1), path)
+    first = make_locked_test_set(["Cho2017"], version=1).test["Cho2017"][0]
     text = path.read_text(encoding="utf-8").replace(f"- {first}\n", "- 999\n", 1)
     path.write_text(text, encoding="utf-8")
     with pytest.raises(NeurOSSplitError, match="sha256 mismatch"):

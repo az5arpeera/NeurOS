@@ -44,7 +44,9 @@ def classify_channels(
 
     Channels whose MNE type is ``stim`` are the event channel and are always dropped (MOABB
     1.7 names it ``STI``; older versions ``stim``). Every other non-EEG channel must be declared
-    in the registry, so montage surprises fail loudly.
+    in the registry, so montage surprises fail loudly. EEG channels the registry excludes
+    (publisher-reported faults, ``excluded_channels``) must be present, like every declared
+    channel, but are not kept.
 
     Raises:
         NeurOSChannelError: on an undeclared channel, a duplicate after normalisation, or a
@@ -55,21 +57,25 @@ def classify_channels(
             f"{len(raw_names)} channel names but {len(channel_types)} channel types", context
         )
     declared_eeg = set(spec.eeg_channels)
+    excluded = set(spec.excluded_channels)
     declared_other = {name.strip().lower() for name in spec.non_eeg_channels}
     keep_idx: list[int] = []
     keep_names: list[str] = []
+    found: list[str] = []  # every declared EEG channel seen, kept or excluded
     unknown: list[str] = []
     for index, raw_name in enumerate(raw_names):
         if channel_types is not None and channel_types[index] == "stim":
             continue
         canonical = normalize_channel_name(raw_name)
         if canonical is not None and canonical in declared_eeg:
-            if canonical in keep_names:
+            if canonical in found:
                 raise NeurOSChannelError(
                     f"Channel {raw_name!r} duplicates {canonical!r} after normalisation", context
                 )
-            keep_idx.append(index)
-            keep_names.append(canonical)
+            found.append(canonical)
+            if canonical not in excluded:
+                keep_idx.append(index)
+                keep_names.append(canonical)
         elif raw_name.strip().lower() in declared_other:
             continue
         else:
@@ -80,7 +86,7 @@ def classify_channels(
             "non_eeg_channels for this dataset",
             context,
         )
-    missing = [name for name in spec.eeg_channels if name not in keep_names]
+    missing = [name for name in spec.eeg_channels if name not in found]
     if missing:
         raise NeurOSChannelError(f"Declared EEG channels missing from the file: {missing}", context)
     return keep_idx, keep_names
