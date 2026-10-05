@@ -20,6 +20,14 @@ Day-3 command (deep model; needs PyTorch: ``uv sync --extra dev --extra ml``):
 
     neuros loso --experiment configs/e0.yaml      EEGNet leave-one-person-out (E0)
 
+E1 (pooled training across datasets; on AWS with ``--device cuda``, D-032):
+
+    neuros e1 --experiment configs/e1.yaml        pooled vs single-dataset vs leave-one-dataset-out,
+                                                  with the cue-only control (D-030)
+
+Every command that loads data refuses people that ``neuros download`` didn't fetch: MOABB would
+otherwise download them unasked.
+
 Exit codes: 0 = success, 1 = checks found problems, 2 = a NeurOS error (bad input/config).
 """
 
@@ -210,7 +218,7 @@ def cmd_download(args: argparse.Namespace) -> int:
 
 
 def cmd_validate(args: argparse.Namespace) -> int:
-    from neuros.data.download import prepare_mne_environment
+    from neuros.data.download import prepare_mne_environment, require_downloaded
     from neuros.data.harmonize import harmonize_moabb_subject
     from neuros.data.registry import get_spec, moabb_dataset
     from neuros.data.validate import validate_recording
@@ -231,6 +239,8 @@ def cmd_validate(args: argparse.Namespace) -> int:
             f"skipping excluded subjects {sorted(spec.excluded_subjects)} "
             "(see the registry for reasons; --include-excluded checks them anyway)\n"
         )
+    # Loading would make MOABB download anything missing, unasked: refuse instead.
+    require_downloaded(spec, _subjects(args, pool), config.data_dir)
     for subject in _subjects(args, pool):
         try:
             recordings = harmonize_moabb_subject(spec, subject, vocab, dataset=dataset)
@@ -393,7 +403,7 @@ def _dev_windows(
     Returns:
         ``(windows, per-subject epoch summaries, subjects, the epoch used)``.
     """
-    from neuros.data.download import prepare_mne_environment
+    from neuros.data.download import prepare_mne_environment, require_downloaded
     from neuros.data.montage import load_c_core, region_channels
     from neuros.data.prepare import subject_epochs
     from neuros.data.registry import get_spec, moabb_dataset, task_epoch
@@ -407,6 +417,7 @@ def _dev_windows(
     print(f"{spec.key}: windows {epoch.describe()}", flush=True)
     vocab = default_vocabulary()
     subjects = _dev_subjects(spec, subjects_arg, split_path, purpose)
+    require_downloaded(spec, subjects, config.data_dir)  # never let MOABB download unasked
     prepare_mne_environment(config.data_dir)
     dataset = moabb_dataset(spec)
 
@@ -605,7 +616,7 @@ def _audit_output_name(spec_key: str, args: argparse.Namespace, task: TaskEpoch)
 
 
 def cmd_audit(args: argparse.Namespace) -> int:
-    from neuros.data.download import prepare_mne_environment
+    from neuros.data.download import prepare_mne_environment, require_downloaded
     from neuros.data.montage import SCALP_REGIONS, region_channels
     from neuros.data.prepare import prepare_subject
     from neuros.data.recording import person_id
@@ -630,6 +641,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
     provenance = stamp(config, dataset=spec.key)  # at the start: the code that runs
     _warn_if_dirty(provenance)
     subjects = _dev_subjects(spec, args.subjects, args.split, "a cue audit")
+    require_downloaded(spec, subjects, config.data_dir)  # never let MOABB download unasked
     for window in windows_spec:
         print(f"{window.name}: {window.epoch.describe()}", flush=True)
     prepare_mne_environment(config.data_dir)
@@ -927,6 +939,263 @@ def cmd_loso(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------- parser
+def _e1_layout(channels: str) -> tuple[str, ...]:
+    """The model's input layout: C-core (§4.3), or its motor-strip rows (D-031)."""
+    from neuros.data.montage import load_c_core, region_channels
+
+    c_core = load_c_core()
+    return c_core if channels == "c-core" else region_channels("motor", c_core)
+
+
+def _e1_windows(
+    config: DataConfig,
+    keys: Sequence[str],
+    labels: Sequence[str],
+    split_path: str,
+    max_subjects: int | None,
+    cache: RecordingCache | None,
+) -> tuple[dict[str, WindowSet], dict[str, Any]]:
+    """Each dataset's development windows under ``config``'s epoch rule, plus a load report.
+
+    Raises:
+        NeurOSDataError: if a dataset (or person) isn't downloaded: E1 never triggers a download.
+    """
+    from neuros.data.download import prepare_mne_environment, require_downloaded
+    from neuros.data.prepare import subject_epochs
+    from neuros.data.registry import get_spec, moabb_dataset, task_epoch
+    from neuros.data.vocabulary import default_vocabulary
+    from neuros.signal.windows import WindowSet
+
+    vocab = default_vocabulary()
+    prepare_mne_environment(config.data_dir)
+    per_dataset: dict[str, WindowSet] = {}
+    loaded: dict[str, Any] = {}
+    for key in keys:
+        spec = get_spec(key)
+        epoch = task_epoch(spec, config.signal)
+        subjects = _dev_subjects(spec, None, split_path, "experiment E1")
+        if max_subjects is not None:
+            subjects = subjects[:max_subjects]
+        require_downloaded(spec, subjects, config.data_dir)
+        dataset = moabb_dataset(spec)
+        sets, summaries = [], []
+        for subject in subjects:
+            windows, summary = subject_epochs(
+                spec, subject, vocab, config, labels, dataset=dataset, cache=cache
+            )
+            sets.append(windows)
+            summaries.append(summary.to_dict())
+        per_dataset[key] = WindowSet.concat(sets)
+        loaded[key] = {**epoch.to_dict(), "subjects": subjects, "per_subject": summaries}
+        print(
+            f"{key}: {len(subjects)} people, {len(per_dataset[key])} windows, {epoch.describe()}",
+            flush=True,
+        )
+    return per_dataset, loaded
+
+
+def cmd_e1(args: argparse.Namespace) -> int:
+    import datetime as dt
+
+    from pydantic import ValidationError
+
+    from neuros.config.experiment import (
+        PooledExperimentConfig,
+        apply_signal_overrides,
+        load_pooled_experiment_config,
+    )
+    from neuros.data.registry import assert_may_train, get_spec, task_epoch
+    from neuros.errors import NeurOSConfigError
+    from neuros.eval.pooled import TaskSettings, assemble, plan_tasks, report, run_tasks
+    from neuros.provenance import config_hash, stamp
+    from neuros.train.device import resolve_device
+
+    experiment = load_pooled_experiment_config(args.experiment)
+    updates = experiment.model_dump()
+    if args.seeds:
+        updates["seeds"] = args.seeds
+    if args.max_epochs:
+        updates["train"]["max_epochs"] = args.max_epochs
+    if args.conditions:
+        updates["conditions"] = args.conditions
+    try:
+        experiment = PooledExperimentConfig.model_validate(updates)
+    except ValidationError as exc:
+        raise NeurOSConfigError(f"invalid command-line override:\n{exc}") from exc
+    if args.threads < 1 or args.workers < 1:
+        raise NeurOSConfigError("--threads and --workers must be >= 1")
+    if args.max_subjects is not None and args.max_subjects < experiment.folds:
+        raise NeurOSConfigError(f"--max-subjects must be >= the {experiment.folds} folds")
+    # Before anything loads: who may train a model we ship (D-033), and the device (D-032).
+    assert_may_train(experiment.train_datasets, f"experiment {experiment.name}")
+    _require_torch()
+    first_device = resolve_device(args.device)
+    deterministic = not args.nondeterministic
+
+    config = _config(args)
+    config = config.model_copy(
+        update={"signal": apply_signal_overrides(config.signal, experiment.signal)}
+    )
+    start, end = experiment.cue_only_epoch_s
+    cue_config = config.model_copy(
+        update={
+            "signal": apply_signal_overrides(
+                config.signal, {"epoch_s": [start, end], "window_s": round(end - start, 9)}
+            )
+        }
+    )
+    for key in experiment.datasets:  # every dataset must host both windows before any loading
+        task_epoch(get_spec(key), config.signal)
+        if "cue_only" in experiment.conditions:
+            task_epoch(get_spec(key), cue_config.signal)
+    layout = _e1_layout(experiment.channels)
+    provenance = stamp(
+        config,
+        experiment_file=str(args.experiment),
+        experiment_sha256=config_hash(experiment),
+        device=args.device,
+        deterministic=str(deterministic).lower(),
+    )
+    _warn_if_dirty(provenance)
+    cache = _recording_cache(config, args)
+    print(
+        f"{experiment.name}: layout {len(layout)} channels ({experiment.channels}), device "
+        f"{args.device} ({first_device} first)",
+        flush=True,
+    )
+
+    run_id = f"{experiment.name}-{dt.datetime.now(dt.UTC).strftime('%Y%m%dT%H%M%SZ')}"
+    work = config.cache_dir / "pooled" / run_id
+    task_windows, loaded = _e1_windows(
+        config, experiment.datasets, experiment.labels, args.split, args.max_subjects, cache
+    )
+    pooled, assembly = assemble(
+        task_windows,
+        layout,
+        reference=experiment.reference,
+        alignment=experiment.alignment,
+        unit=experiment.alignment_unit,
+    )
+    pooled.save(work / "task")
+    people = pooled.people_by_dataset()
+    cue_free = {key: bool(loaded[key]["cue_free"]) for key in experiment.datasets}
+    del task_windows, pooled  # workers map the saved arrays
+    folders = {"task": work / "task"}
+    if "cue_only" in experiment.conditions:
+        print("cue-only control windows:", flush=True)
+        cue_windows, _ = _e1_windows(
+            cue_config, experiment.datasets, experiment.labels, args.split, args.max_subjects, cache
+        )
+        cue_pooled, _ = assemble(
+            cue_windows,
+            layout,
+            reference=experiment.reference,
+            alignment=experiment.alignment,
+            unit=experiment.alignment_unit,
+        )
+        cue_pooled.save(work / "cue_only")
+        folders["cue_only"] = work / "cue_only"
+        del cue_windows, cue_pooled
+
+    out = Path(args.out) if args.out else config.results_dir / experiment.name / f"{run_id}.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    settings = TaskSettings(
+        classes=tuple(experiment.labels),
+        model=experiment.model,
+        train=experiment.train,
+        device=args.device,
+        deterministic=deterministic,
+        threads=args.threads,
+    )
+    payload: dict[str, Any] = {
+        "complete": False,
+        "provenance": provenance,
+        "experiment": experiment.model_dump(mode="json"),
+        "protocol": {
+            "layout": list(layout),
+            "datasets": {
+                key: {k: v for k, v in loaded[key].items() if k != "per_subject"}
+                for key in experiment.datasets
+            },
+            "cue_only_epoch_s": list(experiment.cue_only_epoch_s),
+            "split_file": str(args.split),
+            "work_folder": str(work),
+        },
+        "assembly": assembly,
+        "subjects": {key: loaded[key]["per_subject"] for key in experiment.datasets},
+        "tasks": [],
+    }
+
+    def save() -> None:
+        tmp = out.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(payload, indent=1, default=str), encoding="utf-8", newline="\n")
+        tmp.replace(out)
+
+    def on_task(outcome: dict[str, Any]) -> None:
+        payload["tasks"].append(outcome)
+        save()
+
+    trainable = list(experiment.train_datasets)
+    for seed in experiment.seeds:
+        tasks = plan_tasks(
+            people,
+            trainable,
+            conditions=experiment.conditions,
+            folds=experiment.folds,
+            validation_fraction=experiment.validation_fraction,
+            seed=seed,
+        )
+        print(f"seed {seed}: {len(tasks)} models on {args.workers} worker(s)", flush=True)
+        save()
+        outcomes = run_tasks(
+            tasks, folders, settings, workers=args.workers, progress=print, on_task=on_task
+        )
+        payload.setdefault("reports", {})[str(seed)] = report(outcomes, people, cue_free)
+    payload["complete"] = True
+    payload["provenance"] = _finished(provenance)
+    save()
+
+    def pct(entry: dict[str, Any], condition: str) -> str:
+        return f"{entry[condition]['mean'] * 100:.1f}" if condition in entry else "-"
+
+    rows = []
+    for seed, seed_report in payload["reports"].items():
+        for key, entry in seed_report["datasets"].items():
+            delta = entry.get("pooled_vs_single")
+            rows.append(
+                [
+                    seed,
+                    key,
+                    "yes" if entry["cue_free"] else "NO",
+                    str(entry["n_people"]),
+                    pct(entry, "pooled"),
+                    pct(entry, "single"),
+                    pct(entry, "lodo"),
+                    pct(entry, "cue_only"),
+                    f"{delta['mean_diff'] * 100:+.1f} (p={delta['p_value']:.2g})" if delta else "-",
+                ]
+            )
+    print()
+    print(
+        _table(
+            rows,
+            [
+                "seed",
+                "dataset",
+                "cue-free",
+                "people",
+                "pooled",
+                "single",
+                "LODO",
+                "cue-only",
+                "pooled-single",
+            ],
+        )
+    )
+    print(f"\nresults: {out}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="neuros", description="NeurOS developer tools")
     parser.add_argument("--version", action="version", version=f"neuros {__version__}")
@@ -1098,6 +1367,42 @@ def build_parser() -> argparse.ArgumentParser:
         help="CUDA only: allow faster nondeterministic kernels (results vary in the last bits)",
     )
     p.set_defaults(func=cmd_loso)
+
+    p = sub.add_parser(
+        "e1", help="E1: pooled vs single-dataset vs leave-one-dataset-out, with cue-only controls"
+    )
+    p.add_argument("--experiment", required=True, help="E1 YAML, e.g. configs/e1.yaml")
+    p.add_argument("--seeds", type=int, nargs="+", default=None)
+    p.add_argument(
+        "--conditions",
+        nargs="+",
+        choices=["pooled", "single", "lodo", "cue_only"],
+        default=None,
+        help="run only these model conditions",
+    )
+    p.add_argument("--max-epochs", type=int, default=None, help="override (e.g. a smoke test)")
+    p.add_argument(
+        "--max-subjects",
+        type=int,
+        default=None,
+        help="only the first N development people of each dataset (smoke tests)",
+    )
+    p.add_argument("--workers", type=int, default=1, help="models trained in parallel")
+    p.add_argument("--threads", type=int, default=2, help="PyTorch threads per worker")
+    p.add_argument("--device", default="cpu", help="cpu (default), cuda, cuda:N or auto")
+    p.add_argument(
+        "--nondeterministic",
+        action="store_true",
+        help="CUDA only: allow faster nondeterministic kernels (results vary in the last bits)",
+    )
+    p.add_argument("--out", default=None, help="result file (default: results/<name>/<run>.json)")
+    p.add_argument("--split", default=str(DEFAULT_SPLIT_PATH), help="locked test set file")
+    p.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="recompute every recording instead of using the preprocessed cache (§4.5)",
+    )
+    p.set_defaults(func=cmd_e1)
     return parser
 
 

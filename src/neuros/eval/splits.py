@@ -63,10 +63,15 @@ LOCKED_TEST_FILES: Mapping[int, str] = MappingProxyType(
 )
 
 
-def _dataset_rng(seed: int, dataset: str) -> np.random.Generator:
-    """An RNG that depends only on (seed, dataset)."""
-    digest = hashlib.sha256(f"{seed}:{dataset}".encode()).digest()
+def seeded_rng(seed: int, tag: str) -> np.random.Generator:
+    """An RNG that depends only on (seed, tag): draws for one purpose never shift another's."""
+    digest = hashlib.sha256(f"{seed}:{tag}".encode()).digest()
     return np.random.default_rng(int.from_bytes(digest[:8], "big"))
+
+
+def _dataset_rng(seed: int, dataset: str) -> np.random.Generator:
+    """An RNG that depends only on (seed, dataset) (the locked test set's draws)."""
+    return seeded_rng(seed, dataset)
 
 
 def _allocate(stratum_sizes: Mapping[str, int], fraction: float) -> dict[str, int]:

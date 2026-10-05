@@ -176,6 +176,21 @@ def test_download_needs_an_explicit_licence_acceptance(
     assert sorted(stored["files"]) == ["S1/cnt.mat", "S2/cnt.mat"]
 
 
+def test_require_downloaded_refuses_what_neuros_download_did_not_fetch(tmp_path: Path) -> None:
+    from neuros.data.download import require_downloaded
+
+    spec = get_spec("Cho2017")
+    with pytest.raises(NeurOSDataError, match="isn't downloaded"):
+        require_downloaded(spec, [1, 2], tmp_path)
+    manifests = tmp_path / "manifests"
+    manifests.mkdir()
+    body = {"files": {"a/s01.mat": {"subject": 1, "bytes": 1, "sha256": "x"}}}
+    (manifests / "Cho2017.json").write_text(json.dumps(body), encoding="utf-8")
+    require_downloaded(spec, [1], tmp_path)  # no error
+    with pytest.raises(NeurOSDataError, match="subjects 2 aren't downloaded"):
+        require_downloaded(spec, [1, 2], tmp_path)
+
+
 def test_download_without_a_licence_passes_no_acceptance(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

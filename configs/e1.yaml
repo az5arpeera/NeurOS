@@ -1,0 +1,45 @@
+# E1 (architecture §8.5): does pooling every dataset beat training on one?
+#   - pooled vs single-dataset models, person by person, over 5 development folds;
+#   - the first leave-one-dataset-out (LODO) numbers;
+#   - the cue-only control ([cue, cue + 0.5 s], D-030) for every dataset, run automatically.
+# Development people only: the locked test set (v2) never loads.
+#
+# On AWS (D-032), after the downloads:
+#   uv run --no-sync neuros --config configs/data.yaml e1 --experiment configs/e1.yaml \
+#     --device cuda --workers 8
+# Before that, the laptop smoke test: configs/e1_smoke.yaml.
+name: e1
+description: >
+  EEGNet + EA per session on C-core's motor-strip rows (zero-fill), 8-30 Hz, pooled over the
+  training datasets, against single-dataset and leave-one-dataset-out models, with the cue-only
+  control.
+train_datasets: [PhysionetMI, Dreyer2023, Stieger2021, Lee2019_MI, Cho2017, Yang2025, BNCI2014_001]
+# Tested, never trained on: D-033's restricted datasets, and BNCI2014-004, whose 3 channels are
+# a virtual headset (E5) rather than training data for the 26-channel layout.
+test_only_datasets: [Shin2017A, GuttmannFlury2025, BNCI2014_004]
+labels: [left_hand, right_hand]
+channels: motor            # D-031 + D-034: C-core's motor-strip rows (20 channels)
+reference: car             # D-034: no measurable difference; it puts mixed references on one footing
+alignment: ea
+alignment_unit: session
+conditions: [pooled, single, lodo, cue_only]
+folds: 5
+validation_fraction: 0.1   # per dataset, from each model's training people (early stopping)
+cue_only_epoch_s: [0.0, 0.5]
+seeds: [20261005]
+signal:                    # D-034 (E0b): 8-30 Hz beat 4-30 Hz on both datasets
+  band_hz: [8.0, 30.0]
+
+model:                     # architecture §6.1; dropout 0.25 for cross-person data
+  dropout: 0.25
+
+train:                     # §6.4 with §6.3's pooled settings
+  max_epochs: 100
+  lr: 0.001
+  weight_decay: 0.05
+  label_smoothing: 0.1
+  swa_fraction: 0.25
+  patience: 15
+  people_per_batch: 16
+  windows_per_person: 8
+  log_every: 10

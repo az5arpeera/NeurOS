@@ -318,6 +318,34 @@ def download(
     return body
 
 
+def require_downloaded(spec: DatasetSpec, subjects: Sequence[int], data_dir: Path) -> None:
+    """Raise unless every subject's files were fetched by ``neuros download`` (its manifest).
+
+    MOABB downloads anything missing the moment data is *loaded*, without asking. Every command
+    that loads data calls this first, so ``neuros download`` (each download approved by the
+    founders) stays the only way data arrives.
+
+    Raises:
+        NeurOSDataError: naming the dataset and the subjects that aren't downloaded.
+    """
+    manifest = _load_manifest(manifest_path(data_dir, spec))
+    if not manifest:
+        raise NeurOSDataError(
+            f"{spec.key} isn't downloaded (no manifest in {data_dir / 'manifests'}). Data "
+            f"arrives only through `neuros download --dataset {spec.key}`, after approval.",
+            DataContext(spec.key),
+        )
+    have = {int(entry["subject"]) for entry in manifest.get("files", {}).values()}
+    missing = sorted(set(subjects) - have)
+    if missing:
+        listed = ", ".join(map(str, missing[:10])) + (" ..." if len(missing) > 10 else "")
+        raise NeurOSDataError(
+            f"{spec.key}: subjects {listed} aren't downloaded; run `neuros download --dataset "
+            f"{spec.key} --subjects ...` (after approval) or leave them out",
+            DataContext(spec.key),
+        )
+
+
 def verify_manifest(spec: DatasetSpec, data_dir: Path) -> list[str]:
     """Re-hash every file in the manifest; return a list of problems (empty = intact)."""
     raw_dir = (data_dir / "raw").resolve()

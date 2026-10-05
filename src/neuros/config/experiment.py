@@ -1,4 +1,5 @@
-"""Experiment configs: the deep model, its training recipe, and leave-one-person-out runs.
+"""Experiment configs: the deep model, its training recipe, leave-one-person-out runs (E0), and
+pooled runs across datasets (E1).
 
 One YAML per experiment ID (architecture §9): ``configs/e0.yaml`` is E0. The schemas live here,
 free of PyTorch, so a config is validated (and hashed into provenance, principle 5) before any
@@ -156,11 +157,11 @@ def apply_signal_overrides(base: SignalContract, overrides: dict[str, Any]) -> S
         raise NeurOSConfigError(f"invalid signal overrides {overrides}:\n{exc}") from exc
 
 
-def load_experiment_config(path: str | Path) -> LosoExperimentConfig:
-    """Load and validate an experiment YAML.
+def _read_yaml_mapping(path: str | Path) -> dict[str, Any]:
+    """The top-level mapping of an experiment YAML.
 
     Raises:
-        NeurOSConfigError: if the file is missing, isn't YAML, or fails validation.
+        NeurOSConfigError: if the file is missing, isn't YAML, or isn't a mapping.
     """
     file = Path(path)
     if not file.is_file():
@@ -171,8 +172,100 @@ def load_experiment_config(path: str | Path) -> LosoExperimentConfig:
         raise NeurOSConfigError(f"{file}: invalid YAML: {exc}") from exc
     if not isinstance(raw, dict):
         raise NeurOSConfigError(f"{file}: expected a mapping at the top level")
+    return raw
+
+
+def load_experiment_config(path: str | Path) -> LosoExperimentConfig:
+    """Load and validate an experiment YAML.
+
+    Raises:
+        NeurOSConfigError: if the file is missing, isn't YAML, or fails validation.
+    """
+    raw = _read_yaml_mapping(path)
     try:
-        config = LosoExperimentConfig.model_validate(raw)
+        return LosoExperimentConfig.model_validate(raw)
     except ValidationError as exc:
-        raise NeurOSConfigError(f"{file}: invalid experiment config:\n{exc}") from exc
-    return config
+        raise NeurOSConfigError(f"{path}: invalid experiment config:\n{exc}") from exc
+
+
+# E1's model conditions (neuros.eval.pooled).
+PooledCondition = Literal["pooled", "single", "lodo", "cue_only"]
+POOLED_CONDITIONS: tuple[PooledCondition, ...] = ("pooled", "single", "lodo", "cue_only")
+
+
+class PooledExperimentConfig(BaseModel):
+    """E1: pooled training across datasets, against single-dataset and leave-one-dataset-out
+    models, with the cue-only control (``neuros.eval.pooled``)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", allow_inf_nan=False)
+
+    name: str = Field(pattern=r"^[a-z0-9][a-z0-9_]*$", max_length=64)
+    description: str = ""
+    # Datasets whose development people train (and are tested). Each must be allowed to train
+    # a model we ship (registry train_restriction; checked when the experiment runs).
+    train_datasets: tuple[str, ...] = Field(min_length=1)
+    # Datasets that are only ever tested (D-033: Shin2017A, GuttmannFlury2025).
+    test_only_datasets: tuple[str, ...] = ()
+    labels: tuple[str, ...] = ("left_hand", "right_hand")
+    # The model's input layout: C-core with zero-fill (§4.3) or the motor strip (D-031).
+    channels: Literal["c-core", "motor"] = "c-core"
+    reference: Reference = "car"
+    alignment: Alignment = "ea"
+    alignment_unit: AlignmentUnit = "session"
+    conditions: tuple[PooledCondition, ...] = POOLED_CONDITIONS
+    # Development folds (people stratified by dataset).
+    folds: int = Field(default=5, ge=2, le=20)
+    # Share of each model's training people (per dataset) held out for early stopping.
+    validation_fraction: float = Field(default=0.1, ge=0.0, lt=0.5)
+    # The cue-only control's window, in seconds from the cue (D-030).
+    cue_only_epoch_s: tuple[float, float] = (0.0, 0.5)
+    seeds: tuple[int, ...] = (20261005,)
+    signal: dict[str, Any] = Field(default_factory=dict)
+    model: EEGNetConfig = EEGNetConfig()
+    train: TrainConfig = TrainConfig()
+
+    @model_validator(mode="after")
+    def _check(self) -> PooledExperimentConfig:
+        for field, values in (
+            ("train_datasets", self.train_datasets),
+            ("test_only_datasets", self.test_only_datasets),
+            ("labels", self.labels),
+            ("conditions", self.conditions),
+            ("seeds", self.seeds),
+        ):
+            if len(set(values)) != len(values):
+                raise ValueError(f"{field} has duplicates: {list(values)}")
+        for field, values in (
+            ("labels", self.labels),
+            ("conditions", self.conditions),
+            ("seeds", self.seeds),
+        ):
+            if not values:
+                raise ValueError(f"{field} must not be empty")
+        both = sorted(set(self.train_datasets) & set(self.test_only_datasets))
+        if both:
+            raise ValueError(f"datasets both trained on and test-only: {both}")
+        if len(self.labels) < 2:
+            raise ValueError(f"a classifier needs at least 2 labels, got {list(self.labels)}")
+        if "lodo" in self.conditions and len(self.train_datasets) < 2:
+            raise ValueError("leave-one-dataset-out needs at least 2 train_datasets")
+        start, end = self.cue_only_epoch_s
+        if not 0 <= start < end:
+            raise ValueError(f"cue_only_epoch_s must satisfy 0 <= start < end, got {start}, {end}")
+        if any(seed < 0 for seed in self.seeds):
+            raise ValueError(f"seeds must be >= 0, got {list(self.seeds)}")
+        return self
+
+    @property
+    def datasets(self) -> tuple[str, ...]:
+        """Every dataset the experiment loads: trained-on first, then test-only."""
+        return (*self.train_datasets, *self.test_only_datasets)
+
+
+def load_pooled_experiment_config(path: str | Path) -> PooledExperimentConfig:
+    """Load and validate an E1 experiment YAML (same errors as ``load_experiment_config``)."""
+    raw = _read_yaml_mapping(path)
+    try:
+        return PooledExperimentConfig.model_validate(raw)
+    except ValidationError as exc:
+        raise NeurOSConfigError(f"{path}: invalid experiment config:\n{exc}") from exc

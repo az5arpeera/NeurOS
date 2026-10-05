@@ -122,6 +122,38 @@ def test_cli_loso_refuses_locked_test_people(
     assert "locked test people" in capsys.readouterr().err
 
 
+def test_cli_e1_refuses_restricted_or_missing_data(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("torch")
+    from neuros.data import registry
+
+    # Safety net: if a guard ever failed, MOABB must not start a real download from a test.
+    def no_moabb(*args: object, **kwargs: object) -> None:
+        raise AssertionError("E1 reached MOABB: a guard failed")
+
+    monkeypatch.setattr(registry, "moabb_dataset", no_moabb)
+    restricted = tmp_path / "e1.yaml"
+    restricted.write_text("name: e1\ntrain_datasets: [PhysionetMI, Shin2017A]\n", encoding="utf-8")
+    assert main(["e1", "--experiment", str(restricted)]) == 2  # D-033: GPL, test-only
+    assert "may not train" in capsys.readouterr().err
+    # Cho2017 and Dreyer2023 aren't downloaded here: E1 refuses rather than let MOABB fetch them.
+    missing = tmp_path / "e1_missing.yaml"
+    missing.write_text(
+        "name: e1_missing\ntrain_datasets: [Cho2017, Dreyer2023]\nconditions: [pooled]\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "out"
+    args = ["e1", "--experiment", str(missing), "--max-epochs", "1"]
+    monkeypatch.setenv("NEUROS_DATA_DIR", str(out / "data"))
+    monkeypatch.setenv("NEUROS_CACHE_DIR", str(out / "cache"))
+    monkeypatch.setenv("NEUROS_RESULTS_DIR", str(out / "results"))
+    assert main(args) == 2
+    assert "isn't downloaded" in capsys.readouterr().err
+    assert main(["e1", "--experiment", str(missing), "--max-subjects", "2"]) == 2  # < 5 folds
+    assert "--max-subjects" in capsys.readouterr().err
+
+
 def test_cli_loso_validates_the_experiment(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -10,11 +10,14 @@ from pydantic import ValidationError
 from neuros.config.experiment import (
     EEGNetConfig,
     LosoExperimentConfig,
+    PooledExperimentConfig,
     TrainConfig,
     apply_signal_overrides,
     load_experiment_config,
+    load_pooled_experiment_config,
 )
 from neuros.config.schemas import SignalContract
+from neuros.data.registry import assert_may_train, get_spec
 from neuros.errors import NeurOSConfigError
 
 from .conftest import REPO_ROOT
@@ -129,7 +132,9 @@ def test_loader_errors(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "path", sorted((REPO_ROOT / "configs").glob("e*.yaml")), ids=lambda p: p.name
+    "path",
+    sorted(p for p in (REPO_ROOT / "configs").glob("e*.yaml") if not p.name.startswith("e1")),
+    ids=lambda p: p.name,
 )
 def test_every_committed_experiment_is_valid(path: Path) -> None:
     experiment = load_experiment_config(path)
@@ -137,3 +142,59 @@ def test_every_committed_experiment_is_valid(path: Path) -> None:
     pooled = experiment.model.pool1 * experiment.model.pool2
     assert contract.window_samples >= pooled  # EEGNet's pools need this many samples
     assert experiment.name == path.stem  # results land in results/<name>/
+
+
+# ---------------------------------------------------------------------- E1 (pooled) configs
+@pytest.mark.parametrize(
+    "path", sorted((REPO_ROOT / "configs").glob("e1*.yaml")), ids=lambda p: p.name
+)
+def test_committed_pooled_experiments_are_valid(path: Path) -> None:
+    experiment = load_pooled_experiment_config(path)
+    assert experiment.name == path.stem
+    assert_may_train(experiment.train_datasets, "a committed E1 config")  # D-033
+    for key in experiment.datasets:
+        get_spec(key)  # every dataset is registered
+    contract = apply_signal_overrides(SignalContract(), experiment.signal)
+    pooled = experiment.model.pool1 * experiment.model.pool2
+    start, end = experiment.cue_only_epoch_s
+    assert round((end - start) * contract.sfreq) >= pooled  # the cue-only window fits EEGNet
+    assert contract.window_samples >= pooled
+
+
+def test_e1_follows_d031_d033_d034() -> None:
+    e1 = load_pooled_experiment_config(REPO_ROOT / "configs" / "e1.yaml")
+    assert e1.channels == "motor"  # D-031 / D-034
+    assert e1.signal == {"band_hz": [8.0, 30.0]}  # D-034
+    assert e1.reference == "car"
+    assert {"Shin2017A", "GuttmannFlury2025"} <= set(e1.test_only_datasets)  # D-033
+    assert "cue_only" in e1.conditions  # D-030
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"train_datasets": []}, "at least 1"),
+        ({"train_datasets": ["A", "A"]}, "duplicates"),
+        ({"test_only_datasets": ["PhysionetMI"]}, "both trained on and test-only"),
+        ({"train_datasets": ["PhysionetMI"], "conditions": ["lodo"]}, "at least 2 train"),
+        ({"cue_only_epoch_s": [0.5, 0.5]}, "cue_only_epoch_s"),
+        ({"labels": ["left_hand"]}, "at least 2 labels"),
+        ({"conditions": []}, "must not be empty"),
+        ({"folds": 1}, "greater than or equal to 2"),
+        ({"validation_fraction": 0.5}, "less than 0.5"),
+        ({"name": "Bad Name"}, "pattern"),
+    ],
+)
+def test_pooled_config_rejects(changes: dict[str, object], message: str) -> None:
+    base = {"name": "e1", "train_datasets": ["PhysionetMI", "BNCI2014_001"]}
+    with pytest.raises(ValidationError, match=message):
+        PooledExperimentConfig.model_validate({**base, **changes})
+
+
+def test_pooled_loader_errors(tmp_path: Path) -> None:
+    with pytest.raises(NeurOSConfigError, match="not found"):
+        load_pooled_experiment_config(tmp_path / "missing.yaml")
+    invalid = tmp_path / "invalid.yaml"
+    invalid.write_text("name: e1\ntrain_datasets: []\n", encoding="utf-8")
+    with pytest.raises(NeurOSConfigError, match="invalid experiment config"):
+        load_pooled_experiment_config(invalid)

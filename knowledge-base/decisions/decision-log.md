@@ -4,6 +4,19 @@ Newest first. Format: **ID · date · decision** — why · who. Superseded deci
 
 ## Decided
 
+- **D-034 · 2026-10-04 · E0b, Riemannian part: 8–30 Hz, common average reference, motor strip.** Made by the E0b rule ("pick on dev folds; record in the decision log", architecture §8.5). · Claude (E0b rule); the founders may veto
+  - **Evidence** ([results](../results/2026-10-04-e0b-riemannian-band-reference-channels.md)):
+    - **Band:** 8–30 Hz beats the contract's 4–30 Hz with every method on both datasets.
+      - BNCI2014-001, cue-free, 9 people: +2.4 to +4.2 points.
+      - PhysionetMI, 84 people: +1.1 to +2.5 points; p < 0.05 in 7 of 10 tests.
+      - 4–40 Hz gains nothing.
+    - **Reference** makes no difference (±0.5 points).
+    - **The motor strip alone** matches all channels.
+  - **Applied now:** E1 runs at 8–30 Hz, with common average reference, on C-core's motor-strip rows (20 channels, D-031), all set in `configs/e1.yaml`.
+  - **Applied later:** the contract's default band (§4.2, `configs/data.yaml`) stays 4–30 Hz until E0b's EEGNet check on AWS agrees.
+    - That switch will pin 4–30 Hz in E0's configs, so earlier results still regenerate.
+    - EEGNet learns its own filters, so it could use a wider band differently.
+
 - **D-033 · 2026-10-04 · Add the cue-free and gaze-diagnostic datasets (Q26).** Amends the data lock (D-011) and §8.1. · Founder (approved the Q26 recommendation)
   - **Why:** under D-030 only BNCI2014-001 (9 people) had a cue-free window.
   - **Yang2025** (51 people) trains and gives cue-free test numbers.
