@@ -121,6 +121,11 @@ def describe_device(device: torch.device, *, deterministic: bool) -> dict[str, A
                 "compute_capability": f"{properties.major}.{properties.minor}",
                 "cuda": torch.version.cuda,
                 "cudnn": torch.backends.cudnn.version(),  # type: ignore[no-untyped-call]
+                # TF32 (PyTorch's default for cuDNN convolutions on Ampere and newer GPUs) rounds
+                # convolution inputs to a 10-bit mantissa: logits differ from full FP32 by about
+                # 1e-4 (measured on an L4, 5 Oct). Still deterministic on the same hardware.
+                "cudnn_tf32": bool(torch.backends.cudnn.allow_tf32),
+                "matmul_tf32": bool(torch.backends.cuda.matmul.allow_tf32),
             }
         )
     else:

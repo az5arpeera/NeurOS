@@ -120,9 +120,12 @@ def _toy_data(n_people: int = 4, per_person: int = 16, seed: int = 0) -> TensorD
     return TensorData(torch.from_numpy(x), torch.from_numpy(y), people, ("left_hand", "right_hand"))
 
 
-def _tiny_model() -> EEGNetClassifier:
+def _tiny_model(dropout: float | None = None) -> EEGNetClassifier:
+    """A small seeded EEGNet; ``dropout`` overrides EEGNetConfig's default."""
     torch.manual_seed(0)
     config = EEGNetConfig(kernel_samples=32, f1=4, depth=2, f2=8, embedding_dim=8)
+    if dropout is not None:
+        config = config.model_copy(update={"dropout": dropout})
     return EEGNetClassifier(4, 128, ("left_hand", "right_hand"), config)
 
 
@@ -141,7 +144,11 @@ def test_training_with_an_explicit_cpu_device() -> None:
 def test_gpu_training_matches_cpu_closely(restore_torch_flags: None) -> None:
     data = _toy_data()
     config = TrainConfig(max_epochs=5, people_per_batch=2, windows_per_person=4, log_every=0)
-    cpu_model, gpu_model = _tiny_model(), _tiny_model()
+    # Dropout off for the comparison: the CPU and CUDA draw dropout masks from different random
+    # generators, so with dropout the same seed trains two different models (measured on an L4,
+    # 5 Oct: logits 4.5e-2 apart, TF32 on or off). Without it the two devices do the same
+    # arithmetic: 1.2e-4 apart with TF32 (PyTorch's default for cuDNN convolutions), 1e-7 without.
+    cpu_model, gpu_model = _tiny_model(dropout=0.0), _tiny_model(dropout=0.0)
     train_classifier(cpu_model, data, None, config, seed=3, device=torch.device("cpu"))
     gpu = resolve_device("cuda")
     configure_determinism(gpu, True)
@@ -150,8 +157,10 @@ def test_gpu_training_matches_cpu_closely(restore_torch_flags: None) -> None:
     cpu_logits = predict_logits(cpu_model, data.x, 32)
     gpu_logits = predict_logits(gpu_model, data.x, 32)
     assert gpu_logits.device == torch.device("cpu")
-    # Same seed, same batches: different kernels change the last bits, not the outcome.
-    assert torch.allclose(cpu_logits, gpu_logits, atol=1e-2, rtol=1e-2)
-    again = _tiny_model()
-    train_classifier(again, data, None, config, seed=3, device=gpu)
-    assert torch.equal(predict_logits(again, data.x, 32), gpu_logits)  # deterministic on CUDA
+    # Same seed, same batches, same arithmetic up to TF32 rounding: well inside 1e-3.
+    assert torch.allclose(cpu_logits, gpu_logits, atol=1e-3, rtol=1e-3)
+    # Reproducible on CUDA, dropout included (deterministic kernels, seeded generator).
+    first, second = _tiny_model(), _tiny_model()
+    train_classifier(first, data, None, config, seed=3, device=gpu)
+    train_classifier(second, data, None, config, seed=3, device=gpu)
+    assert torch.equal(predict_logits(first, data.x, 32), predict_logits(second, data.x, 32))

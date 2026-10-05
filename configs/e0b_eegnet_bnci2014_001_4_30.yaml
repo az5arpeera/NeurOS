@@ -1,0 +1,50 @@
+# E0b, EEGNet part (architecture §8.5): does EEGNet also prefer 8-30 Hz to 4-30 Hz?
+# D-034 picked 8-30 Hz for E1 from Riemannian models, which see only band power; EEGNet learns
+# its own filters, so the contract's default band changes only if EEGNet agrees. This repeats the
+# Riemannian runs (knowledge-base/results/2026-10-04-e0b-riemannian-band-reference-channels.md)
+# with the same people and window: BNCI2014-001's 9 people, D-030's cue-free window for BNCI2014-001 (the arrow is gone).
+# Input as in E1 (D-034): the motor strip, common average reference, EA per recording session.
+# This file is the 4-30 Hz arm; its twin differs only in band_hz. Compare the two person by
+# person (paired Wilcoxon). One seed, development people only.
+#
+# Regenerate (AWS, D-032):
+#   uv run neuros --config configs/data.yaml loso --experiment configs/e0b_eegnet_bnci2014_001_4_30.yaml --device cuda
+name: e0b_eegnet_bnci2014_001_4_30
+description: >
+  E0b EEGNet: EEGNet + EA per session on BNCI2014_001, motor strip, common average,
+  window [1.5, 3.5] s, 4-30 Hz.
+dataset: BNCI2014_001
+labels: [left_hand, right_hand]
+channels: motor
+reference: car
+alignments: [ea]
+alignment_unit: session
+seeds: [20261005]
+validation_people: 0
+
+signal:                  # overrides of configs/data.yaml for this experiment only
+  window_s: 2.0
+  epoch_s: [1.5, 3.5]    # pinned to D-030's window, so a later default can't move it
+  band_hz: [4.0, 30.0]
+
+model:                   # as E0 (configs/e0.yaml)
+  f1: 16
+  depth: 2
+  f2: 32
+  kernel_samples: 64
+  dropout: 0.5
+  embedding_dim: 64
+  spatial_max_norm: 1.0
+  head_max_norm: 0.25
+
+train:                   # as E0
+  max_epochs: 300
+  lr: 0.001
+  min_lr: 0.0
+  weight_decay: 0.05
+  label_smoothing: 0.0
+  swa_fraction: 0.25
+  patience: null
+  people_per_batch: 8
+  windows_per_person: 8
+  log_every: 50
