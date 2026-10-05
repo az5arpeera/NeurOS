@@ -346,6 +346,42 @@ def require_downloaded(spec: DatasetSpec, subjects: Sequence[int], data_dir: Pat
         )
 
 
+def loading_kwargs(spec: DatasetSpec, data_dir: Path) -> dict[str, Any]:
+    """MOABB constructor arguments for *loading* data that ``neuros download`` already fetched.
+
+    Licence-gated datasets (``spec.licence_acceptance``, e.g. Shin2017A under GPL-3.0): MOABB
+    re-checks the acceptance on every load (its ``data_path``), not only when downloading. The
+    acceptance is never configuration: a person gives it with ``neuros download --accept-licence``
+    and the manifest records it. Loading honours exactly that record, so the licence text the
+    registry declares today must be the one accepted at download.
+
+    Raises:
+        NeurOSDataError: if the dataset isn't downloaded (no manifest).
+        NeurOSConfigError: if its licence must be accepted and the manifest doesn't record it.
+    """
+    if spec.licence_acceptance is None:
+        return {}
+    manifest = _load_manifest(manifest_path(data_dir, spec))
+    if not manifest:
+        raise NeurOSDataError(
+            f"{spec.key} isn't downloaded (no manifest in {data_dir / 'manifests'})",
+            DataContext(spec.key),
+        )
+    accepted = manifest.get("licence_accepted")
+    if accepted != spec.licence_acceptance:
+        raise NeurOSConfigError(
+            f"{spec.key}: loading needs its licence, {spec.licence_acceptance}, accepted at "
+            f"download; the manifest records {accepted!r}. Re-run `neuros download --dataset "
+            f"{spec.key} --accept-licence` if you accept it."
+        )
+    return {"accept": True}
+
+
+def loading_dataset(spec: DatasetSpec, data_dir: Path) -> Any:
+    """The MOABB dataset object for loading downloaded data (see ``loading_kwargs``)."""
+    return moabb_dataset(spec, **loading_kwargs(spec, data_dir))
+
+
 def verify_manifest(spec: DatasetSpec, data_dir: Path) -> list[str]:
     """Re-hash every file in the manifest; return a list of problems (empty = intact)."""
     raw_dir = (data_dir / "raw").resolve()

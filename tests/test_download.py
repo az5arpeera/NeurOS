@@ -199,3 +199,35 @@ def test_download_without_a_licence_passes_no_acceptance(
     manifest = download(spec, [3], tmp_path, accept_licence=True)  # accepted, but not needed
     assert made[-1].kwargs == {}
     assert "licence_accepted" not in manifest
+
+
+def test_loading_honours_the_licence_acceptance_recorded_at_download(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from neuros.data.download import loading_dataset, loading_kwargs
+
+    spec = make_spec(key="Licensed", licence_acceptance="GPL-3.0", moabb_class="Shin2017A")
+    made = _patch_moabb(monkeypatch, tmp_path / "raw")
+    with pytest.raises(NeurOSDataError, match="isn't downloaded"):
+        loading_dataset(spec, tmp_path)
+    assert made == []  # refused before anything was instantiated
+    download(spec, [1], tmp_path, accept_licence=True)
+    loading_dataset(spec, tmp_path)
+    assert made[-1].kwargs == {"accept": True}  # MOABB re-checks the acceptance on every load
+
+    path = tmp_path / "manifests" / "Licensed.json"
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    stored["licence_accepted"] = "GPL-2.0"  # accepted, but not the licence declared today
+    path.write_text(json.dumps(stored), encoding="utf-8")
+    with pytest.raises(NeurOSConfigError, match="accepted at download"):
+        loading_kwargs(spec, tmp_path)
+    del stored["licence_accepted"]  # never accepted
+    path.write_text(json.dumps(stored), encoding="utf-8")
+    with pytest.raises(NeurOSConfigError, match="accepted at download"):
+        loading_kwargs(spec, tmp_path)
+
+
+def test_loading_an_ungated_dataset_needs_no_acceptance(tmp_path: Path) -> None:
+    from neuros.data.download import loading_kwargs
+
+    assert loading_kwargs(make_spec(key="Open", moabb_class="BNCI2014_001"), tmp_path) == {}

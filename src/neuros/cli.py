@@ -218,9 +218,9 @@ def cmd_download(args: argparse.Namespace) -> int:
 
 
 def cmd_validate(args: argparse.Namespace) -> int:
-    from neuros.data.download import prepare_mne_environment, require_downloaded
+    from neuros.data.download import loading_dataset, prepare_mne_environment, require_downloaded
     from neuros.data.harmonize import harmonize_moabb_subject
-    from neuros.data.registry import get_spec, moabb_dataset
+    from neuros.data.registry import get_spec
     from neuros.data.validate import validate_recording
     from neuros.data.vocabulary import default_vocabulary
     from neuros.provenance import stamp
@@ -230,7 +230,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
     provenance = stamp(config, dataset=spec.key)  # at the start: the code that runs
     vocab = default_vocabulary()
     prepare_mne_environment(config.data_dir)
-    dataset = moabb_dataset(spec)
+    dataset = loading_dataset(spec, config.data_dir)
     results: list[dict[str, object]] = []
     rows: list[list[str]] = []
     pool = spec.subjects if args.include_excluded else spec.usable_subjects
@@ -403,10 +403,10 @@ def _dev_windows(
     Returns:
         ``(windows, per-subject epoch summaries, subjects, the epoch used)``.
     """
-    from neuros.data.download import prepare_mne_environment, require_downloaded
+    from neuros.data.download import loading_dataset, prepare_mne_environment, require_downloaded
     from neuros.data.montage import load_c_core, region_channels
     from neuros.data.prepare import subject_epochs
-    from neuros.data.registry import get_spec, moabb_dataset, task_epoch
+    from neuros.data.registry import get_spec, task_epoch
     from neuros.data.vocabulary import default_vocabulary
     from neuros.errors import NeurOSConfigError
     from neuros.signal.windows import WindowSet
@@ -419,7 +419,7 @@ def _dev_windows(
     subjects = _dev_subjects(spec, subjects_arg, split_path, purpose)
     require_downloaded(spec, subjects, config.data_dir)  # never let MOABB download unasked
     prepare_mne_environment(config.data_dir)
-    dataset = moabb_dataset(spec)
+    dataset = loading_dataset(spec, config.data_dir)
 
     sets = []
     summaries: list[dict[str, object]] = []
@@ -616,11 +616,11 @@ def _audit_output_name(spec_key: str, args: argparse.Namespace, task: TaskEpoch)
 
 
 def cmd_audit(args: argparse.Namespace) -> int:
-    from neuros.data.download import prepare_mne_environment, require_downloaded
+    from neuros.data.download import loading_dataset, prepare_mne_environment, require_downloaded
     from neuros.data.montage import SCALP_REGIONS, region_channels
     from neuros.data.prepare import prepare_subject
     from neuros.data.recording import person_id
-    from neuros.data.registry import get_spec, moabb_dataset
+    from neuros.data.registry import get_spec
     from neuros.data.vocabulary import default_vocabulary
     from neuros.errors import NeurOSConfigError
     from neuros.eval.audit import REGION_ORDER, audit_windows, cut_audit_windows, run_audit
@@ -645,7 +645,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
     for window in windows_spec:
         print(f"{window.name}: {window.epoch.describe()}", flush=True)
     prepare_mne_environment(config.data_dir)
-    dataset = moabb_dataset(spec)
+    dataset = loading_dataset(spec, config.data_dir)
     cache = _recording_cache(config, args)
 
     parts: dict[str, list[WindowSet]] = {w.name: [] for w in windows_spec}
@@ -960,9 +960,9 @@ def _e1_windows(
     Raises:
         NeurOSDataError: if a dataset (or person) isn't downloaded: E1 never triggers a download.
     """
-    from neuros.data.download import prepare_mne_environment, require_downloaded
+    from neuros.data.download import loading_dataset, prepare_mne_environment, require_downloaded
     from neuros.data.prepare import subject_epochs
-    from neuros.data.registry import get_spec, moabb_dataset, task_epoch
+    from neuros.data.registry import get_spec, task_epoch
     from neuros.data.vocabulary import default_vocabulary
     from neuros.signal.windows import WindowSet
 
@@ -977,7 +977,7 @@ def _e1_windows(
         if max_subjects is not None:
             subjects = subjects[:max_subjects]
         require_downloaded(spec, subjects, config.data_dir)
-        dataset = moabb_dataset(spec)
+        dataset = loading_dataset(spec, config.data_dir)
         sets, summaries = [], []
         for subject in subjects:
             windows, summary = subject_epochs(
