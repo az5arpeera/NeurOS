@@ -141,6 +141,13 @@ A budget on its own only sends emails. The guard stops the machines.
 - **Stop the instance when it's idle.** A stopped instance costs only its disks, and the data volume keeps everything. The idle auto-stop (step 2b) does it for you after 45 minutes.
 - **Spot instances** are about 60–70% cheaper, but can be interrupted mid-run. Use on-demand until runs can resume.
 
+**What we launched (5 Oct):**
+- AWS granted only **8 vCPUs** of the 16 requested, so the machine is a **g6.2xlarge**: the same L4 GPU, 8 vCPUs, 30 GiB usable memory, $0.978/h.
+  - Downloads aren't affected. Data preparation and parallel folds run about half as many at once.
+  - Ask again for 16; to switch, stop the machine, change its type and start it again.
+- The first launch failed with **"Insufficient capacity"**. Another subnet worked: the machine is in **us-east-1d**.
+- Elastic IP **54.145.175.49**. The root disk has 48 GB free after the AMI. The instance store (419 GB) is mounted at `/opt/dlami/nvme`.
+
 ### 3b. A fixed address (recommended, ≈ $3.60 a month)
 Without one, the machine's address changes every time it starts, and the SSH alias (step 6) needs the new one each session.
 1. EC2 → Elastic IPs → **Allocate Elastic IP address** → Allocate.
@@ -169,40 +176,29 @@ Do this once. Claude does it with your OK.
   - a 600 GB local "instance store". The AMI mounts it at `/opt/dlami/nvme`, and it's wiped every time the machine stops, so never keep data on it.
 - The data volume is the 500G disk whose model is "Amazon Elastic Block Store" and that has no filesystem.
 
-```bash
-lsblk -o NAME,SIZE,MODEL,FSTYPE,MOUNTPOINT  # the data volume: 500G, "Amazon Elastic Block Store", no FSTYPE
-DEV=/dev/nvme1n1                             # that volume's name: it varies, so read it from lsblk
-sudo file -s "$DEV"                          # must print "data" (no filesystem yet); anything else: stop
-sudo mkfs -t xfs "$DEV"                      # ERASES it: the new, empty data volume only
-sudo mkdir -p /mnt/neuros
-sudo mount "$DEV" /mnt/neuros
-sudo chown "$USER" /mnt/neuros
-echo "UUID=$(sudo blkid -s UUID -o value "$DEV") /mnt/neuros xfs defaults,nofail 0 2" | sudo tee -a /etc/fstab
-```
+`scripts/aws/mount-data-volume.sh` does it:
+- It refuses unless exactly one disk is a blank 500 GiB EBS volume: no partitions, no filesystem, no signature.
+- It formats it as XFS, adds it to `/etc/fstab` by UUID with `nofail`, and mounts it through fstab, so the boot entry is tested at once.
+- It ran on 5 Oct: `/dev/nvme1n1` → `/mnt/neuros`.
 
 ## 4. Set up the code
 The repository is private, so the machine gets a read-only **deploy key**. It opens this one repository and nothing else, and you can revoke it from GitHub at any time.
-1. On the machine (Claude, with your OK):
-   ```bash
-   ssh-keygen -t ed25519 -N "" -C neuros-aws-deploy -f ~/.ssh/github_deploy
-   cat ~/.ssh/github_deploy.pub
-   ```
-2. **You:**
-   1. On GitHub, open `az5arpeera/NeurOS` → Settings → Deploy keys → **Add deploy key**.
-   2. Title it `neuros-aws` and paste the line printed above.
+1. **On the machine:** `scripts/aws/deploy-key.sh`. Before the repository is cloned, copy the script over and run it there. It:
+   - creates the key and prints its public line;
+   - points `github.com` at that key;
+   - trusts GitHub's host keys fetched over HTTPS, not on first use.
+2. **On GitHub:**
+   1. Open `az5arpeera/NeurOS` → Settings → Deploy keys → **Add deploy key**.
+   2. Title it `neuros-aws` and paste the printed line.
    3. Leave **Allow write access** unticked → Add key.
-3. On the machine:
-   ```bash
-   printf 'Host github.com\n    IdentityFile ~/.ssh/github_deploy\n    IdentitiesOnly yes\n' >> ~/.ssh/config
-   # GitHub's host keys, fetched over HTTPS instead of trusted on first use:
-   curl -fsSL https://api.github.com/meta \
-     | python3 -c 'import json,sys; [print("github.com", k) for k in json.load(sys.stdin)["ssh_keys"]]' \
-     >> ~/.ssh/known_hosts
-   git clone git@github.com:az5arpeera/NeurOS.git ~/NeurOS
-   bash ~/NeurOS/scripts/aws/bootstrap.sh
-   ```
+   - Or, with the founders' OK, from the laptop: `gh repo deploy-key add KEY.pub --repo az5arpeera/NeurOS --title neuros-aws` (read-only by default; done this way on 5 Oct).
+3. **On the machine:** `git clone git@github.com:az5arpeera/NeurOS.git ~/NeurOS`, then `bash ~/NeurOS/scripts/aws/bootstrap.sh`.
 
 `gh auth login` works too, but it signs the machine in to every repository you can reach.
+
+**5 Oct:** the first bootstrap stopped at its tests.
+- The GPU-vs-CPU training test failed: dropout draws different random masks on the two devices.
+- Fixed in 742c45e. The rerun passed 666 tests, and the idle auto-stop is active.
 
 `bootstrap.sh` is idempotent, and stops with a clear message if anything is missing. It:
 1. checks the GPU, the driver and the data volume;
@@ -256,8 +252,29 @@ $N download --dataset Stieger2021                     # sessions 1-2 only (regis
 $N validate --dataset <each>                          # then: harmonise + validate every recording
 ```
 
-- **EEGMAT** needs its own loader, still to be written: download it, but `validate` comes later.
+- **EEGMAT** needs its own loader, still to be written. `neuros download` refuses it for now ("not a MOABB dataset"); only E6 needs it.
 - **Long commands** go inside `tmux new -s dl`, so they survive a dropped SSH connection.
+
+**How the downloads actually ran (5 Oct, approved datasets 1–10).** Parallel lanes, grouped by host, all in the `dl` tmux session:
+- **Lane commands:**
+  - `scripts/aws/download-lane.sh A BNCI2014_001 BNCI2014_004 PhysionetMI EEGMAT Cho2017 Lee2019_MI`
+  - `scripts/aws/download-lane.sh B Stieger2021 Yang2025`
+  - `scripts/aws/download-chunks.sh GuttmannFlury2025 4`: Zenodo throttles each connection to ~0.8–2.5 MB/s, so one stream would take ~9 h. Four chunks of people run at ~10 MB/s together, then a full run writes the manifest.
+  - `scripts/aws/download-retry.sh Dreyer2023`: OSF answered a burst with **429 Too Many Requests** after 3 minutes. The retry waits 10, 20, 40, then 60 minutes and resumes. Its first retry finished.
+- **Measured speeds:**
+
+  | Source | Speed |
+  |---|---|
+  | Figshare | ~55 MB/s |
+  | GigaDB | 30–40 MB/s |
+  | TU Graz | ~7 MB/s |
+  | PhysioNet's AWS mirror | under a minute for 1.9 GB |
+
+- **Sizes that differ from the table above:**
+  - **Dreyer2023** from OSF is **7.5 GB** (520 files, 87 people), not the Zenodo copy's 27.5 GB.
+  - **GuttmannFlury2025** unpacks to roughly another 26 GB, videos included, next to its zips.
+- `scripts/aws/validate-lane.sh` validates each dataset once its download reports success, at `nice 10`.
+- Each step logs to `/mnt/neuros/logs/`. `downloads-summary.txt` has one line per dataset (exit status, minutes, free space).
 
 ## 6. Let Claude run commands on the machine
 - **The alias** goes in `~/.ssh/config` on the laptop. You add it, or Claude does with your OK:
@@ -270,6 +287,12 @@ $N validate --dataset <each>                          # then: harmonise + valida
       StrictHostKeyChecking accept-new
   ```
   `accept-new` records the machine's fingerprint on the first connection, and refuses to connect if it ever changes.
+- **5 Oct setup:**
+  - The alias points at the Elastic IP's DNS name, `ec2-54-145-175-49.compute-1.amazonaws.com`.
+  - Claude uses Windows' OpenSSH (`C:\Windows\System32\OpenSSH\ssh.exe`). It copies scripts to `~/neuros-scripts/` on the machine and runs them as files. Piping a script into `bash -s` breaks when a command inside it, such as `ssh`, reads stdin.
+- **Permissions:**
+  - Claude Code's auto mode blocks commands that change a remote machine.
+  - To let Claude run them, give the session a permission rule or switch it out of auto mode. On 5 Oct the founders enabled bypass permissions.
 - **What Claude then does:**
   - runs `ssh neuros-aws "cd NeurOS && ..."`, the same way it uses git through your credential manager;
   - starts long runs inside `tmux` on the instance, so they don't depend on the laptop staying awake.
@@ -283,7 +306,10 @@ $N validate --dataset <each>                          # then: harmonise + valida
   - Instance state → **Stop**. Never Terminate; termination protection refuses it anyway.
   - If you forget, the idle auto-stop does it after 45 minutes.
   - The budget guard stops everything at 90% of the monthly cap.
-- **Training runs:** `neuros loso --experiment … --device cuda`. On a 16-vCPU machine the default is 8 fold workers × 2 threads, all sharing the one GPU.
+- **Training runs:**
+  - Run `WORKERS=3 bash scripts/aws/loso-queue.sh NAME [NAME …]` inside tmux. It runs `configs/NAME.yaml` one after another with `--device cuda`, and refuses uncommitted code.
+  - Parallel folds share the one GPU, at 2 threads each. Use 3 on the 8-vCPU g6.2xlarge while downloads run, up to 8 on a g6.4xlarge.
+  - **Measured on 5 Oct:** BNCI2014-001 EEGNet + EA LOSO (9 folds, 300 epochs) took **6.2 min** on the L4 with 3 workers, against 36 min on the laptop's CPU.
 - **Results:**
   - Results land in `results/` on the volume. Copy the JSON files you want to keep to the laptop with `scp`; they're small. The results log in the knowledge base is what gets committed.
   - Every result records the GPU, CUDA and cuDNN versions and whether deterministic kernels were on (the default).
