@@ -20,6 +20,11 @@ laptop (16 cores), 9 workers × 2 threads train about twice as many steps per se
 process with 16 threads: small convolutions don't use many threads well. Each fold is seeded
 on its own, so a fold's result doesn't depend on which worker ran it or when. It does depend
 on the thread count (the last bits of parallel sums), which is recorded with every result.
+
+**GPUs (D-032).** ``device="cuda"`` trains each fold on a GPU; with several GPUs, folds are
+spread round-robin, and one GPU can host several fold workers. CUDA runs use deterministic
+algorithms by default (``deterministic=True``). Every fold records its device, GPU, CUDA and
+cuDNN versions.
 """
 
 from __future__ import annotations
@@ -95,6 +100,8 @@ class FoldTask:
     seed: int
     threads: int
     tag: str  # prefix for progress lines, e.g. "ea s20261005 BNCI2014_001:3"
+    device: str = "cpu"  # "cpu", "cuda", "cuda:N" or "auto" (neuros.train.device)
+    deterministic: bool = True  # CUDA only: reproducible kernels (slower)
 
 
 def run_fold(task: FoldTask, progress: Progress | None = None) -> dict[str, Any]:
@@ -107,10 +114,13 @@ def run_fold(task: FoldTask, progress: Progress | None = None) -> dict[str, Any]
 
     from neuros.models.eegnet import EEGNetClassifier
     from neuros.train.data import input_rms, windows_to_tensors
+    from neuros.train.device import configure_determinism, describe_device, resolve_device
     from neuros.train.trainer import predict_logits, train_classifier
 
     say: Progress = progress or (lambda message: print(message, flush=True))
     torch.set_num_threads(task.threads)
+    device = resolve_device(task.device, worker_index=task.fold.index)
+    configure_determinism(device, task.deterministic)  # before the first CUDA operation
     started = time.perf_counter()
     scale = input_rms(task.train)
     train_data = windows_to_tensors(task.train, task.classes, scale=scale)
@@ -130,6 +140,7 @@ def run_fold(task: FoldTask, progress: Progress | None = None) -> dict[str, Any]
         task.train_config,
         seed=task.seed,
         progress=lambda line: say(f"[{task.tag}] {line}"),
+        device=device,
     )
     logits = predict_logits(model, test_data.x, task.train_config.eval_batch_size)
     predicted = [task.classes[i] for i in logits.argmax(dim=1).tolist()]
@@ -152,6 +163,7 @@ def run_fold(task: FoldTask, progress: Progress | None = None) -> dict[str, Any]
         "n_validation_windows": len(task.validation) if task.validation is not None else 0,
         "input_scale": scale,
         "threads": task.threads,
+        "hardware": describe_device(device, deterministic=task.deterministic),
         "model": model.describe(),
         "train": result.to_dict(),
         "seconds": round(seconds, 1),
@@ -165,6 +177,8 @@ def _fold_tasks(
     alignment: Alignment,
     seed: int,
     threads: int,
+    device: str,
+    deterministic: bool,
 ) -> list[FoldTask]:
     folds = loso_folds(prepared.people, n_validation=experiment.validation_people, seed=seed)
     tasks: list[FoldTask] = []
@@ -181,6 +195,8 @@ def _fold_tasks(
                 seed=seed,
                 threads=threads,
                 tag=f"{alignment} s{seed} {fold.test[0]}",
+                device=device,
+                deterministic=deterministic,
             )
         )
     return tasks
@@ -195,17 +211,23 @@ def run_deep_loso(
     workers: int = 1,
     threads: int = 2,
     progress: Progress | None = None,
+    device: str = "cpu",
+    deterministic: bool = True,
 ) -> dict[str, Any]:
     """One leave-one-person-out run (one alignment, one seed) over every person in ``windows``.
 
     Raises:
-        NeurOSConfigError: on bad worker/thread counts or an unknown alignment/reference.
+        NeurOSConfigError: on bad worker/thread counts, a malformed device string, or an
+            unknown alignment/reference.
         NeurOSDataError: on a window whose label isn't one of the experiment's labels, or on
             fewer than 2 people.
     """
+    from neuros.train.device import check_device_string
+
     say: Progress = progress or (lambda message: print(message, flush=True))
     if workers < 1 or threads < 1:
         raise NeurOSConfigError(f"workers and threads must be >= 1, got {workers}, {threads}")
+    check_device_string(device)  # before any worker starts
     unknown = sorted(set(windows.labels) - set(experiment.labels))
     if unknown:
         raise NeurOSDataError(f"windows carry labels {unknown} outside {list(experiment.labels)}")
@@ -219,11 +241,19 @@ def run_deep_loso(
         alignment=alignment,
         unit=experiment.alignment_unit,
     )
-    tasks = _fold_tasks(prepared, experiment, alignment=alignment, seed=seed, threads=threads)
+    tasks = _fold_tasks(
+        prepared,
+        experiment,
+        alignment=alignment,
+        seed=seed,
+        threads=threads,
+        device=device,
+        deterministic=deterministic,
+    )
     n_workers = min(workers, len(tasks))
     say(
         f"LOSO eegnet+{alignment}, seed {seed}: {len(tasks)} folds on {n_workers} worker(s) "
-        f"x {threads} thread(s)"
+        f"x {threads} thread(s), device {device}"
     )
     if n_workers == 1:
         outcomes = [run_fold(task, say) for task in tasks]
@@ -249,6 +279,7 @@ def run_deep_loso(
         "folds": outcomes,
         "alignment_references": references,
         "workers": n_workers,
+        "device": device,
         "minutes": round((time.perf_counter() - started) / 60, 2),
     }
 
@@ -320,6 +351,8 @@ def run_loso_experiment(
     workers: int = 1,
     threads: int = 2,
     progress: Progress | None = None,
+    device: str = "cpu",
+    deterministic: bool = True,
 ) -> dict[str, Any]:
     """Every (alignment × seed) LOSO run of ``experiment``, plus comparisons and seed spread."""
     runs = [
@@ -331,6 +364,8 @@ def run_loso_experiment(
             workers=workers,
             threads=threads,
             progress=progress,
+            device=device,
+            deterministic=deterministic,
         )
         for alignment in experiment.alignments
         for seed in experiment.seeds

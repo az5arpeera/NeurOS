@@ -752,6 +752,11 @@ def cmd_loso(args: argparse.Namespace) -> int:
     if args.threads < 1 or (args.workers is not None and args.workers < 1):
         raise NeurOSConfigError("--threads and --workers must be >= 1")
     _require_torch()
+    from neuros.train.device import resolve_device
+
+    # Fails now, before any data loads, if CUDA was asked for and isn't there (D-032).
+    first_device = resolve_device(args.device)
+    deterministic = not args.nondeterministic
 
     config = _config(args)
     config = config.model_copy(
@@ -767,6 +772,8 @@ def cmd_loso(args: argparse.Namespace) -> int:
         experiment_file=str(args.experiment),
         experiment_sha256=config_hash(experiment),
         threads_per_worker=str(args.threads),
+        device=args.device,
+        deterministic=str(deterministic).lower(),
     )
     if provenance["git_dirty_code"] == "true":
         print("warning: uncommitted code changes; this result won't be reproducible from git")
@@ -785,11 +792,18 @@ def cmd_loso(args: argparse.Namespace) -> int:
     print(
         f"\n{experiment.name}: {len(windows)} windows, {len(windows.people)} people, "
         f"{len(windows.ch_names)} channels ({experiment.channels}), {windows.n_samples} samples "
-        f"per window {epoch.describe()}, reference {experiment.reference}\n",
+        f"per window {epoch.describe()}, reference {experiment.reference}, device "
+        f"{args.device} (first fold on {first_device})\n",
         flush=True,
     )
     result = run_loso_experiment(
-        windows, experiment, workers=workers, threads=args.threads, progress=print
+        windows,
+        experiment,
+        workers=workers,
+        threads=args.threads,
+        progress=print,
+        device=args.device,
+        deterministic=deterministic,
     )
 
     rows = []
@@ -996,6 +1010,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--out", default=None, help="result file (default: results/<name>/...)")
     p.add_argument("--split", default=str(DEFAULT_SPLIT_PATH), help="locked test set file")
+    p.add_argument(
+        "--device",
+        default="cpu",
+        help="cpu (default), cuda, cuda:N or auto; cuda spreads folds over the visible GPUs",
+    )
+    p.add_argument(
+        "--nondeterministic",
+        action="store_true",
+        help="CUDA only: allow faster nondeterministic kernels (results vary in the last bits)",
+    )
     p.set_defaults(func=cmd_loso)
     return parser
 

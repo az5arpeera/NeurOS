@@ -27,6 +27,11 @@ naming the epoch, batch and learning rate; training never continues on corrupt w
 and the batch-norm pass from ``seed``. With the same seed, data, thread count and library
 versions a run reproduces exactly. The thread count is recorded with every result because
 parallel reductions can change the last bits of a sum.
+
+**Devices (D-032).** The model trains on whatever device it sits on (``device=`` moves it
+first). Windows stay in CPU memory and move to the device one batch at a time, so the training
+set never has to fit in GPU memory. Weight snapshots for SWA are kept on the CPU. On CUDA,
+reproducibility needs ``neuros.train.device.configure_determinism`` (the fold runner calls it).
 """
 
 from __future__ import annotations
@@ -103,18 +108,29 @@ def cosine_lr(epoch_index: int, max_epochs: int, lr: float, min_lr: float) -> fl
     return min_lr + (lr - min_lr) * 0.5 * (1.0 + math.cos(math.pi * epoch_index / max_epochs))
 
 
+def model_device(model: nn.Module) -> torch.device:
+    """The device a model's parameters live on (CPU for a model without parameters)."""
+    first = next(model.parameters(), None)
+    return first.device if first is not None else torch.device("cpu")
+
+
 @torch.no_grad()
 def predict_logits(model: nn.Module, x: torch.Tensor, batch_size: int) -> torch.Tensor:
     """Logits for every window, in evaluation mode (no dropout, running BN statistics).
 
-    The model's previous mode (train/eval) is restored afterwards.
+    ``x`` may live on the CPU; batches move to the model's device. The logits come back on the
+    CPU. The model's previous mode (train/eval) is restored afterwards.
     """
     if batch_size < 1:
         raise NeurOSConfigError(f"batch_size must be >= 1, got {batch_size}")
+    device = model_device(model)
     was_training = model.training
     model.eval()
     try:
-        parts = [model(x[start : start + batch_size]) for start in range(0, x.shape[0], batch_size)]
+        parts = [
+            model(x[start : start + batch_size].to(device)).cpu()
+            for start in range(0, x.shape[0], batch_size)
+        ]
     finally:
         model.train(was_training)
     return torch.cat(parts)
@@ -174,6 +190,7 @@ def recompute_batch_norm(
     norms = [m for m in model.modules() if isinstance(m, _BATCH_NORMS)]
     if not norms:
         return
+    device = model_device(model)
     momenta = [m.momentum for m in norms]
     for m in norms:
         m.reset_running_stats()
@@ -183,7 +200,7 @@ def recompute_batch_norm(
     order = torch.randperm(x.shape[0], generator=generator)
     try:
         for start in range(0, x.shape[0], batch_size):
-            model(x[order[start : start + batch_size]])
+            model(x[order[start : start + batch_size]].to(device))
     finally:
         for m, momentum in zip(norms, momenta, strict=True):
             m.momentum = momentum
@@ -191,7 +208,8 @@ def recompute_batch_norm(
 
 
 def _snapshot(model: nn.Module) -> dict[str, torch.Tensor]:
-    return {name: value.detach().clone() for name, value in model.state_dict().items()}
+    """A CPU copy of the weights and buffers (snapshots never pile up in GPU memory)."""
+    return {name: value.detach().to("cpu", copy=True) for name, value in model.state_dict().items()}
 
 
 def average_parameters(
@@ -236,6 +254,7 @@ def train_classifier(
     *,
     seed: int,
     progress: Callable[[str], None] | None = None,
+    device: torch.device | None = None,
 ) -> TrainResult:
     """Train ``model`` in place with the §6.4 recipe; return how it went.
 
@@ -245,6 +264,7 @@ def train_classifier(
         validation: validation people's windows, or None. Required for early stopping.
         seed: dropout, batch order and the batch-norm pass.
         progress: receives one line every ``config.log_every`` epochs.
+        device: where to train; the model is moved there first. None = where it already is.
 
     Raises:
         NeurOSConfigError: early stopping without validation data.
@@ -256,8 +276,11 @@ def train_classifier(
         _check_data(model, validation, "validation")
     if config.patience is not None and validation is None:
         raise NeurOSConfigError("early stopping (patience) needs validation people")
+    if device is not None:
+        model.to(device)
+    target = model_device(model)
 
-    torch.manual_seed(seed)
+    torch.manual_seed(seed)  # every device's generator: dropout on the GPU too
     generator = torch.Generator().manual_seed(seed)
     sampler = SubjectBalancedSampler(
         train.people,
@@ -289,8 +312,12 @@ def train_classifier(
         seen = 0
         for batch_number, batch in enumerate(sampler.epoch(), start=1):
             rows = torch.from_numpy(batch)
-            logits = model(train.x[rows])
-            loss = F.cross_entropy(logits, train.y[rows], label_smoothing=config.label_smoothing)
+            logits = model(train.x[rows].to(target, non_blocking=True))
+            loss = F.cross_entropy(
+                logits,
+                train.y[rows].to(target, non_blocking=True),
+                label_smoothing=config.label_smoothing,
+            )
             loss_value = float(loss.detach())
             if not math.isfinite(loss_value):
                 raise NeurOSTrainingError(

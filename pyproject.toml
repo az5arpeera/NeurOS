@@ -27,6 +27,10 @@ dependencies = [
 # Install with `uv sync --extra dev --extra ml`. On Linux it comes from PyTorch's CPU-only
 # index (see [tool.uv.sources] below).
 ml = ["torch>=2.4"]
+# The same model layer on NVIDIA GPUs (AWS, D-032): Linux wheels built against CUDA 12.6, from
+# PyTorch's cu126 index (NVIDIA driver >= 525). On the GPU machine:
+# `uv sync --extra dev --extra ml-cuda`. Mutually exclusive with `ml` ([tool.uv] conflicts).
+ml-cuda = ["torch>=2.4"]
 # Online engine (LSL in, WebSocket out). Needed from week 2.
 engine = ["pylsl>=1.16", "brainflow>=5.12", "websockets>=12"]
 # Building text anchors offline for the text-anchored head (D-023). Never imported at runtime.
@@ -48,17 +52,31 @@ requires = ["hatchling>=1.24"]
 build-backend = "hatchling.build"
 
 # ---------------------------------------------------------------- package sources
-# PyTorch on Linux comes from PyTorch's own CPU-only index. PyPI's Linux wheel is ~555 MB and
-# pulls ~2.75 GB of NVIDIA CUDA libraries that CI never uses; the CPU build has the same API
-# and numerics on CPU. Windows and macOS wheels on PyPI are already CPU-only, so they stay on
-# PyPI. `explicit = true`: nothing but torch is ever resolved from this index.
-# The cluster (Q6b) will get a separate GPU variant when its CUDA version is known.
+# PyTorch on Linux comes from PyTorch's own indexes:
+# - `ml`: the CPU-only build. PyPI's Linux wheel is ~555 MB and pulls ~2.75 GB of NVIDIA CUDA
+#   libraries that CI never uses; the CPU build has the same API and numerics on CPU.
+# - `ml-cuda`: the CUDA 12.6 build for GPU training on AWS (D-032). cu126 rather than cu130:
+#   it runs on older drivers (>= 525 instead of >= 580), and every AWS GPU we'd rent (A10G,
+#   L4, L40S, A100, H100) supports it.
+# Windows and macOS wheels on PyPI are CPU-only, so they stay on PyPI. `explicit = true`:
+# nothing but torch is ever resolved from these indexes.
+[tool.uv]
+conflicts = [[{ extra = "ml" }, { extra = "ml-cuda" }]]
+
 [tool.uv.sources]
-torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+torch = [
+    { index = "pytorch-cpu", marker = "sys_platform == 'linux'", extra = "ml" },
+    { index = "pytorch-cu126", marker = "sys_platform == 'linux'", extra = "ml-cuda" },
+]
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
 explicit = true
 
 [tool.hatch.build.targets.wheel]
