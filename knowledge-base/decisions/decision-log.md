@@ -4,7 +4,8 @@ Newest first. Format: **ID · date · decision** — why · who. Superseded deci
 
 ## Decided
 
-- **D-035 · 2026-10-05 · Cho2017's files are 32× too large: rescale by 1/32 when harmonising.** A data-correctness fix found by validation on AWS. · Claude (data layer); the founders may veto
+- **D-035 · 2026-10-05 · Cho2017's files are 32× too large: rescale by 1/32 when harmonising.** A data-correctness fix found by validation on AWS. · Claude (data layer); **kept by the founders, 5 Oct**
+  - **Result:** after the fix, all 52 Cho2017 recordings pass validation (they failed 3 of 52 before).
   - **Evidence (5 Oct):**
     - Read as µV, every one of the 52 recordings has a typical 4–30 Hz amplitude of 160–260 µV, and every window exceeds 500 µV peak to peak. Three people (12, 39, 48) fail the units check outright (> 200 µV).
     - **Common average doesn't explain it:** 107–143 µV after it.
