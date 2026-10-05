@@ -61,6 +61,11 @@ Ask about a student/startup price for the Unicorn (a second headset for the hard
 - **Q18.** Sourced market sizing. Rec: before the final application draft.
 - **Q19.** IP / patents. Rec: talk to a startup-law clinic after the MVP.
 - **Q7b.** Licence check on each core dataset (is commercial training allowed?). The founder said skip for now. It must be done before the application cites the dataset pool. Model bundles record their training datasets, so a dataset can be dropped.
+  - **Progress (4 Oct), confirmed at the repositories:**
+    - Dreyer2023: CC BY 4.0 (Zenodo).
+    - Stieger2021: CC BY 4.0 (Figshare).
+    - D-033's datasets: Yang2025 CC BY 4.0; GuttmannFlury2025 CC0; Shin2017A GPL-3.0.
+  - **Still to confirm:** Cho2017 and Lee2019_MI (GigaDB, presumably CC0; the page didn't say), BNCI2014-001/004.
 - **Q23.** Music-CLAP research track: cross-subject EEG ↔ CLAP audio on NMED-T. Deferred (D-018).
 - **Q24.** Decoding richer actions: feet/tongue, fine arm movements, movement intention; weak labels from context. See [beyond LEFT/RIGHT](explainers/beyond-left-right-any-action.md).
 
