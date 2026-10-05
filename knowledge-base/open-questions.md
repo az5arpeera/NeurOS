@@ -25,6 +25,18 @@ Founder (3 Oct): "TBD on specific roles". **Proposal** (in the [plan](plan/road-
 - **Founder:** data pipeline, engine/SDK, evaluation harness, outreach, the YC application.
 - **Cofounder:** model training and experiments.
 
+### Q26. Add cue-free datasets (proposed 4 Oct)
+**Why:** under D-030, only BNCI2014-001 (9 people) has a cue-free window. The checks on 4 Oct found commercially usable cue-free data ([results](results/2026-10-04-cue-audit-and-cue-free-datasets.md)).
+
+**Recommendation** (would be D-033; amends the data lock):
+- **Yang2025:** 51 left/right people; fixation cross only during imagery; CC BY 4.0; 65.6 GB. Training, and cue-free testing.
+- **Shin2017A:** 29 people, cue-free; GPL-3.0. **Testing only** until you decide whether GPL data may train a model we ship.
+- **GuttmannFlury2025:** 31 people; CC0; 26.2 GB. Not cue-free, but it records gaze, so it measures how much decoding follows the eyes. **Diagnostic only.**
+- **The locked test set** grows by round(20%) of each new dataset's people, chosen with the D-026 seed before anyone looks at the data.
+- **Downloads** go to AWS (D-032), each listed for approval first.
+
+**Not recommended:** Brandl2020, HefmiIch2025, Chang2025 (CC BY-NC-ND: non-commercial).
+
 ### Optional: email g.tec
 Ask about a student/startup price for the Unicorn (a second headset for the hardware-agnostic story).
 

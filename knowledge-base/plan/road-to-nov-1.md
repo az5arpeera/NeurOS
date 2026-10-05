@@ -65,6 +65,10 @@ Claude Code pairs on all engineering. **Founders send all outreach;** Claude dra
   - Retracted: the 83.7%, the deep model's 8.1-point lead, and "zero-calibration on par with calibrated".
   - **Adopted ([D-030](../decisions/decision-log.md)):** every motor-imagery result uses windows that start after the class has left the screen, next to a cue-only control. Built in on 4 Oct: the registry declares how long each dataset shows the class, `neuros datasets` prints each window, and every result file records its window and a cue-free flag. **Only BNCI2014-001 has a cue-free window;** all five core datasets keep the class on screen for the whole task.
   - Without the arrow's first half-second, the 4-s window's 83.7% falls to 72.3% ([0.5, 4.0] s), no better than our 2-s window: its gain was the cue's onset, not the window's length.
+- **4 Oct evening (D-031: intent first, a headline led by adaptation, one mental state; D-032: AWS):**
+  - `neuros audit` measures when and where on the head each cued dataset's class is readable. BNCI2014-001, BNCI2014-004 and PhysionetMI: no leaks; the motor strip carries the class in the training windows; PhysionetMI's eyes still decode it (56.6%). See the [audit results](../results/2026-10-04-cue-audit-and-cue-free-datasets.md).
+  - Cue-free candidates checked against their papers. Yang2025 (51 people, CC BY) is the clean addition: [Q26](../open-questions.md) is for the founders.
+  - Riemannian folds now run in parallel (the first PhysionetMI audit hit the 2-hour limit).
 - **Fixed:** result files took their provenance stamp at the end of a run instead of the start. They now record the code that actually ran, plus a code-only "dirty" flag.
 - **Business:** [ready-to-adapt drafts for the first 10 outreach messages](../business/first-10-messages.md); the founders send them.
 - **Next:** cluster access (Q6b) before E1, which is too heavy for the laptop.
