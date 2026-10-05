@@ -12,7 +12,12 @@ Priority: 🔴 blocking · 🟠 this week · 🟡 can wait until after the MVP.
 ## 🟠 Still open (2026-10-03): coding has started; these don't block it
 
 ### Q6b. Cluster details (fallback since D-032: training moves to AWS credits)
-**AWS checklist (founders; Claude never handles credentials):** request a GPU instance quota increase now (new accounts often start at 0), pick one region, set a budget alarm, and decide where the raw data lives (EBS or S3, several hundred GB).
+**AWS checklist (founders; Claude never handles credentials):** step-by-step in the [AWS runbook](plan/aws-runbook.md) (4 Oct).
+- Request the GPU quota now: 16 vCPUs of "G and VT" instances. New accounts often start at 0.
+- Set a budget alarm.
+- Launch a g6.4xlarge in us-east-1 with a 500 GB data volume.
+- Run `scripts/aws/bootstrap.sh`.
+- Approve the downloads in step 5 (≈ 282 GB).
 
 If the school cluster is still wanted as a fallback, its details are:
 - GPU (≥ 8 GB VRAM is plenty);

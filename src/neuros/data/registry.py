@@ -395,10 +395,10 @@ _SPECS: tuple[DatasetSpec, ...] = (
         class_on_screen_s=5.0,
         pre_cue_fixation_s=3.0,
         rest_source="pre_cue",
-        licence="CC BY 4.0 (verify, Q7b)",
+        licence="CC BY 4.0 (Zenodo record 8089820, checked 2026-10-04)",
         url="https://doi.org/10.1038/s41597-023-02445-z",
         channels_source=_MOABB_SOURCE,
-        unverified=("cue_offset_s", "pre_cue_fixation_s", "licence"),
+        unverified=("cue_offset_s", "pre_cue_fixation_s"),
         subgroups={"A": (1, 60), "B": (61, 81), "C": (82, 87)},
         notes=(
             "Trial: green cross t=0, beep t=2 s, arrow cue t=3 s (1.25 s), feedback 4.25-8 s. "
@@ -421,10 +421,13 @@ _SPECS: tuple[DatasetSpec, ...] = (
         class_on_screen_s=3.0,
         pre_cue_fixation_s=None,
         rest_source="explicit",
-        licence="CC BY 4.0 (verify, Q7b)",
+        licence="CC BY 4.0 (Figshare article 13123148, checked 2026-10-04)",
         url="https://doi.org/10.6084/m9.figshare.13123148",
         channels_source=_MOABB_SOURCE,
-        unverified=("licence",),
+        # Sessions 1-2 of each person (the data lock's plan): 124 files, 77.5 GB of 377 GB.
+        # Set here, not per command, so downloading and loading always use the same sessions;
+        # MOABB would otherwise download the rest the first time the data is loaded.
+        moabb_kwargs={"sessions": (1, 2)},
         notes=(
             "7-11 sessions per person; 377 GB in total, so sessions 1-2 first. Targets: "
             "left/right hand, 'up' = both hands, 'down' = voluntary rest (MOABB labels it rest)."
