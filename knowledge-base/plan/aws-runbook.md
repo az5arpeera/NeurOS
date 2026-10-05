@@ -12,7 +12,7 @@
   - the code, `scripts/aws/bootstrap.sh` and this runbook;
   - commands on the instance only if you give it SSH access through a host alias (step 6). It never sees, types or stores a key.
 
-**Order:** steps 1–2 today (the quota can take days); steps 3–5 when the quota arrives.
+**Order:** steps 1, 2 and 2b today (the quota can take days); steps 3–5 when the quota arrives.
 
 ## 1. Request the GPU quota (do this first)
 1. Open **Service Quotas → Amazon EC2 → "Running On-Demand G and VT instances"** in the region you'll use (step 3).
@@ -25,6 +25,55 @@ In **Billing → Budgets**:
 - Set a monthly cost budget at or below the credit amount.
 - Add email alerts at 50%, 80% and 100%.
 - Credits cover most services. The alarm catches a machine left running.
+
+### 2b. Cap the spending: the budget guard (free to run)
+A budget on its own only sends emails. The guard stops the machines.
+- **Template:** `infra/aws/budget-guard.yaml`, deployed once with CloudFormation.
+- **What it does:** at 90% of the monthly cap, it stops every running EC2 instance in every region. It then keeps any instance that starts again in us-east-1 stopped for the rest of the month.
+- **What it never does:** terminate an instance or delete a disk or snapshot. Your data stays; a stopped machine costs only its disks.
+- **Cost:** nothing. It uses Lambda, SNS, EventBridge and Parameter Store within their free tiers, and monitoring budgets are free.
+- **⚠️ Your existing budget probably counts credits.** That's AWS's default, and credits cancel out spending, so the budget may show about $0 while you burn credits. Edit it: Advanced options → Charge types → untick **Credits**. The guard's own budget is already set this way.
+
+**Deploy, in us-east-1:**
+1. CloudFormation → Create stack → "Upload a template file" → `infra/aws/budget-guard.yaml`.
+2. Fill in the parameters:
+   - `MonthlyBudgetUSD`: e.g. 300;
+   - `GuardThresholdPercent`: 90. AWS updates spending figures only a few times a day, so stopping at 90% keeps the lag inside the cap;
+   - `AlertEmail`.
+3. Tick "I acknowledge that AWS CloudFormation might create IAM resources" → Create. It takes about a minute.
+4. Test it: Lambda → `neuros-budget-guard` → Test, with the event `{"dry_run": true}`. It lists every instance it would stop, and stops nothing.
+5. To lift the lock after raising the budget, delete `/neuros/budget-guard/locked-month` in Systems Manager → Parameter Store.
+
+**The second safety net: idle auto-stop.**
+- **What it does:** `bootstrap.sh` installs `scripts/aws/idle-stop.sh` as a 5-minute timer on the machine. After 45 minutes with no NeurOS command running, no GPU or CPU load and no one typing over SSH, the machine shuts itself down.
+- **Why it matters:** forgetting to stop the machine is the likeliest way to waste credits, at about $32 a day. This catches it in minutes, where the budget guard acts on billing figures hours old.
+- **To keep it awake** during long interactive work: `touch ~/.neuros-keep-awake` holds it for 3 hours.
+- **To check it:** `neuros-idle-stop --status`.
+- **When launching the machine**, keep "Shutdown behavior: Stop", the default. Then shutting down stops the instance and keeps its disks.
+
+## Costs (estimated 5 Oct; us-east-1 on-demand prices)
+- **Prices:** g6.4xlarge $1.323/h (Spot ≈ $0.96: not worth the interruptions); g6.2xlarge $0.978/h; gp3 storage ≈ $0.08 per GB-month.
+- **Model run times are guesses.** The first E1 run measures them, and this table gets updated then.
+
+| Work | When | Machine-hours | ≈ Cost |
+|---|---|---|---|
+| Setup, the 282 GB of downloads, checksums | Wed 7 | 5–8 | $7–11 |
+| Validation, filling the cache for ~400 people, cue audits of 8 datasets | Thu 8 | 8–12 | $11–16 |
+| E0b's EEGNet check | Fri 9 | 2–3 | $3–4 |
+| E1: 52 models, one seed, plus one re-run | Fri 9–Sat 10 | 6–12 | $8–16 |
+| E2 warm-up curves, H1, E3 test-time adaptation | Week 2 | 10–20 | $13–26 |
+| E4–E7: heads, virtual headsets, EEGMAT, command sets | Week 3 | 15–30 | $20–40 |
+| Freeze runs: locked test set, 10-fold over everyone, LODO, 3 seeds | Sat 24 | 10–20 | $13–26 |
+| Machine on with no job running (reading results, debugging) | throughout | 30–60 | $40–80 |
+| **Compute** | | **86–165** | **$114–218** |
+| Disks: 100 GB root + 500 GB data, Oct 7 – Nov 1 | | | ≈ $40 |
+| Public IPv4 address while running; the guard; data transfer in | | | ≈ $1 |
+| **Total to 1 Nov** | | | **≈ $155–260** |
+
+- **Suggested monthly budget:** $300, with the guard at 90%.
+- **After 1 Nov:** the disks cost about $48 a month until you delete them, or snapshot them first at about $0.05 per GB-month.
+- **Cheaper training phases:** once data preparation is done, a g6.2xlarge (8 vCPU, 32 GB) may be enough. Stop the machine, change its type, start it again: about 2 minutes, and about 26% cheaper per hour.
+- **The worst case the guard and idle auto-stop prevent:** a forgotten g6.4xlarge for the rest of the month, about $32 a day, or roughly $850.
 
 ## 3. Launch the machine and its data volume
 **Recommendation** (on-demand prices are approximate, from memory; check the console):
@@ -40,7 +89,7 @@ In **Billing → Budgets**:
 | Data volume | **500 GB gp3**, mounted at `/mnt/neuros` | ≈ $40/month | About 350 GB is used (step 5) |
 | Network | Security group: SSH (port 22) from your IP only | | |
 
-- **Stop the instance when it's idle.** A stopped instance costs only its disks, and the data volume keeps everything.
+- **Stop the instance when it's idle.** A stopped instance costs only its disks, and the data volume keeps everything. The idle auto-stop (step 2b) does it for you after 45 minutes.
 - **Spot instances** are about 60–70% cheaper, but can be interrupted mid-run. Use on-demand until runs can resume.
 
 **Mount the data volume** (once, as the instance's user).
@@ -139,4 +188,5 @@ $N validate --dataset <each>                          # then: harmonise + valida
 - **Results:**
   - Results land in `results/` on the volume. Copy the JSON files you want to keep to the laptop with `scp`; they're small. The results log in the knowledge base is what gets committed.
   - Every result records the GPU, CUDA and cuDNN versions and whether deterministic kernels were on (the default).
-- **When you're done:** stop the instance. Delete the volume only when the project no longer needs the data.
+- **When you're done:** stop the instance. The idle auto-stop does it after 45 minutes if you forget, and the budget guard stops everything at 90% of the monthly cap.
+- **Delete the volume** only when the project no longer needs the data.

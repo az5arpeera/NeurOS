@@ -55,6 +55,10 @@ Newest first. Format: **ID · date · decision** — why · who. Superseded deci
     - Raw data staged on EBS or S3 in one region. The full pool is several hundred GB (Stieger2021 alone is 377 GB).
     - The founders own the account, credentials, budget alarms and instance quotas; Claude never handles credentials.
     - New AWS accounts often start with a GPU instance quota of 0, so the increase should be requested early.
+  - **Spending cap (5 Oct):**
+    - The budget guard (`infra/aws/budget-guard.yaml`, free to run) stops every instance at 90% of the monthly cap and keeps them stopped for the rest of the month. It never deletes anything.
+    - An idle auto-stop on the machine shuts it down after 45 idle minutes.
+    - Estimated cost to 1 Nov: about $155–260 ([runbook](../plan/aws-runbook.md)).
 - **D-031 · 2026-10-04 · MVP positioning: intent first, a headline led by adaptation, one validated mental state.** · Founder (accepted recommendation)
   - **Intent stays the product's core:** LEFT / RIGHT / REST from motor imagery, read from the motor cortex.
   - **The headline leads with time-to-usable,** the seconds of normal use until accuracy is usable, with no calibration task (E2), rather than zero-calibration accuracy. With the cue controlled, a stranger starts at ≈ 60% on BNCI2014-001, against 72% for a calibrated model (E0); closing that gap is the product.

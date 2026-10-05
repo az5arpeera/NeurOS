@@ -1,0 +1,385 @@
+# NeurOS budget guard. Deploy with CloudFormation in us-east-1 (knowledge-base/plan/aws-runbook.md).
+# The inline code is infra/aws/budget_guard.py: edit that file, then run infra/aws/build_template.py.
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  NeurOS budget guard (D-032). A monthly cost budget that ignores credits; when spending
+  crosses its threshold, a Lambda function stops every running EC2 instance and keeps new
+  starts stopped for the rest of the month. It never terminates or deletes anything. Free to
+  run (Lambda, SNS, EventBridge and SSM free tiers; monitoring budgets are free). Deploy in
+  us-east-1, where the training machine runs. Source: infra/aws/budget_guard.py.
+
+Parameters:
+  MonthlyBudgetUSD:
+    Type: Number
+    MinValue: 1
+    Description: >-
+      The monthly cap in US dollars, counted before credits (credits would hide the spending
+      this guard exists to cap).
+  GuardThresholdPercent:
+    Type: Number
+    Default: 90
+    MinValue: 10
+    MaxValue: 100
+    Description: >-
+      Percent of the budget at which every instance is stopped. Below 100 because AWS updates
+      spending figures only a few times a day, so the true spend runs ahead of the alert.
+  AlertEmail:
+    Type: String
+    AllowedPattern: "^[^@ ]+@[^@ ]+[.][^@ ]+$"
+    ConstraintDescription: an email address
+    Description: Gets the 80% forecast warning and the stop notice.
+
+Resources:
+  # ------------------------------------------------------------------ alert path
+  GuardTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: neuros-budget-guard
+
+  GuardTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref GuardTopic
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowThisAccountsBudgetsToPublish
+            Effect: Allow
+            Principal:
+              Service: budgets.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref GuardTopic
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+
+  GuardBudget:
+    Type: AWS::Budgets::Budget
+    DependsOn: GuardTopicPolicy
+    Properties:
+      Budget:
+        BudgetName: neuros-monthly-guard
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: !Ref MonthlyBudgetUSD
+          Unit: USD
+        CostTypes:
+          IncludeCredit: false  # AWS's default (true) nets credits out: spend would look like $0
+          IncludeRefund: false
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: !Ref GuardThresholdPercent
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: SNS
+              Address: !Ref GuardTopic
+            - SubscriptionType: EMAIL
+              Address: !Ref AlertEmail
+        - Notification:
+            NotificationType: FORECASTED
+            ComparisonOperator: GREATER_THAN
+            Threshold: 80
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref AlertEmail
+
+  # ------------------------------------------------------------------ the function
+  GuardRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: stop-instances-and-hold-the-lock
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # Stop only: no TerminateInstances, no volume or snapshot deletion.
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeRegions
+                  - ec2:DescribeInstances
+                  - ec2:StopInstances
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:PutParameter
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/neuros/budget-guard/*
+
+  GuardLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/neuros-budget-guard
+      RetentionInDays: 90
+
+  GuardFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: GuardLogs
+    Properties:
+      FunctionName: neuros-budget-guard
+      Description: Stops every running EC2 instance once the monthly budget is spent (never deletes)
+      Runtime: python3.12
+      Handler: index.handler
+      Timeout: 300
+      MemorySize: 128
+      Role: !GetAtt GuardRole.Arn
+      Environment:
+        Variables:
+          LOCK_PARAMETER: /neuros/budget-guard/locked-month
+      Code:
+        # infra/aws/budget_guard.py, verbatim (tests/test_budget_guard.py checks they match).
+        ZipFile: |
+          """NeurOS budget guard: stop every running EC2 instance once the monthly budget is spent.
+
+          Deployed by ``infra/aws/budget-guard.yaml`` (this exact file is inlined there, and a test checks
+          that the two copies match). It runs as an AWS Lambda function and handles three events:
+
+          1. **The budget alert** (SNS, from the guard budget at its threshold, 90% by default).
+             - It records the month as *locked* in SSM Parameter Store, then stops every running instance in
+               every enabled region.
+          2. **An instance starting** (EventBridge "EC2 Instance State-change Notification", in the stack's
+             region).
+             - If the current month is locked, it stops that instance at once.
+             - So the cap holds for the rest of the month, even if someone starts the machine again.
+             - The lock lapses by itself when the month changes, because budgets reset monthly. Deleting the
+               parameter lifts it early, after raising the budget.
+          3. **A manual test**: ``{"dry_run": true}`` (optionally with ``"simulate_alert": true``).
+             - It lists what would be stopped and stops nothing.
+
+          **It only ever stops instances.** It never terminates anything and never deletes volumes or
+          snapshots: those hold the data, and deleting them can't be undone. A stopped instance costs
+          only its disks (about $0.08 per GB-month).
+
+          **Cost.** Free in practice: a few Lambda invocations a month (free tier), one SNS topic,
+          standard SSM parameters (free) and EC2 state-change events (free). No billed API calls.
+
+          **Failure policy.** Every region and every instance is tried. Anything that couldn't be stopped
+          (e.g. a one-time Spot instance, which AWS won't stop) is logged by ID. The invocation then fails
+          so the error is visible in CloudWatch, and Lambda retries asynchronous events twice. Stopping an
+          already-stopped instance is harmless, so retries are safe.
+          """
+
+          from __future__ import annotations
+
+          import datetime as dt
+          import json
+          import os
+          from typing import Any
+
+          # The SSM parameter holding the locked month ("2026-10"); set by the stack.
+          LOCK_PARAMETER = os.environ.get("LOCK_PARAMETER", "/neuros/budget-guard/locked-month")
+          # Instances in these states are stopped (a "pending" instance is about to run and bill).
+          ACTIVE_STATES = ("pending", "running")
+
+
+          def _client(service: str, region: str | None = None) -> Any:
+              """A boto3 client (imported lazily, so tests can replace this function)."""
+              import boto3
+
+              return boto3.client(service, region_name=region)
+
+
+          def _this_month() -> str:
+              """The current budget period, as AWS Budgets counts it (UTC calendar month)."""
+              return dt.datetime.now(dt.UTC).strftime("%Y-%m")
+
+
+          def _log(event: str, **fields: Any) -> None:
+              """One JSON line per decision, searchable in CloudWatch Logs."""
+              print(json.dumps({"guard": event, **fields}, default=str))
+
+
+          def locked_month() -> str | None:
+              """The month the guard locked, or None if it never fired."""
+              ssm = _client("ssm")
+              try:
+                  return str(ssm.get_parameter(Name=LOCK_PARAMETER)["Parameter"]["Value"])
+              except ssm.exceptions.ParameterNotFound:
+                  return None
+
+
+          def lock_this_month(dry_run: bool) -> str:
+              """Record that this month's budget is spent (instances started later get stopped)."""
+              month = _this_month()
+              if not dry_run:
+                  _client("ssm").put_parameter(
+                      Name=LOCK_PARAMETER,
+                      Value=month,
+                      Type="String",
+                      Overwrite=True,
+                      Description="NeurOS budget guard: instances are stopped for the rest of this month",
+                  )
+              _log("locked", month=month, dry_run=dry_run)
+              return month
+
+
+          def running_instances(region: str) -> list[str]:
+              """IDs of the pending or running instances in ``region``."""
+              ec2 = _client("ec2", region)
+              ids: list[str] = []
+              pages = ec2.get_paginator("describe_instances").paginate(
+                  Filters=[{"Name": "instance-state-name", "Values": list(ACTIVE_STATES)}]
+              )
+              for page in pages:
+                  for reservation in page.get("Reservations", []):
+                      ids.extend(instance["InstanceId"] for instance in reservation.get("Instances", []))
+              return ids
+
+
+          def stop(region: str, ids: list[str], dry_run: bool) -> list[str]:
+              """Stop ``ids`` in ``region``; return the ones that couldn't be stopped.
+
+              One call for all of them first. If it fails (one bad instance fails the whole call), each is
+              retried alone so the others still stop.
+              """
+              if not ids or dry_run:
+                  _log("would-stop" if dry_run else "nothing-to-stop", region=region, instances=ids)
+                  return []
+              ec2 = _client("ec2", region)
+              try:
+                  ec2.stop_instances(InstanceIds=ids)
+                  _log("stopped", region=region, instances=ids)
+                  return []
+              except Exception as exc:
+                  _log("batch-stop-failed", region=region, instances=ids, error=str(exc))
+              failed: list[str] = []
+              for instance in ids:
+                  try:
+                      ec2.stop_instances(InstanceIds=[instance])
+                      _log("stopped", region=region, instances=[instance])
+                  except Exception as exc:
+                      _log("stop-failed", region=region, instance=instance, error=str(exc))
+                      failed.append(instance)
+              return failed
+
+
+          def enabled_regions() -> list[str]:
+              """Every region enabled for the account (opt-in regions only if opted in)."""
+              regions = _client("ec2").describe_regions(AllRegions=False)["Regions"]
+              return sorted(region["RegionName"] for region in regions)
+
+
+          def stop_everything(dry_run: bool) -> dict[str, Any]:
+              """Stop every pending or running instance in every enabled region.
+
+              Raises:
+                  RuntimeError: if any region couldn't be listed or any instance couldn't be stopped.
+              """
+              stopped: dict[str, list[str]] = {}
+              failed: dict[str, list[str]] = {}
+              for region in enabled_regions():
+                  try:
+                      ids = running_instances(region)
+                  except Exception as exc:
+                      _log("list-failed", region=region, error=str(exc))
+                      failed[region] = ["<could not list>"]
+                      continue
+                  bad = stop(region, ids, dry_run)
+                  if ids:
+                      stopped[region] = [i for i in ids if i not in bad]
+                  if bad:
+                      failed[region] = bad
+              summary = {"dry_run": dry_run, "stopped": stopped, "failed": failed}
+              _log("sweep-done", **summary)
+              if failed:
+                  raise RuntimeError(f"budget guard could not stop everything: {failed}")
+              return summary
+
+
+          def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
+              """Lambda entry point: the budget alert, an instance starting, or a manual test."""
+              dry_run = bool(event.get("dry_run", False))
+              records = event.get("Records") or []
+              if records and records[0].get("EventSource") == "aws:sns":
+                  # The guard budget crossed its threshold (the topic carries nothing else).
+                  _log("budget-alert", subject=records[0].get("Sns", {}).get("Subject"))
+                  month = lock_this_month(dry_run)
+                  return {"event": "budget-alert", "locked": month, **stop_everything(dry_run)}
+              if event.get("detail-type") == "EC2 Instance State-change Notification":
+                  detail = event.get("detail", {})
+                  instance, region = detail.get("instance-id"), event.get("region")
+                  locked = locked_month()
+                  if locked != _this_month():
+                      _log("start-allowed", instance=instance, locked=locked)
+                      return {"event": "instance-start", "allowed": True}
+                  _log("start-blocked", instance=instance, region=region, locked=locked)
+                  failed = stop(str(region), [str(instance)], dry_run)
+                  if failed:
+                      raise RuntimeError(f"budget guard could not stop {failed} in {region}")
+                  return {"event": "instance-start", "allowed": False, "stopped": instance}
+              if event.get("simulate_alert"):
+                  month = lock_this_month(dry_run)
+                  return {"event": "simulated-alert", "locked": month, **stop_everything(dry_run)}
+              # A manual test: report what a budget alert would stop right now.
+              return {"event": "test", "locked": locked_month(), **stop_everything(dry_run=True)}
+
+  TopicInvokesGuard:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref GuardFunction
+      Action: lambda:InvokeFunction
+      Principal: sns.amazonaws.com
+      SourceArn: !Ref GuardTopic
+
+  GuardSubscription:
+    Type: AWS::SNS::Subscription
+    DependsOn: TopicInvokesGuard
+    Properties:
+      TopicArn: !Ref GuardTopic
+      Protocol: lambda
+      Endpoint: !GetAtt GuardFunction.Arn
+
+  # ------------------------------------------------------------------ the lock
+  # After the alert, an instance that starts again in this region is stopped at once.
+  InstanceStartRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: neuros-budget-guard-instance-start
+      Description: Lets the budget guard stop instances started after the budget was spent
+      EventPattern:
+        source:
+          - aws.ec2
+        detail-type:
+          - EC2 Instance State-change Notification
+        detail:
+          state:
+            - running
+      Targets:
+        - Id: budget-guard
+          Arn: !GetAtt GuardFunction.Arn
+
+  RuleInvokesGuard:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref GuardFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt InstanceStartRule.Arn
+
+Outputs:
+  BudgetName:
+    Value: neuros-monthly-guard
+    Description: The guard budget (Billing > Budgets)
+  FunctionName:
+    Value: !Ref GuardFunction
+    Description: >-
+      Test it in the Lambda console with {"dry_run": true}; it lists what it would stop and
+      stops nothing
+  LockParameter:
+    Value: /neuros/budget-guard/locked-month
+    Description: >-
+      Holds the month the guard fired; instances started that month are stopped. Delete it
+      (Systems Manager > Parameter Store) to lift the lock after raising the budget
