@@ -40,6 +40,7 @@ from neuros.errors import NeurOSError
 
 if TYPE_CHECKING:
     from neuros.config.experiment import LosoExperimentConfig
+    from neuros.data.cache import RecordingCache
     from neuros.data.registry import DatasetSpec, TaskEpoch
     from neuros.signal.windows import WindowSet
 
@@ -360,6 +361,19 @@ def _dev_subjects(
     return subjects
 
 
+def _recording_cache(config: DataConfig, args: argparse.Namespace) -> RecordingCache | None:
+    """The preprocessed-recording cache under ``cache_dir`` (§4.5), unless ``--no-cache``."""
+    from neuros.data.cache import RecordingCache
+
+    return None if getattr(args, "no_cache", False) else RecordingCache(config.cache_dir)
+
+
+def _warn_if_dirty(provenance: dict[str, Any]) -> None:
+    """Say so when uncommitted code runs: the result can't be reproduced from git."""
+    if provenance.get("git_dirty_code") == "true":
+        print("warning: uncommitted code changes; this result won't be reproducible from git")
+
+
 def _dev_windows(
     config: DataConfig,
     dataset_key: str,
@@ -368,20 +382,23 @@ def _dev_windows(
     channels: str,
     split_path: str,
     purpose: str,
+    cache: RecordingCache | None = None,
 ) -> tuple[WindowSet, list[dict[str, object]], list[int], TaskEpoch]:
     """Task windows of a dataset's development people, printed per subject as they load.
 
     Person-level isolation (principle 2): the locked test set is loaded and checked first, so
-    a locked test person can never enter a development run, even when named explicitly.
+    a locked test person can never enter a development run, even when named explicitly. With
+    ``cache``, preprocessed recordings are read from (or written to) the disk cache.
 
     Returns:
         ``(windows, per-subject epoch summaries, subjects, the epoch used)``.
     """
     from neuros.data.download import prepare_mne_environment
-    from neuros.data.montage import load_c_core
+    from neuros.data.montage import load_c_core, region_channels
     from neuros.data.prepare import subject_epochs
     from neuros.data.registry import get_spec, moabb_dataset, task_epoch
     from neuros.data.vocabulary import default_vocabulary
+    from neuros.errors import NeurOSConfigError
     from neuros.signal.windows import WindowSet
 
     spec = get_spec(dataset_key)
@@ -396,19 +413,26 @@ def _dev_windows(
     sets = []
     summaries: list[dict[str, object]] = []
     for subject in subjects:
-        windows, summary = subject_epochs(spec, subject, vocab, config, labels, dataset=dataset)
+        windows, summary = subject_epochs(
+            spec, subject, vocab, config, labels, dataset=dataset, cache=cache
+        )
         sets.append(windows)
         summaries.append(summary.to_dict())
         counts = " ".join(f"{k}={v}" for k, v in sorted(summary.label_counts.items()))
         print(
             f"{summary.person}: {summary.n_recordings} recordings, {counts}, "
             f"flagged {summary.flagged_extreme} extreme / {summary.flagged_transient} transient, "
-            f"skipped {summary.skipped_outside}",
+            f"skipped {summary.skipped_outside}, cache {summary.cache}",
             flush=True,
         )
     windows = WindowSet.concat(sets)
     if channels == "c-core":
         windows = windows.pick_channels([ch for ch in load_c_core() if ch in windows.ch_names])
+    elif channels == "motor":
+        # D-031: the intent head reads the motor strip (the audit's "motor" region).
+        windows = windows.pick_channels(list(region_channels("motor", windows.ch_names)))
+    elif channels != "all":
+        raise NeurOSConfigError(f"unknown channel set {channels!r} (all, c-core, motor)")
     return windows, summaries, subjects, epoch
 
 
@@ -445,6 +469,9 @@ def _baseline_output_name(spec_key: str, args: argparse.Namespace, epoch: TaskEp
         name += "_aftercue"
     else:
         name += f"_window{epoch.start_s:g}-{epoch.end_s:g}s"
+    if getattr(args, "band", None):
+        low, high = args.band
+        name += f"_band{low:g}-{high:g}"
     if args.subjects:
         name += "_subj" + "-".join(str(s) for s in args.subjects)
     return name + ".json"
@@ -460,17 +487,31 @@ def cmd_baseline(args: argparse.Namespace) -> int:
     if args.workers < 1:
         raise NeurOSConfigError("--workers must be >= 1")
     config = _config(args)
+    overrides: dict[str, object] = {}
     if args.window is not None:
-        # A diagnostic window (e.g. one that starts after the on-screen cue has gone), applied
-        # before the stamp so the recorded config hash describes the windows actually used.
+        # A diagnostic window (e.g. one that starts after the on-screen cue has gone).
+        overrides.update(_window_overrides(args.window))
+    if args.band is not None:
+        # E0b's band comparison (4-30 vs 8-30 vs 4-40 Hz); validated with the whole contract.
+        overrides["band_hz"] = [float(edge) for edge in args.band]
+    if overrides:
+        # Applied before the stamp so the recorded config hash describes the windows used.
         config = config.model_copy(
-            update={"signal": apply_signal_overrides(config.signal, _window_overrides(args.window))}
+            update={"signal": apply_signal_overrides(config.signal, overrides)}
         )
     spec = get_spec(args.dataset)
     spec_key = spec.key
     provenance = stamp(config, dataset=spec_key)  # at the start: the code that runs
+    _warn_if_dirty(provenance)
     windows, summaries, subjects, epoch = _dev_windows(
-        config, spec_key, args.subjects, args.labels, args.channels, args.split, "a baseline run"
+        config,
+        spec_key,
+        args.subjects,
+        args.labels,
+        args.channels,
+        args.split,
+        "a baseline run",
+        cache=_recording_cache(config, args),
     )
     print(
         f"\n{len(windows)} windows, {len(windows.people)} people, {len(windows.ch_names)} "
@@ -523,6 +564,7 @@ def cmd_baseline(args: argparse.Namespace) -> int:
             "channel_set": args.channels,
             "reference": args.reference,
             "alignment_unit": args.alignment_unit,
+            "band_hz": list(config.signal.band_hz),
             **epoch.to_dict(),
             "class_on_screen_s": spec.class_on_screen_s,
             "cue_margin_s": config.signal.cue_margin_s,
@@ -586,25 +628,37 @@ def cmd_audit(args: argparse.Namespace) -> int:
     if unknown or len(set(args.labels)) < 2:
         raise NeurOSConfigError(f"--labels needs two or more vocabulary labels; unknown: {unknown}")
     provenance = stamp(config, dataset=spec.key)  # at the start: the code that runs
+    _warn_if_dirty(provenance)
     subjects = _dev_subjects(spec, args.subjects, args.split, "a cue audit")
     for window in windows_spec:
         print(f"{window.name}: {window.epoch.describe()}", flush=True)
     prepare_mne_environment(config.data_dir)
     dataset = moabb_dataset(spec)
+    cache = _recording_cache(config, args)
 
     parts: dict[str, list[WindowSet]] = {w.name: [] for w in windows_spec}
     per_subject: list[dict[str, object]] = []
     for subject in subjects:
-        recordings = prepare_subject(spec, subject, vocab, config, dataset=dataset)
+        cache_state = "off"
+        if cache is None:
+            recordings = prepare_subject(spec, subject, vocab, config, dataset=dataset)
+        else:
+            recordings, hit = cache.load_or_prepare(
+                spec, subject, vocab, config, prepare=prepare_subject, dataset=dataset
+            )
+            cache_state = "hit" if hit else "miss"
         cut, skipped = cut_audit_windows(recordings, windows_spec, config.validation, args.labels)
         counts = {name: len(windows) for name, windows in cut.items()}
         for name, windows in cut.items():
             parts[name].append(windows)
         person = person_id(spec.key, subject)
-        per_subject.append({"person": person, "windows": counts, "skipped_outside": skipped})
+        per_subject.append(
+            {"person": person, "windows": counts, "skipped_outside": skipped, "cache": cache_state}
+        )
         print(
             f"{person}: "
-            + ", ".join(f"{name} {counts[name]} (skipped {skipped[name]})" for name in counts),
+            + ", ".join(f"{name} {counts[name]} (skipped {skipped[name]})" for name in counts)
+            + f", cache {cache_state}",
             flush=True,
         )
     window_sets = {name: WindowSet.concat(sets) for name, sets in parts.items()}
@@ -775,8 +829,7 @@ def cmd_loso(args: argparse.Namespace) -> int:
         device=args.device,
         deterministic=str(deterministic).lower(),
     )
-    if provenance["git_dirty_code"] == "true":
-        print("warning: uncommitted code changes; this result won't be reproducible from git")
+    _warn_if_dirty(provenance)
     windows, summaries, subjects, epoch = _dev_windows(
         config,
         spec_key,
@@ -785,6 +838,7 @@ def cmd_loso(args: argparse.Namespace) -> int:
         experiment.channels,
         args.split,
         f"experiment {experiment.name}",
+        cache=_recording_cache(config, args),
     )
     workers = args.workers or max(
         1, min(len(windows.people), (os.cpu_count() or 2) // args.threads)
@@ -938,8 +992,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="default: the dataset's development people (usable, not in the locked test set)",
     )
     p.add_argument("--labels", nargs="+", default=["left_hand", "right_hand"])
-    p.add_argument("--channels", choices=["all", "c-core"], default="all")
+    p.add_argument("--channels", choices=["all", "c-core", "motor"], default="all")
     p.add_argument("--reference", choices=["as_recorded", "car"], default="as_recorded")
+    p.add_argument(
+        "--band",
+        type=float,
+        nargs=2,
+        default=None,
+        metavar=("LOW", "HIGH"),
+        help="band-pass edges in Hz instead of the contract's 4-30 (E0b)",
+    )
     p.add_argument(
         "--alignment-unit",
         choices=["person", "session"],
@@ -963,6 +1025,11 @@ def build_parser() -> argparse.ArgumentParser:
         "at most 12)",
     )
     p.add_argument("--split", default=str(DEFAULT_SPLIT_PATH), help="locked test set file")
+    p.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="recompute every recording instead of using the preprocessed cache (§4.5)",
+    )
     p.set_defaults(func=cmd_baseline)
 
     p = sub.add_parser("audit", help="cue-contamination audit of a cued dataset (D-030)")
@@ -990,6 +1057,11 @@ def build_parser() -> argparse.ArgumentParser:
         "at most 12, since each worker holds a copy of the covariances)",
     )
     p.add_argument("--split", default=str(DEFAULT_SPLIT_PATH), help="locked test set file")
+    p.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="recompute every recording instead of using the preprocessed cache (§4.5)",
+    )
     p.set_defaults(func=cmd_audit)
 
     p = sub.add_parser("loso", help="train + test EEGNet leave-one-person-out (E0)")
@@ -1010,6 +1082,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--out", default=None, help="result file (default: results/<name>/...)")
     p.add_argument("--split", default=str(DEFAULT_SPLIT_PATH), help="locked test set file")
+    p.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="recompute every recording instead of using the preprocessed cache (§4.5)",
+    )
     p.add_argument(
         "--device",
         default="cpu",

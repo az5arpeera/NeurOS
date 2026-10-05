@@ -97,6 +97,17 @@ def test_baseline_output_names_never_clobber() -> None:
     )
     assert name("--window", "-0.5", "0") == f"{stem}_window-0.5-0s.json"
     assert name("--subjects", "1", "2") == f"{stem}_aftercue_subj1-2.json"
+    # E0b: a non-default band, and the motor strip (D-031), get their own files.
+    assert name("--band", "8", "30") == f"{stem}_aftercue_band8-30.json"
+    motor = "BNCI2014_001_left_hand-right_hand_motor_car_aftercue.json"
+    assert name("--channels", "motor", "--reference", "car") == motor
+
+
+def test_cli_baseline_rejects_bad_bands(capsys: pytest.CaptureFixture[str]) -> None:
+    # Checked against the whole contract before any data loads.
+    for band in (["30", "8"], ["0", "30"], ["8", "80"]):
+        assert main(["baseline", "--dataset", "BNCI2014_001", "--band", *band]) == 2, band
+        assert "invalid signal overrides" in capsys.readouterr().err
 
 
 def test_cli_loso_refuses_locked_test_people(

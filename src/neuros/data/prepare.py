@@ -10,8 +10,8 @@ boundary check runs on every recording:
 4. ``extract_epochs``: one window per task event, placed after the class has left the screen
    (D-030, ``task_epoch``). Each summary says whether the windows are cue-free.
 
-The disk cache of preprocessed recordings (§4.5, keyed by the preprocessing-config hash) slots
-in between steps 3 and 4 when E1 needs all ~380 people. BNCI2014-001 takes seconds without it.
+The disk cache of preprocessed recordings (§4.5, ``neuros.data.cache``) slots in between steps
+3 and 4: pass ``cache=`` to ``subject_epochs`` and steps 1-3 run once per subject and contract.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from neuros.config.schemas import DataConfig
 from neuros.data.harmonize import harmonize_moabb_subject
@@ -30,6 +30,9 @@ from neuros.data.vocabulary import Vocabulary
 from neuros.errors import DataContext, NeurOSConfigError, NeurOSDataError
 from neuros.signal.preprocess import preprocess_recording
 from neuros.signal.windows import WindowFlag, WindowSet, extract_epochs
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from neuros.data.cache import RecordingCache
 
 log = logging.getLogger(__name__)
 
@@ -88,6 +91,8 @@ class EpochSummary:
     # The epoch used, in seconds from the cue, and whether it avoids the class display (D-030).
     epoch_s: list[float] = field(default_factory=list)
     cue_free: bool = False
+    # Where the preprocessed recordings came from: "hit" / "miss" (cache) or "off".
+    cache: str = "off"
 
     def to_dict(self) -> dict[str, Any]:
         return dict(self.__dict__)
@@ -101,8 +106,12 @@ def subject_epochs(
     labels: Sequence[str],
     *,
     dataset: Any | None = None,
+    cache: RecordingCache | None = None,
 ) -> tuple[WindowSet, EpochSummary]:
     """All task windows of one subject with the given labels, plus a summary.
+
+    With ``cache``, the preprocessed recordings come from (or go to) the disk cache; the
+    windows are identical either way.
 
     Raises:
         NeurOSConfigError: if a requested label isn't in the vocabulary.
@@ -113,12 +122,20 @@ def subject_epochs(
         raise NeurOSConfigError(f"labels {unknown or '[]'} are not vocabulary labels")
     # Resolved before any data is touched, so a dataset that can't host the epoch fails fast.
     epoch = task_epoch(spec, config.signal)
-    recordings = prepare_subject(spec, subject, vocabulary, config, dataset=dataset)
+    cache_state = "off"
+    if cache is None:
+        recordings = prepare_subject(spec, subject, vocabulary, config, dataset=dataset)
+    else:
+        recordings, hit = cache.load_or_prepare(
+            spec, subject, vocabulary, config, prepare=prepare_subject, dataset=dataset
+        )
+        cache_state = "hit" if hit else "miss"
     summary = EpochSummary(
         person=person_id(spec.key, subject),
         n_recordings=len(recordings),
         epoch_s=[epoch.start_s, epoch.end_s],
         cue_free=epoch.cue_free,
+        cache=cache_state,
     )
     sets: list[WindowSet] = []
     for recording in recordings:

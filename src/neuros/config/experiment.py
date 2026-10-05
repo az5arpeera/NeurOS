@@ -22,7 +22,9 @@ from neuros.errors import NeurOSConfigError
 
 Alignment = Literal["none", "ea"]
 AlignmentUnit = Literal["person", "session"]
-ChannelSet = Literal["all", "c-core"]
+# "motor": the motor strip (FC, FCC, C, CCP, CP rows; neuros.data.montage.SCALP_REGIONS),
+# which D-031 makes the intent head's input region.
+ChannelSet = Literal["all", "c-core", "motor"]
 Reference = Literal["as_recorded", "car"]
 
 
