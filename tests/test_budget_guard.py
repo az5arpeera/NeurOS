@@ -252,7 +252,15 @@ def test_render_rejects_a_template_without_one_marker() -> None:
 @pytest.mark.parametrize("script", sorted((REPO_ROOT / "scripts" / "aws").glob("*.sh")))
 def test_shell_scripts_parse(script: Path) -> None:
     bash = shutil.which("bash")
-    if bash is None:
-        pytest.skip("bash not available")
-    result = subprocess.run([bash, "-n", str(script)], capture_output=True, text=True, check=False)
-    assert result.returncode == 0, result.stderr
+    # From PowerShell, `bash` is WSL's launcher, which may have no Linux distribution installed.
+    if (
+        bash is None
+        or subprocess.run([bash, "-c", "true"], capture_output=True, check=False).returncode
+    ):
+        pytest.skip("no working bash")
+    # The script goes in on stdin, as bytes: WSL's bash can't open a Windows path, and text mode
+    # would turn the script's LF line endings into CRLF on Windows.
+    result = subprocess.run(
+        [bash, "-n"], input=script.read_bytes(), capture_output=True, check=False
+    )
+    assert result.returncode == 0, result.stderr.decode(errors="replace")

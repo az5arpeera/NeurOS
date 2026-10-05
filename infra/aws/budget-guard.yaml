@@ -27,7 +27,9 @@ Parameters:
     Type: String
     AllowedPattern: "^[^@ ]+@[^@ ]+[.][^@ ]+$"
     ConstraintDescription: an email address
-    Description: Gets the 80% forecast warning and the stop notice.
+    Description: >-
+      Gets the 80% forecast warning and the stop notice, once you click the verification
+      email AWS Budgets sends it (valid 12 hours). Stopping doesn't depend on it.
 
 Resources:
   # ------------------------------------------------------------------ alert path

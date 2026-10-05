@@ -1,29 +1,37 @@
 # AWS runbook (D-032)
 
-**Written:** 4 Oct 2026. Training moves to AWS, paid with credits. The school cluster is the fallback.
+**Written:** 4 Oct 2026. Console steps detailed and checked against AWS's documentation on 5 Oct. Training moves to AWS, paid with credits. The school cluster is the fallback.
 
 **Who does what:**
 - **Founders:**
   - the account, credentials, region, quotas and budget alarm;
   - launching and stopping instances;
-  - signing GitHub in on the instance;
+  - adding the machine's read-only deploy key on GitHub (step 4);
   - approving each download.
 - **Claude:**
   - the code, `scripts/aws/bootstrap.sh` and this runbook;
-  - commands on the instance only if you give it SSH access through a host alias (step 6). It never sees, types or stores a key.
+  - commands on the instance only through a host alias you approve (step 6). It never sees, types or stores a key.
 
 **Order:** steps 1, 2 and 2b today (the quota can take days); steps 3–5 when the quota arrives.
 
+**Region:** everything runs in **us-east-1 (N. Virginia)**. Check the region picker (top right) before each step. Budgets and billing are global.
+
 ## 1. Request the GPU quota (do this first)
-1. Open **Service Quotas → Amazon EC2 → "Running On-Demand G and VT instances"** in the region you'll use (step 3).
-2. Request **16 vCPUs**: one g6.4xlarge.
+1. Open **Service Quotas → AWS services → Amazon Elastic Compute Cloud (Amazon EC2) → "Running On-Demand G and VT instances"** in us-east-1.
+2. **Request increase at account level** → **16**. The quota counts vCPUs, and one g6.4xlarge has 16.
    - New accounts often start at 0, and approval can take from hours to a few days.
    - Ask for 32 if you might run two machines at once.
+3. If AWS asks for a use case: "Training small EEG deep-learning models (EEGNet) for a research prototype: one g6.4xlarge, on demand, stopped when idle, under a budget cap."
 
 ## 2. Set a budget alarm
-In **Billing → Budgets**:
-- Set a monthly cost budget at or below the credit amount.
-- Add email alerts at 50%, 80% and 100%.
+In **Billing and Cost Management → Budgets**:
+- Set a monthly cost budget at or below the credit amount, with email alerts at 50%, 80% and 100%.
+- **Verify the email.**
+  - AWS Budgets now emails every new recipient a verification link, from an `@aws.com` address. The link is valid for 12 hours, and you must be signed in to the account to use it. Until you click it, no alerts are sent.
+  - The budget's page shows each recipient's status:
+    - Active: verified, nothing to do;
+    - Pending: use "Resend verification";
+    - Expiring or Inactive: use "Send Notification".
 - Credits cover most services. The alarm catches a machine left running.
 
 ### 2b. Cap the spending: the budget guard (free to run)
@@ -32,17 +40,29 @@ A budget on its own only sends emails. The guard stops the machines.
 - **What it does:** at 90% of the monthly cap, it stops every running EC2 instance in every region. It then keeps any instance that starts again in us-east-1 stopped for the rest of the month.
 - **What it never does:** terminate an instance or delete a disk or snapshot. Your data stays; a stopped machine costs only its disks.
 - **Cost:** nothing. It uses Lambda, SNS, EventBridge and Parameter Store within their free tiers, and monitoring budgets are free.
-- **⚠️ Your existing budget probably counts credits.** That's AWS's default, and credits cancel out spending, so the budget may show about $0 while you burn credits. Edit it: Advanced options → Charge types → untick **Credits**. The guard's own budget is already set this way.
+- **⚠️ Your existing budget probably counts credits.**
+  - AWS nets credits out by default, so the budget may show about $0 while you spend credits.
+  - To fix it: Edit → Budget scope → Filters → Add filter → **Charge type: Usage** → Save.
+  - Or leave it: the guard's own budget already excludes credits. It emails you at 80% (forecast) and 90% (actual).
 
 **Deploy, in us-east-1:**
-1. CloudFormation → Create stack → "Upload a template file" → `infra/aws/budget-guard.yaml`.
-2. Fill in the parameters:
+1. CloudFormation → Create stack → With new resources → "Upload a template file" → `infra/aws/budget-guard.yaml` → Next.
+2. Stack name `neuros-budget-guard`. Parameters:
    - `MonthlyBudgetUSD`: e.g. 300;
    - `GuardThresholdPercent`: 90. AWS updates spending figures only a few times a day, so stopping at 90% keeps the lag inside the cap;
    - `AlertEmail`.
-3. Tick "I acknowledge that AWS CloudFormation might create IAM resources" → Create. It takes about a minute.
-4. Test it: Lambda → `neuros-budget-guard` → Test, with the event `{"dry_run": true}`. It lists every instance it would stop, and stops nothing.
-5. To lift the lock after raising the budget, delete `/neuros/budget-guard/locked-month` in Systems Manager → Parameter Store.
+3. Tick "I acknowledge that AWS CloudFormation might create IAM resources" → Submit. After about a minute the status reads CREATE_COMPLETE.
+4. **Click the verification email** that AWS Budgets sends to `AlertEmail` (step 2). Stopping the machines doesn't depend on it: the budget calls the guard directly.
+5. **Test it:**
+   1. Lambda → Functions → `neuros-budget-guard` → Test tab.
+   2. Create a new event named `dry-run` with the JSON `{"dry_run": true}`, then run it.
+   3. It lists every instance it would stop under `"stopped"` and stops nothing. The result should end with `"failed": {}`.
+6. **Optional end-to-end test** (2 minutes; run it once the machine exists, before it's set up):
+   1. Run the test event `{"simulate_alert": true}`. The machine stops.
+   2. Start the machine again. Within about a minute the guard stops it again, which proves the lock works.
+   3. Lift the lock (next point).
+7. **To lift the lock** (after that test, or after raising the budget): Systems Manager → Parameter Store → `/neuros/budget-guard/locked-month` → Delete.
+8. **To raise the cap:** CloudFormation → `neuros-budget-guard` → Update → use the existing template → change `MonthlyBudgetUSD`. Don't edit the budget in the Budgets console: it would no longer match the stack.
 
 **The second safety net: idle auto-stop.**
 - **What it does:** `bootstrap.sh` installs `scripts/aws/idle-stop.sh` as a 5-minute timer on the machine. After 45 minutes with no NeurOS command running, no GPU or CPU load and no one typing over SSH, the machine shuts itself down.
@@ -52,7 +72,11 @@ A budget on its own only sends emails. The guard stops the machines.
 - **When launching the machine**, keep "Shutdown behavior: Stop", the default. Then shutting down stops the instance and keeps its disks.
 
 ## Costs (estimated 5 Oct; us-east-1 on-demand prices)
-- **Prices:** g6.4xlarge $1.323/h (Spot ≈ $0.96: not worth the interruptions); g6.2xlarge $0.978/h; gp3 storage ≈ $0.08 per GB-month.
+- **Prices:**
+  - g6.4xlarge: $1.323/h. Spot is ≈ $0.96, but not worth the interruptions.
+  - g6.2xlarge: $0.978/h.
+  - gp3 storage: ≈ $0.08 per GB-month.
+  - Public IPv4 address: $0.005/h, even while the machine is stopped.
 - **Model run times are guesses.** The first E1 run measures them, and this table gets updated then.
 
 | Work | When | Machine-hours | ≈ Cost |
@@ -67,60 +91,126 @@ A budget on its own only sends emails. The guard stops the machines.
 | Machine on with no job running (reading results, debugging) | throughout | 30–60 | $40–80 |
 | **Compute** | | **86–165** | **$114–218** |
 | Disks: 100 GB root + 500 GB data, Oct 7 – Nov 1 | | | ≈ $40 |
-| Public IPv4 address while running; the guard; data transfer in | | | ≈ $1 |
-| **Total to 1 Nov** | | | **≈ $155–260** |
+| Fixed public address (Elastic IP, step 3b); the guard; data transfer in | | | ≈ $4 |
+| **Total to 1 Nov** | | | **≈ $160–265** |
 
 - **Suggested monthly budget:** $300, with the guard at 90%.
-- **After 1 Nov:** the disks cost about $48 a month until you delete them, or snapshot them first at about $0.05 per GB-month.
-- **Cheaper training phases:** once data preparation is done, a g6.2xlarge (8 vCPU, 32 GB) may be enough. Stop the machine, change its type, start it again: about 2 minutes, and about 26% cheaper per hour.
+- **After 1 Nov:** until you delete or release them, the disks cost about $48 a month and the Elastic IP $3.60 a month. To keep the data, snapshot the data volume first (about $0.05 per GB-month).
+- **Cheaper training phases:**
+  - Once data preparation is done, a g6.2xlarge (8 vCPU, 32 GB) may be enough.
+  - Stop the machine, change its type, and start it again: about 2 minutes.
+  - It's about 26% cheaper per hour.
 - **The worst case the guard and idle auto-stop prevent:** a forgotten g6.4xlarge for the rest of the month, about $32 a day, or roughly $850.
 
 ## 3. Launch the machine and its data volume
-**Recommendation** (on-demand prices are approximate, from memory; check the console):
+**Recommendation:**
 
 | Item | Choice | ≈ Cost | Why |
 |---|---|---|---|
 | Region | **us-east-1** | | PhysioNet's open-data mirror is there: fast, free in-region transfer |
-| Instance | **g6.4xlarge**: 1× NVIDIA L4 (24 GB), 16 vCPU, 64 GB RAM | ≈ $1.3/h | EEGNet is small, so the GPU is rarely the bottleneck. CPUs for data preparation and parallel folds matter more |
-| Alternative | g5.4xlarge: 1× A10G (24 GB), 16 vCPU, 64 GB | ≈ $1.6/h | If g6 capacity is short |
+| Instance | **g6.4xlarge**: 1× NVIDIA L4 (24 GB), 16 vCPU, 64 GB RAM | $1.323/h | EEGNet is small, so the GPU is rarely the bottleneck. CPUs for data preparation and parallel folds matter more |
+| Alternative | g5.4xlarge: 1× A10G (24 GB), 16 vCPU, 64 GB | ≈ $1.6/h | If g6 capacity is short. Uses the same quota |
 | Too small | g6.xlarge: 4 vCPU, 16 GB | ≈ $0.8/h | Data preparation at 1000 Hz would crawl |
-| Image (AMI) | AWS **Deep Learning Base AMI (Ubuntu)**, with the NVIDIA driver installed | | `bootstrap.sh` checks for driver ≥ 525 (CUDA 12.6) |
+| Image (AMI) | **Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 24.04)**, AWS's own. Release 20261002 has NVIDIA driver 595 and supports G6 | | `bootstrap.sh` needs driver ≥ 525 (CUDA 12.6). The login user is `ubuntu` |
 | Root disk | 100 GB gp3 | ≈ $8/month | |
 | Data volume | **500 GB gp3**, mounted at `/mnt/neuros` | ≈ $40/month | About 350 GB is used (step 5) |
 | Network | Security group: SSH (port 22) from your IP only | | |
 
+**In the console** (EC2 → Launch instance, us-east-1):
+1. **Name:** `neuros-gpu`.
+2. **Image:** search for the AMI above and pick Amazon's newest.
+3. **Instance type:** `g6.4xlarge`.
+4. **Key pair:**
+   - Create new key pair → `neuros-aws`, type ED25519, format `.pem` → Create.
+   - The browser downloads `neuros-aws.pem`. AWS keeps no copy (step 3c).
+5. **Network settings:**
+   - Keep the default VPC and the automatic public IP.
+   - Firewall: create a security group with **Allow SSH traffic from: My IP**, not Anywhere.
+   - Leave HTTP and HTTPS unticked.
+6. **Storage:**
+   - Root volume: 100 GiB gp3.
+   - **Add new volume:** 500 GiB gp3.
+   - Switch the storage panel to Advanced and set the new volume's **Delete on termination: No**, so the data outlives the machine.
+7. **Advanced details:**
+   - Termination protection: **Enable**.
+   - Shutdown behavior: **Stop**.
+   - Stop protection: leave it off. The guard and the idle auto-stop must be able to stop the machine.
+   - Spot: leave it unticked.
+8. **Launch instance**, then wait for "2/2 checks passed".
+
 - **Stop the instance when it's idle.** A stopped instance costs only its disks, and the data volume keeps everything. The idle auto-stop (step 2b) does it for you after 45 minutes.
 - **Spot instances** are about 60–70% cheaper, but can be interrupted mid-run. Use on-demand until runs can resume.
 
-**Mount the data volume** (once, as the instance's user).
+### 3b. A fixed address (recommended, ≈ $3.60 a month)
+Without one, the machine's address changes every time it starts, and the SSH alias (step 6) needs the new one each session.
+1. EC2 → Elastic IPs → **Allocate Elastic IP address** → Allocate.
+2. Select it → Actions → **Associate Elastic IP address** → Instance `neuros-gpu` → Associate.
+3. The instance's **Public IPv4 DNS** is now fixed. Release the address when the project ends: it bills even while the machine is stopped.
 
-⚠️ `mkfs` erases the volume. Run it only on the new, empty data volume, never on the root disk.
+### 3c. The key file (on the laptop)
+1. Move `neuros-aws.pem` into `~/.ssh/` (`C:\Users\<you>\.ssh\` on Windows). These two commands work in PowerShell and Git Bash:
+   ```
+   mkdir ~/.ssh
+   mv ~/Downloads/neuros-aws.pem ~/.ssh/neuros-aws.pem
+   ```
+2. Never commit, share or email the key.
+3. If SSH says the key's permissions are too open, run this in PowerShell:
+   ```
+   icacls "$HOME\.ssh\neuros-aws.pem" /inheritance:r /grant:r "${env:USERNAME}:R"
+   ```
+
+### 3d. Mount the data volume
+Do this once. Claude does it with your OK.
+
+⚠️ **Find the right disk first: `mkfs` erases whatever it's given.**
+- The machine has three disks:
+  - the root disk;
+  - the 500 GB data volume;
+  - a 600 GB local "instance store". The AMI mounts it at `/opt/dlami/nvme`, and it's wiped every time the machine stops, so never keep data on it.
+- The data volume is the 500G disk whose model is "Amazon Elastic Block Store" and that has no filesystem.
 
 ```bash
-lsblk                                   # find the new 500 GB volume, e.g. /dev/nvme1n1
-sudo mkfs -t xfs /dev/nvme1n1           # ERASES it: new, empty volume only
+lsblk -o NAME,SIZE,MODEL,FSTYPE,MOUNTPOINT  # the data volume: 500G, "Amazon Elastic Block Store", no FSTYPE
+DEV=/dev/nvme1n1                             # that volume's name: it varies, so read it from lsblk
+sudo file -s "$DEV"                          # must print "data" (no filesystem yet); anything else: stop
+sudo mkfs -t xfs "$DEV"                      # ERASES it: the new, empty data volume only
 sudo mkdir -p /mnt/neuros
-sudo mount /dev/nvme1n1 /mnt/neuros
+sudo mount "$DEV" /mnt/neuros
 sudo chown "$USER" /mnt/neuros
-echo "UUID=$(sudo blkid -s UUID -o value /dev/nvme1n1) /mnt/neuros xfs defaults,nofail 0 2" | sudo tee -a /etc/fstab
+echo "UUID=$(sudo blkid -s UUID -o value "$DEV") /mnt/neuros xfs defaults,nofail 0 2" | sudo tee -a /etc/fstab
 ```
 
 ## 4. Set up the code
-The repository is private.
-1. Sign GitHub in on the instance, with `gh auth login` or a read-only deploy key.
-2. Then:
+The repository is private, so the machine gets a read-only **deploy key**. It opens this one repository and nothing else, and you can revoke it from GitHub at any time.
+1. On the machine (Claude, with your OK):
+   ```bash
+   ssh-keygen -t ed25519 -N "" -C neuros-aws-deploy -f ~/.ssh/github_deploy
+   cat ~/.ssh/github_deploy.pub
+   ```
+2. **You:**
+   1. On GitHub, open `az5arpeera/NeurOS` → Settings → Deploy keys → **Add deploy key**.
+   2. Title it `neuros-aws` and paste the line printed above.
+   3. Leave **Allow write access** unticked → Add key.
+3. On the machine:
+   ```bash
+   printf 'Host github.com\n    IdentityFile ~/.ssh/github_deploy\n    IdentitiesOnly yes\n' >> ~/.ssh/config
+   # GitHub's host keys, fetched over HTTPS instead of trusted on first use:
+   curl -fsSL https://api.github.com/meta \
+     | python3 -c 'import json,sys; [print("github.com", k) for k in json.load(sys.stdin)["ssh_keys"]]' \
+     >> ~/.ssh/known_hosts
+   git clone git@github.com:az5arpeera/NeurOS.git ~/NeurOS
+   bash ~/NeurOS/scripts/aws/bootstrap.sh
+   ```
 
-```bash
-git clone https://github.com/az5arpeera/NeurOS.git ~/NeurOS
-bash ~/NeurOS/scripts/aws/bootstrap.sh
-```
+`gh auth login` works too, but it signs the machine in to every repository you can reach.
 
-The script is idempotent, and stops with a clear message if anything is missing. It:
+`bootstrap.sh` is idempotent, and stops with a clear message if anything is missing. It:
 1. checks the GPU, the driver and the data volume;
 2. installs uv;
 3. creates the environment with PyTorch's CUDA build (`uv sync --extra dev --extra ml-cuda --locked`);
 4. links `data/`, `cache/` and `results/` to the volume;
-5. runs the tests. The GPU test runs here: on laptops it's skipped.
+5. runs the tests. The GPU test runs here: on laptops it's skipped;
+6. installs the idle auto-stop.
 
 ## 5. Downloads: each needs your approval first
 Sizes were measured on 4 Oct from publisher metadata: HTTP headers and the Zenodo, Figshare and S3 APIs. Nothing was downloaded.
@@ -169,24 +259,44 @@ $N validate --dataset <each>                          # then: harmonise + valida
 - **EEGMAT** needs its own loader, still to be written: download it, but `validate` comes later.
 - **Long commands** go inside `tmux new -s dl`, so they survive a dropped SSH connection.
 
-## 6. Optional: let Claude run commands on the instance
-- **What you do:** add an entry to `~/.ssh/config` on the laptop, with the key file kept where you keep it:
+## 6. Let Claude run commands on the machine
+- **The alias** goes in `~/.ssh/config` on the laptop. You add it, or Claude does with your OK:
   ```
   Host neuros-aws
-      HostName <the instance's public DNS>
+      HostName <the machine's Public IPv4 DNS>
       User ubuntu
-      IdentityFile ~/.ssh/<your key>.pem
+      IdentityFile ~/.ssh/neuros-aws.pem
+      ServerAliveInterval 60
+      StrictHostKeyChecking accept-new
   ```
+  `accept-new` records the machine's fingerprint on the first connection, and refuses to connect if it ever changes.
 - **What Claude then does:**
   - runs `ssh neuros-aws "cd NeurOS && ..."`, the same way it uses git through your credential manager;
   - starts long runs inside `tmux` on the instance, so they don't depend on the laptop staying awake.
-- **What stays yours:** the key never appears in a command, and you can revoke access by deleting the entry.
+- **What stays yours:** the key's contents never appear in a command, and you can revoke access by deleting the entry.
 
 ## 7. Day-to-day
-- **Before each session:** start the instance, then `git pull && uv sync --extra dev --extra ml-cuda --locked`. `bootstrap.sh` does both.
+- **Start:**
+  1. EC2 → Instances → `neuros-gpu` → Instance state → Start.
+  2. Then run `git pull && uv sync --extra dev --extra ml-cuda --locked`. `bootstrap.sh` does both.
+- **Stop:**
+  - Instance state → **Stop**. Never Terminate; termination protection refuses it anyway.
+  - If you forget, the idle auto-stop does it after 45 minutes.
+  - The budget guard stops everything at 90% of the monthly cap.
 - **Training runs:** `neuros loso --experiment … --device cuda`. On a 16-vCPU machine the default is 8 fold workers × 2 threads, all sharing the one GPU.
 - **Results:**
   - Results land in `results/` on the volume. Copy the JSON files you want to keep to the laptop with `scp`; they're small. The results log in the knowledge base is what gets committed.
   - Every result records the GPU, CUDA and cuDNN versions and whether deterministic kernels were on (the default).
-- **When you're done:** stop the instance. The idle auto-stop does it after 45 minutes if you forget, and the budget guard stops everything at 90% of the monthly cap.
 - **Delete the volume** only when the project no longer needs the data.
+
+## 8. If something goes wrong
+- **"vCPU limit" error at launch:** the quota (step 1) isn't approved yet.
+- **"Insufficient capacity":**
+  - Network settings → Edit → pick another subnet (another availability zone), or try later.
+  - A g5.4xlarge uses the same quota.
+- **SSH times out:**
+  - Your IP has probably changed, e.g. on another network.
+  - EC2 → Security groups → the group from step 3 → Edit inbound rules → set the SSH source to **My IP** → Save.
+- **SSH says the key's permissions are too open:** run the `icacls` line in step 3c.
+- **The stack fails:** CloudFormation → the stack → Events. The first CREATE_FAILED row says why.
+- **No budget emails:** the recipient isn't verified yet (step 2).
