@@ -90,12 +90,20 @@ Claude Code pairs on all engineering. **Founders send all outreach;** Claude dra
     - Workers share the assembled windows read-only, and the result file is saved after every model.
     - Smoke-tested on the laptop's three datasets.
   - **Every command that loads data** now refuses people that `neuros download` didn't fetch. MOABB would otherwise download them unasked.
+- **5–6 Oct: on AWS (g6.2xlarge, one L4; D-032), E1 done.**
+  - All approved data is downloaded (10 datasets plus Shin2017A). Every dataset E1 uses passes validation, after two unit fixes: Cho2017 ([D-035](../decisions/decision-log.md)) and Yang2025 (D-036).
+  - **E0b, EEGNet part:**
+    - BNCI2014-001: 4–30 vs 8–30 Hz, 61.0 vs 62.0 (p = 1.0);
+    - PhysionetMI: 62.4% at 4–30 Hz (84 people); its 8–30 Hz arm is running.
+  - **E1** ([results](../results/2026-10-06-e1-pooled-single-lodo-cue-only.md)):
+    - pooling gains +0.9 points overall; unseen datasets cost nothing;
+    - cue-free motor imagery: 69.4% (BNCI2014-001) and 58.8% (Yang2025);
+    - Dreyer2023's cue alone decodes at 74.4%.
+  - Shin2017A waits for Q27: it shares only Cz with the motor strip.
 - **Next:**
-  - The founders: GPU quota, budget alarm, instance, download approvals ([runbook](aws-runbook.md)) and Q27.
-  - On AWS, in order:
-    1. downloads, validation and a cue audit of every new dataset;
-    2. E0b's EEGNet check;
-    3. E1 (`neuros e1 --experiment configs/e1.yaml --device cuda --workers 8`).
+  - E0b's PhysionetMI 8–30 Hz arm → the contract band (D-034).
+  - The founders: Q27, the 16-vCPU quota request, outreach.
+  - E1 seeds, a calibrated baseline on Yang2025, cue audits of the new datasets; revisit the §8.6 headline with E1's numbers.
 
 ## Week 1: Sat 3 → Fri 9 Oct · data and baselines
 | Day | Engineering | Business / YC |
