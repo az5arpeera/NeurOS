@@ -1,0 +1,44 @@
+# E1 follow-up (6 Oct): does training on the cue-driven datasets help or hurt cue-free accuracy?
+#
+# E1's cue-only control (results/2026-10-06-e1-pooled-single-lodo-cue-only.md) found three
+# training datasets whose task windows can't be read as motor imagery: Dreyer2023 (its cue alone
+# decodes at 74.4%, above the task window), PhysionetMI and Stieger2021 (task window not above
+# the cue). A model trained on them may learn to read the class display rather than imagery.
+#
+# Same as configs/e1.yaml except: those three datasets move from training to test-only, and only
+# the pooled condition runs. Folds are drawn per dataset from the seed, so every person keeps the
+# fold they had in E1 and the pooled scores pair person by person with E1's.
+#   uv run --no-sync neuros --config configs/data.yaml e1 --experiment configs/e1_no_cued.yaml \
+#     --device cuda --workers 4 --threads 2
+name: e1_no_cued
+description: >
+  E1's pooled model without the three cue-driven training datasets (Dreyer2023, PhysionetMI,
+  Stieger2021), which become test-only; same windows, layout, recipe, seed and folds as E1.
+train_datasets: [Lee2019_MI, Cho2017, Yang2025, BNCI2014_001]
+test_only_datasets: [PhysionetMI, Dreyer2023, Stieger2021, GuttmannFlury2025, BNCI2014_004]
+labels: [left_hand, right_hand]
+channels: motor
+reference: car
+alignment: ea
+alignment_unit: session
+conditions: [pooled]
+folds: 5
+validation_fraction: 0.1
+cue_only_epoch_s: [0.0, 0.5]
+seeds: [20261005]
+signal:
+  band_hz: [8.0, 30.0]
+
+model:
+  dropout: 0.25
+
+train:
+  max_epochs: 100
+  lr: 0.001
+  weight_decay: 0.05
+  label_smoothing: 0.1
+  swa_fraction: 0.25
+  patience: 15
+  people_per_batch: 16
+  windows_per_person: 8
+  log_every: 10
