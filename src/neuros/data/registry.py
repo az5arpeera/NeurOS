@@ -109,8 +109,9 @@ class DatasetSpec:
     excluded_channels: Mapping[str, str] = field(default_factory=dict)
     # Factor from what MOABB returns (after the volts -> µV conversion) to true µV. 1.0 for
     # correctly scaled files. Cho2017 (D-035): its files hold BioSemi's raw steps (31.25 nV each)
-    # rather than µV, so MOABB's values read 32x too large; 1/32 corrects them. Applied in
-    # harmonize_raw and part of the cache key (every non-descriptive field is).
+    # rather than µV, so MOABB's values read 32x too large; 1/32 corrects them. Yang2025
+    # (D-036): its files hold µV but MOABB converts them as nV, so they read 1000x too small.
+    # Applied in harmonize_raw and part of the cache key (every non-descriptive field is).
     unit_scale: float = 1.0
     unverified: tuple[str, ...] = ()
     # Named subgroups with inclusive subject-id ranges, used to stratify splits.
@@ -605,13 +606,24 @@ _SPECS: tuple[DatasetSpec, ...] = (
         licence="CC BY 4.0 (paper and Figshare record, checked 2026-10-04)",
         url="https://doi.org/10.25452/figshare.plus.22671172",
         channels_source=_MOABB_SOURCE_D033,
-        unverified=("class_on_screen_s", "pre_cue_fixation_s", "non_eeg_channels"),
+        # D-036 (6 Oct): MOABB 1.7 multiplies these files by 1e-9, taking them for nanovolts,
+        # but every one of the 153 two-class files declares its unit as "?V" (bytes 3F 56): a
+        # micro sign lost in encoding (an ASCII "nV" would have survived), over a +-375000
+        # physical range on 24 bits. MNE doesn't recognise "?V" and passes the values through
+        # as volts, so MOABB's factor leaves them 1000x too small: every recording failed the
+        # units check (typical amplitude 0.003 "µV"). The spectrum is EEG-shaped and ~1000x
+        # (690-2000x) below Dreyer2023's and Lee2019_MI's at every frequency from 4 to 45 Hz;
+        # x1000 puts the typical amplitude at ~3 µV, the middle of the other datasets' 2.9-4.2.
+        # Read from the files, not the publisher's documentation: listed as unverified.
+        unit_scale=1000.0,
+        unverified=("class_on_screen_s", "pre_cue_fixation_s", "non_eeg_channels", "unit_scale"),
         notes=(
             "Two-class paradigm only: 51 people x 3 sessions on different days x 200 trials. "
             "The three-class paradigm's 11 people (left/right/feet) are a separate MOABB "
             "instance, not registered. Each session starts with 60 s eyes open and 60 s eyes "
-            "closed (baseline-run rest for H1; needs a loader). Raw Neuracle BDF in nV (MOABB "
-            "rescales). One 65.6 GB ZIP on Figshare+ with a published MD5."
+            "closed (baseline-run rest for H1; needs a loader). Raw Neuracle BDF in µV (header "
+            "unit '?V'); MOABB converts it as nV, which unit_scale corrects (D-036). One 65.6 GB "
+            "ZIP on Figshare+ with a published MD5."
         ),
     ),
     DatasetSpec(
