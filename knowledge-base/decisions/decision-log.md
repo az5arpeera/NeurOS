@@ -4,7 +4,7 @@ Newest first. Format: **ID · date · decision** — why · who. Superseded deci
 
 ## Decided
 
-- **D-036 · 2026-10-06 · Yang2025's files are 1000× too small as MOABB reads them: rescale by 1000 when harmonising.** A data-correctness fix of the same kind as D-035, found when E1 stopped on it. · Claude (data layer); the founders may veto
+- **D-036 · 2026-10-06 · Yang2025's files are 1000× too small as MOABB reads them: rescale by 1000 when harmonising.** A data-correctness fix of the same kind as D-035, found when E1 stopped on it. · Claude (data layer); **kept by the founders, 6 Oct**
   - **What happened:** E1 (started 5 Oct, 21:16 UTC) prepared PhysionetMI, Dreyer2023, Stieger2021, Lee2019_MI and Cho2017, then stopped at Yang2025's first recording: "every channel's std is below 0.1 µV … the data is probably still in volts". The validation lane failed all 153 Yang2025 recordings the same way. The idle auto-stop then shut the machine down as designed.
   - **Evidence (6 Oct):**
     - **The files declare µV.** All 153 two-class files declare the same physical unit on all 64 channels: the two bytes `3F 56`, "?V". A "?" stands in for a character the writer couldn't encode, and the micro sign is the only fit: an ASCII "nV" would have survived. The raw motor channels sit 1–8.5 mV from zero, a normal DC offset; in nV they would be implausibly small.
