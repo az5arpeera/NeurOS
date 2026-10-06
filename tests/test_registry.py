@@ -260,14 +260,14 @@ def test_spec_validation(
 
 
 def test_unit_scale_d035_d036() -> None:
-    # Only two datasets are rescaled, each by an exact unit factor, and both are flagged as
-    # read from the data rather than documented: Cho2017 by BioSemi's raw step (D-035),
-    # Yang2025 from the nV MOABB assumes to the µV its files hold (D-036).
+    # Only two datasets are rescaled, each by an exact unit factor. Cho2017's factor (BioSemi's
+    # raw step, D-035) is inferred from the data, so it's flagged unverified; Yang2025's (the nV
+    # MOABB assumes vs the µV its files hold, D-036) matches the paper's documented input range.
     expected = {"Cho2017": 1 / 32, "Yang2025": 1000.0}
     for key, factor in expected.items():
-        spec = get_spec(key)
-        assert spec.unit_scale == pytest.approx(factor)
-        assert "unit_scale" in spec.unverified
+        assert get_spec(key).unit_scale == pytest.approx(factor)
+    assert "unit_scale" in get_spec("Cho2017").unverified
+    assert "unit_scale" not in get_spec("Yang2025").unverified
     assert all(spec.unit_scale == 1.0 for key, spec in DATASETS.items() if key not in expected)
     for bad in (0.0, -1.0, 1e-4, 1e4, float("inf"), float("nan")):
         with pytest.raises(NeurOSConfigError, match="unit_scale"):

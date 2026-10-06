@@ -609,14 +609,15 @@ _SPECS: tuple[DatasetSpec, ...] = (
         # D-036 (6 Oct): MOABB 1.7 multiplies these files by 1e-9, taking them for nanovolts,
         # but every one of the 153 two-class files declares its unit as "?V" (bytes 3F 56): a
         # micro sign lost in encoding (an ASCII "nV" would have survived), over a +-375000
-        # physical range on 24 bits. MNE doesn't recognise "?V" and passes the values through
-        # as volts, so MOABB's factor leaves them 1000x too small: every recording failed the
-        # units check (typical amplitude 0.003 "µV"). The spectrum is EEG-shaped and ~1000x
-        # (690-2000x) below Dreyer2023's and Lee2019_MI's at every frequency from 4 to 45 Hz;
-        # x1000 puts the typical amplitude at ~3 µV, the middle of the other datasets' 2.9-4.2.
-        # Read from the files, not the publisher's documentation: listed as unverified.
+        # physical range on 24 bits. The paper's Table 1 gives the amplifier's input range as
+        # "+/-375 mV" (ADC 24 bits): +-375000 is that range in µV (in nV it would be +-375 µV).
+        # MNE doesn't recognise "?V" and passes the values through as volts, so MOABB's factor
+        # leaves them 1000x too small: every recording failed the units check (typical
+        # amplitude 0.003 "µV"). The spectrum is EEG-shaped and ~1000x (690-2000x) below
+        # Dreyer2023's and Lee2019_MI's at every frequency from 4 to 45 Hz; x1000 puts the
+        # typical amplitude at ~3 µV, the middle of the other datasets' 2.9-4.2.
         unit_scale=1000.0,
-        unverified=("class_on_screen_s", "pre_cue_fixation_s", "non_eeg_channels", "unit_scale"),
+        unverified=("class_on_screen_s", "pre_cue_fixation_s", "non_eeg_channels"),
         notes=(
             "Two-class paradigm only: 51 people x 3 sessions on different days x 200 trials. "
             "The three-class paradigm's 11 people (left/right/feet) are a separate MOABB "
