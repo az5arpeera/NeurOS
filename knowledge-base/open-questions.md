@@ -43,6 +43,10 @@ Founder (3 Oct): "TBD on specific roles". **Proposal** (in the [plan](plan/road-
 2. **Nearest-position relabelling** (FCC3h → C3). Simpler, but it silently shifts each electrode by about 1.5 cm.
 3. **Leave it.** Use Shin2017A only in internal diagnostics (the cue audit), not as a test of the model.
 
+**6 Oct: now blocking Shin2017A's E1 numbers.** E1's input is the motor strip (20 channels, D-031/D-034), and Shin2017A shares only **Cz** with it, while a dataset needs at least 2 of the layout's channels. E1 stopped on this at assembly (after 38 minutes of data preparation), so it now runs without Shin2017A (`configs/e1.yaml`), and `neuros e1` refuses such a dataset before loading anything.
+- That run decides nothing here. Under option 1 or 2, Shin2017A would have C3/C4/C5/C6 equivalents on the strip, and its cue-free test numbers would come from a follow-up run.
+- For comparison, every other E1 dataset has 16–20 of the 20 channels, except BNCI2014-004, which has 3 (C3, Cz, C4).
+
 **Rec:** 1. It's an exception to "no interpolation in v1" (§4.3), so it needs your decision.
 
 **Related, for week 3:** Shin2017A's download also holds **dataset B** (29 people, rest vs mental arithmetic, GPL-3.0). It's a candidate second dataset for testing E6's mental-state head across datasets, with EEGMAT training it.

@@ -166,7 +166,10 @@ def test_e1_follows_d031_d033_d034() -> None:
     assert e1.channels == "motor"  # D-031 / D-034
     assert e1.signal == {"band_hz": [8.0, 30.0]}  # D-034
     assert e1.reference == "car"
-    assert {"Shin2017A", "GuttmannFlury2025"} <= set(e1.test_only_datasets)  # D-033
+    assert "GuttmannFlury2025" in e1.test_only_datasets  # D-033: diagnostic, never trained on
+    # D-033: Shin2017A never trains; it's out of E1 entirely until Q27 decides its montage
+    # (it shares only Cz with the motor strip).
+    assert "Shin2017A" not in e1.datasets
     assert "cue_only" in e1.conditions  # D-030
 
 

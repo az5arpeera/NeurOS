@@ -154,6 +154,35 @@ def test_cli_e1_refuses_restricted_or_missing_data(
     assert "--max-subjects" in capsys.readouterr().err
 
 
+def test_cli_e1_refuses_a_dataset_the_layout_cant_hold_before_loading(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 6 Oct: E1 stopped at assembly, after all its data preparation, because Shin2017A's 10-5
+    # cap shares only Cz with the motor strip (Q27). The registry says so up front.
+    pytest.importorskip("torch")
+    from neuros.data import registry
+
+    def no_moabb(*args: object, **kwargs: object) -> None:
+        raise AssertionError("E1 reached MOABB: the layout check came too late")
+
+    monkeypatch.setattr(registry, "moabb_dataset", no_moabb)
+    experiment = tmp_path / "e1_shin.yaml"
+    experiment.write_text(
+        "name: e1_shin\ntrain_datasets: [BNCI2014_001, PhysionetMI]\n"
+        "test_only_datasets: [Shin2017A]\nchannels: motor\nconditions: [pooled]\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("NEUROS_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("NEUROS_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("NEUROS_RESULTS_DIR", str(tmp_path / "results"))
+    assert main(["e1", "--experiment", str(experiment)]) == 2
+    err = capsys.readouterr().err
+    assert "Shin2017A has ['Cz']" in err
+    for fits in ("BNCI2014_001", "PhysionetMI"):  # they fit the motor strip
+        assert fits not in err
+    assert not (tmp_path / "cache").exists()  # refused before anything was prepared
+
+
 def test_cli_loso_validates_the_experiment(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

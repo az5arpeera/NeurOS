@@ -1006,7 +1006,15 @@ def cmd_e1(args: argparse.Namespace) -> int:
     )
     from neuros.data.registry import assert_may_train, get_spec, task_epoch
     from neuros.errors import NeurOSConfigError
-    from neuros.eval.pooled import TaskSettings, assemble, plan_tasks, report, run_tasks
+    from neuros.eval.pooled import (
+        MIN_LAYOUT_CHANNELS,
+        TaskSettings,
+        assemble,
+        layout_shortfalls,
+        plan_tasks,
+        report,
+        run_tasks,
+    )
     from neuros.provenance import config_hash, stamp
     from neuros.train.device import resolve_device
 
@@ -1049,6 +1057,18 @@ def cmd_e1(args: argparse.Namespace) -> int:
         if "cue_only" in experiment.conditions:
             task_epoch(get_spec(key), cue_config.signal)
     layout = _e1_layout(experiment.channels)
+    # Every dataset must share enough of the layout's channels: checked from the registry here,
+    # not at assembly after hours of loading (6 Oct: Shin2017A shares only Cz with the motor
+    # strip, so E1 runs without it until Q27 decides its montage).
+    short = layout_shortfalls(
+        {key: get_spec(key).usable_eeg_channels for key in experiment.datasets}, layout
+    )
+    if short:
+        details = "; ".join(f"{key} has {have or 'none'}" for key, have in short.items())
+        raise NeurOSConfigError(
+            f"these datasets can't be placed in the {experiment.channels!r} layout (at least "
+            f"{MIN_LAYOUT_CHANNELS} of its {len(layout)} channels are needed): {details}"
+        )
     provenance = stamp(
         config,
         experiment_file=str(args.experiment),

@@ -16,7 +16,10 @@ description: >
 train_datasets: [PhysionetMI, Dreyer2023, Stieger2021, Lee2019_MI, Cho2017, Yang2025, BNCI2014_001]
 # Tested, never trained on: D-033's restricted datasets, and BNCI2014-004, whose 3 channels are
 # a virtual headset (E5) rather than training data for the 26-channel layout.
-test_only_datasets: [Shin2017A, GuttmannFlury2025, BNCI2014_004]
+# Shin2017A (test-only, D-033) is out until Q27 decides its montage: its 10-5 cap shares only Cz
+# with the motor strip, and a dataset needs at least 2 of the layout's channels (E1 stopped at
+# assembly on it, 6 Oct; `neuros e1` now refuses such a dataset before loading anything).
+test_only_datasets: [GuttmannFlury2025, BNCI2014_004]
 labels: [left_hand, right_hand]
 channels: motor            # D-031 + D-034: C-core's motor-strip rows (20 channels)
 reference: car             # D-034: no measurable difference; it puts mixed references on one footing

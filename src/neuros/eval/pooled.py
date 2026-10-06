@@ -73,6 +73,11 @@ DataKind = Literal["task", "cue_only"]
 # Windows per chunk when computing an RMS over a memory-mapped array (bounded memory).
 _RMS_CHUNK = 4096
 
+# The fewest of the layout's channels a dataset must have to be placed in it: the common
+# average and EA's covariances need at least two. ``to_layout`` enforces it on the windows;
+# ``layout_shortfalls`` checks the registry's channels before anything is loaded.
+MIN_LAYOUT_CHANNELS = 2
+
 
 # ---------------------------------------------------------------------- assembled windows
 @dataclass(frozen=True, eq=False)
@@ -197,6 +202,40 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def layout_shortfalls(
+    channels_by_dataset: Mapping[str, Sequence[str]], layout: Sequence[str]
+) -> dict[str, list[str]]:
+    """Datasets that can't be placed in ``layout``, each with the layout channels it does have.
+
+    A dataset needs at least ``MIN_LAYOUT_CHANNELS`` of the layout's channels (the rule
+    ``to_layout`` applies to its windows). Checked from the registry before any loading, so a
+    misfit costs seconds rather than hours of data preparation (E1, 6 Oct: Shin2017A shares only
+    Cz with the motor strip, Q27).
+
+    Args:
+        channels_by_dataset: dataset key → its usable EEG channels (canonical names).
+        layout: the model's input channels.
+
+    Returns:
+        dataset → the layout channels it has (in layout order), for every dataset below the
+        minimum; empty when every dataset fits.
+
+    Raises:
+        NeurOSConfigError: if the layout is empty or repeats a channel.
+    """
+    if not layout:
+        raise NeurOSConfigError("the layout has no channels")
+    if len(set(layout)) != len(layout):
+        raise NeurOSConfigError(f"the layout repeats channels: {list(layout)}")
+    shortfalls: dict[str, list[str]] = {}
+    for dataset, channels in channels_by_dataset.items():
+        available = set(channels)
+        have = [ch for ch in layout if ch in available]
+        if len(have) < MIN_LAYOUT_CHANNELS:
+            shortfalls[dataset] = have
+    return shortfalls
+
+
 def to_layout(
     windows: WindowSet,
     layout: Sequence[str],
@@ -212,15 +251,15 @@ def to_layout(
         ``(x [n, len(layout), samples], present [n, len(layout)], EA reference summaries)``.
 
     Raises:
-        NeurOSDataError: if the dataset has fewer than 2 of the layout's channels (CAR and
-            covariances need at least two).
+        NeurOSDataError: if the dataset has fewer than ``MIN_LAYOUT_CHANNELS`` of the layout's
+            channels (CAR and covariances need at least two).
         NeurOSConfigError: on an unknown reference or alignment.
     """
     have = [ch for ch in layout if ch in windows.ch_names]
-    if len(have) < 2:
+    if len(have) < MIN_LAYOUT_CHANNELS:
         raise NeurOSDataError(
-            f"{sorted(set(windows.datasets))}: only {have} of the layout's channels; at least 2 "
-            "are needed"
+            f"{sorted(set(windows.datasets))}: only {have} of the layout's channels; at least "
+            f"{MIN_LAYOUT_CHANNELS} are needed"
         )
     subset = windows.pick_channels(have)  # layout order
     if reference == "car":

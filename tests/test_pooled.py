@@ -14,6 +14,7 @@ from neuros.eval.pooled import (
     PooledWindows,
     TaskSettings,
     assemble,
+    layout_shortfalls,
     plan_tasks,
     report,
     run_tasks,
@@ -60,6 +61,22 @@ def test_to_layout_zero_fills_and_aligns_present_channels_only(
         )
     with pytest.raises(NeurOSConfigError, match="unknown reference"):
         to_layout(windows, LAYOUT, reference="bipolar", alignment="none", unit="session")  # type: ignore[arg-type]
+
+
+def test_layout_shortfalls_matches_to_layouts_rule_before_loading() -> None:
+    channels = {
+        "Fits": ("Fp1", "C3", "Cz"),
+        "OnlyCz": ("Cz", "FCC3h", "CCP3h"),  # Shin2017A's case: 10-5 half positions
+        "Nothing": ("Fp1", "Fp2"),
+    }
+    # The datasets that would fail to_layout, each with the layout channels it does have.
+    assert layout_shortfalls(channels, LAYOUT) == {"OnlyCz": ["Cz"], "Nothing": []}
+    assert layout_shortfalls({"Fits": ("Pz", "C4")}, LAYOUT) == {}
+    assert layout_shortfalls({}, LAYOUT) == {}
+    with pytest.raises(NeurOSConfigError, match="no channels"):
+        layout_shortfalls(channels, ())
+    with pytest.raises(NeurOSConfigError, match="repeats"):
+        layout_shortfalls(channels, ("C3", "Cz", "C3"))
 
 
 def test_assemble_stacks_datasets_with_masks(three_datasets: dict[str, WindowSet]) -> None:
