@@ -1,0 +1,55 @@
+# E2 (architecture §8.5): the warm-up curve, which sets S in the §8.6 headline.
+#   - E1's pooled models (same seed, so the same folds and, deterministically, the same models)
+#     also score their cue-free test people with the online engine's alignment, built from the
+#     first t seconds of that person's unlabeled EEG and shrunk toward a population prior
+#     (§5 online), for t = 0 (prior only) to 120 s; plus H1's rest-seeded version; plus each
+#     mode's whole-session asymptote and E1's full-session reference (the upper bound).
+#   - The scored windows are the same for every t (those starting after 120 s), so the curve
+#     is paired person by person. See neuros.eval.warmup.
+#   - Shin2017A (test-only, D-037's derived C3/C4) gets its first task-window and cue-only
+#     numbers here as well.
+#
+# On AWS:
+#   uv run --no-sync neuros --config configs/data.yaml e1 --experiment configs/e2.yaml \
+#     --device cuda --workers 4 --threads 2
+name: e2
+description: >
+  E1's pooled EEGNet + EA models scored with online-style warm-up alignment (stream- and
+  rest-seeded, 0-120 s, population prior n0 = 10 s) on the cue-free datasets, against E1's
+  full-session reference; with the cue-only control.
+train_datasets: [PhysionetMI, Dreyer2023, Stieger2021, Lee2019_MI, Cho2017, Yang2025, BNCI2014_001]
+test_only_datasets: [Shin2017A, GuttmannFlury2025, BNCI2014_004]
+labels: [left_hand, right_hand]
+channels: motor
+reference: car
+alignment: ea
+alignment_unit: session
+conditions: [pooled, cue_only]
+folds: 5
+validation_fraction: 0.1
+cue_only_epoch_s: [0.0, 0.5]
+seeds: [20261005]
+signal:
+  band_hz: [8.0, 30.0]
+
+model:
+  dropout: 0.25
+
+train:
+  max_epochs: 100
+  lr: 0.001
+  weight_decay: 0.05
+  label_smoothing: 0.1
+  swa_fraction: 0.25
+  patience: 15
+  people_per_batch: 16
+  windows_per_person: 8
+  log_every: 10
+
+warmup:
+  datasets: [Yang2025, BNCI2014_001, Shin2017A]   # cue-free: the headline is cue-controlled
+  budgets_s: [0, 5, 10, 20, 30, 45, 60, 120]
+  prior_s: 10.0          # n0 (§5): the prior weighs as much as 10 s of the user's data
+  stream_window_s: 2.0   # the decoder's window
+  stream_hop_s: 0.125    # the contract's hop
+  rest_seeded: true      # H1

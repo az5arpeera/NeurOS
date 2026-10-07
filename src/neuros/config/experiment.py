@@ -193,6 +193,39 @@ PooledCondition = Literal["pooled", "single", "lodo", "cue_only"]
 POOLED_CONDITIONS: tuple[PooledCondition, ...] = ("pooled", "single", "lodo", "cue_only")
 
 
+class WarmupConfig(BaseModel):
+    """E2, the warm-up curve (architecture §5 online, §8.5): how many seconds of a new user's
+    unlabeled EEG the online alignment needs before the pooled model reaches its full-session
+    accuracy (``neuros.eval.warmup``)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", allow_inf_nan=False)
+
+    # Datasets whose test people get the curve (cue-free ones: the headline is cue-controlled).
+    datasets: tuple[str, ...] = Field(min_length=1)
+    # Seconds of the session's unlabeled data the reference may use; 0 = population prior only.
+    budgets_s: tuple[float, ...] = (0.0, 5.0, 10.0, 20.0, 30.0, 45.0, 60.0, 120.0)
+    # n₀: the population prior weighs as much as this many seconds of the user's data (§5).
+    prior_s: float = Field(default=10.0, gt=0.0, le=600.0)
+    # The reference's windows: the decoder's window length, sliding by the contract's hop.
+    stream_window_s: float = Field(default=2.0, gt=0.0, le=10.0)
+    stream_hop_s: float = Field(default=0.125, gt=0.0, le=10.0)
+    # H1: seed from the relaxed pre-cue fixation only, as well as from the whole stream.
+    rest_seeded: bool = True
+
+    @model_validator(mode="after")
+    def _check(self) -> WarmupConfig:
+        if len(set(self.datasets)) != len(self.datasets):
+            raise ValueError(f"warmup datasets have duplicates: {list(self.datasets)}")
+        budgets = list(self.budgets_s)
+        if not budgets or budgets != sorted(set(budgets)) or budgets[0] < 0:
+            raise ValueError(f"budgets_s must be distinct, ascending and >= 0, got {budgets}")
+        if budgets[-1] > 1800:
+            raise ValueError(f"budgets_s above 1800 s leave nothing to score, got {budgets[-1]}")
+        if self.stream_hop_s > self.stream_window_s:
+            raise ValueError("stream_hop_s must not exceed stream_window_s (gaps in the stream)")
+        return self
+
+
 class PooledExperimentConfig(BaseModel):
     """E1: pooled training across datasets, against single-dataset and leave-one-dataset-out
     models, with the cue-only control (``neuros.eval.pooled``)."""
@@ -223,6 +256,8 @@ class PooledExperimentConfig(BaseModel):
     signal: dict[str, Any] = Field(default_factory=dict)
     model: EEGNetConfig = EEGNetConfig()
     train: TrainConfig = TrainConfig()
+    # E2: score the pooled models' test people under online-style warm-up alignment too.
+    warmup: WarmupConfig | None = None
 
     @model_validator(mode="after")
     def _check(self) -> PooledExperimentConfig:
@@ -254,6 +289,16 @@ class PooledExperimentConfig(BaseModel):
             raise ValueError(f"cue_only_epoch_s must satisfy 0 <= start < end, got {start}, {end}")
         if any(seed < 0 for seed in self.seeds):
             raise ValueError(f"seeds must be >= 0, got {list(self.seeds)}")
+        if self.warmup is not None:
+            unknown = sorted(set(self.warmup.datasets) - set(self.datasets))
+            if unknown:
+                raise ValueError(f"warmup datasets {unknown} aren't in this experiment")
+            if "pooled" not in self.conditions:
+                raise ValueError("warmup scores the pooled models: conditions must include pooled")
+            if self.alignment != "ea" or self.alignment_unit != "session":
+                raise ValueError("warmup replaces per-session EA: needs alignment ea, unit session")
+            if len(self.seeds) != 1:
+                raise ValueError("warmup builds its sets for one seed's folds: give one seed")
         return self
 
     @property

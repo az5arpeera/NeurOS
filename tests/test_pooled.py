@@ -262,3 +262,50 @@ def test_tiny_end_to_end_run(tmp_path: Path, three_datasets: dict[str, WindowSet
     assert syn_a["pooled"]["mean"] > 0.7
     with pytest.raises(NeurOSConfigError, match="weren't assembled"):
         run_tasks(tasks, {"task": tmp_path / "task"}, settings)
+
+
+def test_pooled_models_also_score_extra_sets(
+    tmp_path: Path, three_datasets: dict[str, WindowSet]
+) -> None:
+    # E2's hook: pooled models score their test people on extra window sets (here SynA's
+    # windows alone, standing in for a warm-up set); other conditions don't.
+    pooled, _ = assemble(three_datasets, LAYOUT, reference="car", alignment="ea", unit="session")
+    pooled.save(tmp_path / "task")
+    only_a, _ = assemble(
+        {"SynA": three_datasets["SynA"]}, LAYOUT, reference="car", alignment="ea", unit="session"
+    )
+    only_a.save(tmp_path / "e2_full")
+    people = pooled.people_by_dataset()
+    tasks = plan_tasks(
+        people,
+        ["SynA", "SynB"],
+        conditions=("pooled", "single"),
+        folds=3,
+        validation_fraction=0.0,
+        seed=3,
+    )
+    settings = TaskSettings(
+        classes=("left_hand", "right_hand"),
+        model=TINY_MODEL,
+        train=FAST_TRAIN,
+        device="cpu",
+        deterministic=True,
+        threads=1,
+        extra_kinds=("e2_full",),
+    )
+    folders = {"task": tmp_path / "task", "e2_full": tmp_path / "e2_full"}
+    outcomes = run_tasks(tasks, folders, settings, workers=1, progress=lambda line: None)
+    scored: dict[str, float] = {}
+    for outcome in outcomes:
+        if outcome["condition"] != "pooled":
+            assert "extra_scores" not in outcome
+            continue
+        main = {s["person"]: s["balanced_accuracy_raw"] for s in outcome["scores"]}
+        for score in outcome["extra_scores"]["e2_full"]:
+            assert score["person"].startswith("SynA:")
+            # The same windows, aligned the same way: the same score as the main test.
+            assert score["balanced_accuracy_raw"] == pytest.approx(main[score["person"]])
+            scored[score["person"]] = score["balanced_accuracy_raw"]
+    assert set(scored) == set(people["SynA"])  # every SynA person, once
+    with pytest.raises(NeurOSConfigError, match="weren't assembled"):
+        run_tasks(tasks, {"task": tmp_path / "task"}, settings)

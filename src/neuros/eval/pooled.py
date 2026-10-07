@@ -237,6 +237,49 @@ def layout_shortfalls(
     return shortfalls
 
 
+def derive_rows(
+    data: NDArray[np.floating],
+    ch_names: Sequence[str],
+    derived: Mapping[str, Sequence[str]],
+    *,
+    axis: int = -2,
+) -> tuple[NDArray[np.float32], tuple[str, ...]]:
+    """Array form of ``derive_channels``: ``data`` has channels on ``axis`` (windows
+    ``[n, ch, T]`` or a continuous recording ``[ch, T]``). Returns float32 data and names.
+
+    Raises:
+        NeurOSDataError: if a source channel is missing, feeds two derived channels, or a
+            derived channel already exists; or if ``ch_names`` doesn't match ``data``.
+    """
+    names = tuple(ch_names)
+    if data.shape[axis] != len(names):
+        raise NeurOSDataError(f"{len(names)} channel names for {data.shape[axis]} channels")
+    if not derived:
+        return np.asarray(data, dtype=np.float32), names
+    sources = [source for group in derived.values() for source in group]
+    if len(set(sources)) != len(sources):
+        raise NeurOSDataError(f"a source channel feeds more than one derived channel: {sources}")
+    missing = sorted(set(sources) - set(names))
+    if missing:
+        raise NeurOSDataError(f"derived channels need {missing}, which these windows lack")
+    clash = sorted(set(derived) & set(names))
+    if clash:
+        raise NeurOSDataError(f"derived channels {clash} are already in the window set")
+    used = set(sources)
+    keep = [index for index, name in enumerate(names) if name not in used]
+    means = [
+        np.take(data, [names.index(s) for s in group], axis=axis).mean(axis=axis, dtype=np.float64)
+        for group in derived.values()
+    ]
+    out = np.concatenate(
+        [np.take(data, keep, axis=axis), np.stack(means, axis=axis).astype(np.float32)],
+        axis=axis,
+    )
+    return np.ascontiguousarray(out, dtype=np.float32), tuple(names[i] for i in keep) + tuple(
+        derived
+    )
+
+
 def derive_channels(windows: WindowSet, derived: Mapping[str, Sequence[str]]) -> WindowSet:
     """Replace each group of source channels with its mean, named as the derived channel.
 
@@ -251,28 +294,8 @@ def derive_channels(windows: WindowSet, derived: Mapping[str, Sequence[str]]) ->
     """
     if not derived:
         return windows
-    sources = [source for group in derived.values() for source in group]
-    if len(set(sources)) != len(sources):
-        raise NeurOSDataError(f"a source channel feeds more than one derived channel: {sources}")
-    missing = sorted(set(sources) - set(windows.ch_names))
-    if missing:
-        raise NeurOSDataError(f"derived channels need {missing}, which these windows lack")
-    clash = sorted(set(derived) & set(windows.ch_names))
-    if clash:
-        raise NeurOSDataError(f"derived channels {clash} are already in the window set")
-    used = set(sources)
-    keep = [index for index, name in enumerate(windows.ch_names) if name not in used]
-    means = [
-        windows.data[:, [windows.ch_names.index(s) for s in group], :].mean(
-            axis=1, dtype=np.float64
-        )
-        for group in derived.values()
-    ]
-    data = np.concatenate(
-        [windows.data[:, keep, :], np.stack(means, axis=1).astype(np.float32)], axis=1
-    )
-    names = tuple(windows.ch_names[i] for i in keep) + tuple(derived)
-    return dataclasses.replace(windows, data=np.ascontiguousarray(data), ch_names=names)
+    data, names = derive_rows(windows.data, windows.ch_names, derived)
+    return dataclasses.replace(windows, data=data, ch_names=names)
 
 
 def to_layout(
@@ -509,6 +532,10 @@ class TaskSettings:
     device: str
     deterministic: bool
     threads: int
+    # Extra window sets (data kinds) that models of ``extra_conditions`` also score their test
+    # people on, after training: E2's warm-up sets (``neuros.eval.warmup``).
+    extra_kinds: tuple[str, ...] = ()
+    extra_conditions: tuple[str, ...] = ("pooled",)
 
 
 def _rms(x: NDArray[np.float32], rows: NDArray[np.int64]) -> float:
@@ -524,10 +551,57 @@ def _rms(x: NDArray[np.float32], rows: NDArray[np.int64]) -> float:
     return rms
 
 
+def _score_people(
+    model: Any,
+    windows: PooledWindows,
+    people: Sequence[str],
+    scale: float,
+    settings: TaskSettings,
+    predict_logits: Callable[..., Any],
+    index: Mapping[str, int],
+) -> list[dict[str, Any]]:
+    """Score the trained ``model`` on the given people's windows in ``windows`` (those present
+    there); the same input scale as training. Empty if none of the people are present."""
+    import torch
+
+    rows = windows.rows_of(people)
+    if rows.size == 0:
+        return []
+    # The model checks the window shape itself (check_window_batch).
+    x = np.array(windows.x[rows], dtype=np.float32)
+    x /= np.float32(scale)
+    truth = windows.labels[rows]
+    unknown = sorted(set(truth.tolist()) - set(index))
+    if unknown:
+        raise NeurOSDataError(f"extra windows carry labels {unknown} that aren't classes")
+    logits = predict_logits(model, torch.from_numpy(x), settings.train.eval_batch_size)
+    predicted = np.array([settings.classes[i] for i in logits.argmax(dim=1).tolist()], dtype=str)
+    person_of = windows.people[rows]
+    flagged = windows.flags[rows] != 0
+    scores: list[dict[str, Any]] = []
+    for person in dict.fromkeys(person_of.tolist()):
+        mine = person_of == person
+        score = score_person(
+            person,
+            truth[mine].tolist(),
+            predicted[mine].tolist(),
+            n_flagged=int(flagged[mine].sum()),
+        )
+        scores.append(score.to_dict() | {"balanced_accuracy_raw": score.balanced_accuracy})
+    return scores
+
+
 def run_task(
-    task: ModelTask, data: PooledWindows, settings: TaskSettings, progress: Progress | None = None
+    task: ModelTask,
+    data: PooledWindows,
+    settings: TaskSettings,
+    progress: Progress | None = None,
+    extra: Mapping[str, PooledWindows] | None = None,
 ) -> dict[str, Any]:
     """Train one model on ``task.train`` and score every person in ``task.test``.
+
+    ``extra`` maps more window sets to score the same test people on (those present in each;
+    the training input scale applies), reported under ``extra_scores``: E2's warm-up sets.
 
     Raises:
         NeurOSDataError: if a person in the task has no windows, or a label isn't a class.
@@ -608,6 +682,11 @@ def run_task(
             n_flagged=int(flagged[mine].sum()),
         )
         scores.append(score.to_dict() | {"balanced_accuracy_raw": score.balanced_accuracy})
+    extra_scores: dict[str, list[dict[str, Any]]] = {}
+    for kind, windows in (extra or {}).items():
+        extra_scores[kind] = _score_people(
+            model, windows, task.test, scale, settings, predict_logits, index
+        )
     seconds = time.perf_counter() - started
     mean = float(np.mean([s["balanced_accuracy_raw"] for s in scores]))
     minutes = seconds / 60
@@ -627,6 +706,7 @@ def run_task(
         "model": model.describe(),
         "hardware": describe_device(device, deterministic=settings.deterministic),
         "seconds": round(seconds, 1),
+        **({"extra_scores": extra_scores} if extra_scores else {}),
     }
 
 
@@ -639,8 +719,18 @@ def _init_worker(folders: Mapping[str, str], settings: TaskSettings) -> None:
     _WORKER["settings"] = settings
 
 
+def _extra_for(
+    task: ModelTask, data: Mapping[str, PooledWindows], settings: TaskSettings
+) -> dict[str, PooledWindows] | None:
+    """The extra sets a task scores on (only models of ``settings.extra_conditions``)."""
+    if not settings.extra_kinds or task.condition not in settings.extra_conditions:
+        return None
+    return {kind: data[kind] for kind in settings.extra_kinds}
+
+
 def _run_in_worker(task: ModelTask) -> dict[str, Any]:
-    return run_task(task, _WORKER["data"][task.data], _WORKER["settings"])
+    data, settings = _WORKER["data"], _WORKER["settings"]
+    return run_task(task, data[task.data], settings, extra=_extra_for(task, data, settings))
 
 
 def run_tasks(
@@ -659,7 +749,7 @@ def run_tasks(
     """
     if workers < 1:
         raise NeurOSConfigError(f"workers must be >= 1, got {workers}")
-    missing = sorted({t.data for t in tasks} - set(folders))
+    missing = sorted(({t.data for t in tasks} | set(settings.extra_kinds)) - set(folders))
     if missing:
         raise NeurOSConfigError(f"tasks need {missing} windows, which weren't assembled")
     say: Progress = progress or (lambda message: print(message, flush=True))
@@ -667,7 +757,9 @@ def run_tasks(
     if workers == 1:
         data = {kind: PooledWindows.load(path) for kind, path in folders.items()}
         for task in tasks:
-            outcome = run_task(task, data[task.data], settings, say)
+            outcome = run_task(
+                task, data[task.data], settings, say, extra=_extra_for(task, data, settings)
+            )
             outcomes[task.name] = outcome
             if on_task:
                 on_task(outcome)

@@ -131,9 +131,19 @@ def test_loader_errors(tmp_path: Path) -> None:
         load_experiment_config(invalid)
 
 
+_EXPERIMENT_FILES = sorted((REPO_ROOT / "configs").glob("e*.yaml"))
+
+
+def _is_pooled(path: Path) -> bool:
+    """Pooled (E1/E2) configs declare training datasets; LOSO (E0) configs a dataset."""
+    import yaml
+
+    return "train_datasets" in (yaml.safe_load(path.read_text(encoding="utf-8")) or {})
+
+
 @pytest.mark.parametrize(
     "path",
-    sorted(p for p in (REPO_ROOT / "configs").glob("e*.yaml") if not p.name.startswith("e1")),
+    [p for p in _EXPERIMENT_FILES if not _is_pooled(p)],
     ids=lambda p: p.name,
 )
 def test_every_committed_experiment_is_valid(path: Path) -> None:
@@ -146,7 +156,7 @@ def test_every_committed_experiment_is_valid(path: Path) -> None:
 
 # ---------------------------------------------------------------------- E1 (pooled) configs
 @pytest.mark.parametrize(
-    "path", sorted((REPO_ROOT / "configs").glob("e1*.yaml")), ids=lambda p: p.name
+    "path", [p for p in _EXPERIMENT_FILES if _is_pooled(p)], ids=lambda p: p.name
 )
 def test_committed_pooled_experiments_are_valid(path: Path) -> None:
     experiment = load_pooled_experiment_config(path)
@@ -200,3 +210,28 @@ def test_pooled_loader_errors(tmp_path: Path) -> None:
     invalid.write_text("name: e1\ntrain_datasets: []\n", encoding="utf-8")
     with pytest.raises(NeurOSConfigError, match="invalid experiment config"):
         load_pooled_experiment_config(invalid)
+
+
+def test_e2_configs_follow_e1_and_measure_the_cue_free_warmup() -> None:
+    e1 = load_pooled_experiment_config(REPO_ROOT / "configs" / "e1.yaml")
+    e2 = load_pooled_experiment_config(REPO_ROOT / "configs" / "e2.yaml")
+    assert e2.warmup is not None
+    # Same data, layout, recipe and seed as E1: the pooled models reproduce E1's.
+    for field in (
+        "train_datasets",
+        "test_only_datasets",
+        "channels",
+        "reference",
+        "signal",
+        "model",
+        "train",
+        "seeds",
+        "folds",
+        "validation_fraction",
+    ):
+        assert getattr(e2, field) == getattr(e1, field), field
+    assert set(e2.warmup.datasets) == {"Yang2025", "BNCI2014_001", "Shin2017A"}  # cue-free
+    assert {"pooled", "cue_only"} <= set(e2.conditions)
+    smoke = load_pooled_experiment_config(REPO_ROOT / "configs" / "e2_smoke.yaml")
+    assert smoke.warmup is not None
+    assert smoke.warmup.datasets == ("BNCI2014_001",)

@@ -119,6 +119,41 @@ def reference_from_covariances(
     )
 
 
+def reference_from_mean(
+    mean_covariance: NDArray[np.floating],
+    n_windows: int,
+    *,
+    shrinkage: float = DEFAULT_SHRINKAGE,
+    eigen_floor: float = DEFAULT_EIGEN_FLOOR,
+    max_condition: float = DEFAULT_MAX_CONDITION,
+    context: DataContext | None = None,
+) -> AlignmentReference:
+    """The EA reference from an already-averaged covariance (e.g. the online engine's blend of
+    a population prior and the user's running mean, §5); ``n_windows`` is recorded only.
+
+    Raises:
+        NeurOSDataError: on a non-square or non-finite matrix, or no signal energy.
+        NeurOSConfigError: if ``n_windows`` is negative.
+    """
+    if n_windows < 0:
+        raise NeurOSConfigError(f"n_windows must be >= 0, got {n_windows}")
+    mean = np.asarray(mean_covariance, dtype=np.float64)
+    if mean.ndim != 2 or mean.shape[0] != mean.shape[1]:
+        raise NeurOSDataError(f"a covariance must be square, got shape {mean.shape}", context)
+    if not np.isfinite(mean).all():
+        raise NeurOSDataError("covariance contains NaN/Inf", context)
+    regularized = regularize(
+        mean,
+        shrinkage=shrinkage,
+        eigen_floor=eigen_floor,
+        max_condition=max_condition,
+        context=context,
+    )
+    inv_sqrt = regularized.power(-0.5)
+    inv_sqrt.flags.writeable = False
+    return AlignmentReference(covariance=regularized, inv_sqrt=inv_sqrt, n_windows=int(n_windows))
+
+
 def euclidean_reference(
     windows: NDArray[np.floating],
     *,

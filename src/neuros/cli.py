@@ -47,8 +47,11 @@ from neuros.config.schemas import DataConfig, load_data_config
 from neuros.errors import NeurOSError
 
 if TYPE_CHECKING:
-    from neuros.config.experiment import LosoExperimentConfig
+    from collections.abc import Mapping
+
+    from neuros.config.experiment import LosoExperimentConfig, PooledExperimentConfig
     from neuros.data.cache import RecordingCache
+    from neuros.data.recording import Recording
     from neuros.data.registry import DatasetSpec, TaskEpoch
     from neuros.signal.windows import WindowSet
 
@@ -994,6 +997,72 @@ def _e1_windows(
     return per_dataset, loaded
 
 
+def _e1_warmup_sets(
+    experiment: PooledExperimentConfig,
+    config: DataConfig,
+    task_windows: Mapping[str, WindowSet],
+    layout: Sequence[str],
+    people: Mapping[str, Sequence[str]],
+    cache: RecordingCache | None,
+    work: Path,
+    folders: dict[str, Path],
+) -> dict[str, Any]:
+    """E2 (§8.5): build and save the warm-up sets, add them to ``folders``, return the report.
+
+    The folds are the ones ``plan_tasks`` draws for the experiment's single seed, so each test
+    person's prior comes from the people their pooled model trains on.
+
+    Raises:
+        NeurOSConfigError: if the experiment has no warm-up section.
+    """
+    from neuros.data.download import loading_dataset
+    from neuros.data.prepare import prepare_subject
+    from neuros.data.registry import get_spec
+    from neuros.data.vocabulary import default_vocabulary
+    from neuros.errors import NeurOSConfigError
+    from neuros.eval.splits import make_dev_folds
+    from neuros.eval.warmup import build_warmup_sets, warmup_kinds
+
+    warmup = experiment.warmup
+    if warmup is None:
+        raise NeurOSConfigError("the experiment has no warmup section")
+    vocab = default_vocabulary()
+    moabb_objects: dict[str, Any] = {}
+
+    def load_recordings(key: str, subject: int) -> list[Recording]:
+        spec = get_spec(key)
+        if key not in moabb_objects:  # MOABB is only touched on a cache miss
+            moabb_objects[key] = loading_dataset(spec, config.data_dir)
+        if cache is None:
+            return prepare_subject(spec, subject, vocab, config, dataset=moabb_objects[key])
+        recordings, _ = cache.load_or_prepare(
+            spec, subject, vocab, config, prepare=prepare_subject, dataset=moabb_objects[key]
+        )
+        return recordings
+
+    folds = make_dev_folds(
+        {d: [int(p.split(":", 1)[1]) for p in members] for d, members in people.items()},
+        n_folds=experiment.folds,
+        seed=experiment.seeds[0],
+    )
+    print("E2 warm-up sets:", flush=True)
+    sets, report = build_warmup_sets(
+        task_windows,
+        layout,
+        specs={key: get_spec(key) for key in task_windows},
+        folds=folds,
+        trainable=experiment.train_datasets,
+        settings=warmup,
+        load_recordings=load_recordings,
+        max_ptp_uv=config.validation.ptp_flag_uv,
+    )
+    for kind, windows in sets.items():
+        windows.save(work / kind)
+        folders[kind] = work / kind
+    report["kinds"] = [kind for kind, _, _ in warmup_kinds(warmup)]
+    return report
+
+
 def cmd_e1(args: argparse.Namespace) -> int:
     import datetime as dt
 
@@ -1105,8 +1174,13 @@ def cmd_e1(args: argparse.Namespace) -> int:
     pooled.save(work / "task")
     people = pooled.people_by_dataset()
     cue_free = {key: bool(loaded[key]["cue_free"]) for key in experiment.datasets}
-    del task_windows, pooled  # workers map the saved arrays
     folders = {"task": work / "task"}
+    warmup_report: dict[str, Any] | None = None
+    if experiment.warmup is not None:  # E2: built from the unaligned task windows
+        warmup_report = _e1_warmup_sets(
+            experiment, config, task_windows, layout, people, cache, work, folders
+        )
+    del task_windows, pooled  # workers map the saved arrays
     if "cue_only" in experiment.conditions:
         print("cue-only control windows:", flush=True)
         cue_windows, _ = _e1_windows(
@@ -1133,6 +1207,7 @@ def cmd_e1(args: argparse.Namespace) -> int:
         device=args.device,
         deterministic=deterministic,
         threads=args.threads,
+        extra_kinds=tuple(warmup_report["kinds"]) if warmup_report else (),
     )
     payload: dict[str, Any] = {
         "complete": False,
@@ -1152,6 +1227,8 @@ def cmd_e1(args: argparse.Namespace) -> int:
         "subjects": {key: loaded[key]["per_subject"] for key in experiment.datasets},
         "tasks": [],
     }
+    if warmup_report is not None:
+        payload["warmup"] = warmup_report
 
     def save() -> None:
         tmp = out.with_suffix(".json.tmp")
@@ -1178,6 +1255,10 @@ def cmd_e1(args: argparse.Namespace) -> int:
             tasks, folders, settings, workers=args.workers, progress=print, on_task=on_task
         )
         payload.setdefault("reports", {})[str(seed)] = report(outcomes, people, cue_free)
+        if experiment.warmup is not None:
+            from neuros.eval.warmup import summarize_warmup
+
+            payload["warmup"]["summary"] = summarize_warmup(outcomes, experiment.warmup)
     payload["complete"] = True
     payload["provenance"] = _finished(provenance)
     save()
@@ -1219,8 +1300,33 @@ def cmd_e1(args: argparse.Namespace) -> int:
             ],
         )
     )
+    if experiment.warmup is not None:
+        _print_warmup(payload["warmup"]["summary"])
     print(f"\nresults: {out}")
     return 0
+
+
+def _print_warmup(summary: dict[str, Any]) -> None:
+    """E2's curve per dataset: mean balanced accuracy per set, and S (§8.6)."""
+    for dataset, entry in summary.items():
+        rows = []
+        for kind, result in entry["sets"].items():
+            gap = result.get("vs_full")
+            rows.append(
+                [
+                    kind,
+                    f"{result['mean'] * 100:.1f}",
+                    f"{gap['mean_diff'] * 100:+.1f} (p={gap['p_value']:.2g})" if gap else "-",
+                ]
+            )
+        print(f"\nE2 warm-up, {dataset} ({entry['n_people']} people):")
+        print(_table(rows, ["set", "bal. acc %", "vs full-session"]))
+        s_seconds = entry["s_seconds"]
+        within = entry["s_within_points"]
+        if s_seconds is None:
+            print(f"S: no stream budget came within {within:g} points of full-session")
+        else:
+            print(f"S = {s_seconds:g} s (stream within {within:g} points of full-session)")
 
 
 def build_parser() -> argparse.ArgumentParser:
