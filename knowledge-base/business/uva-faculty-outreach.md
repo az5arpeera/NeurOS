@@ -130,9 +130,125 @@ Associate Professor of Neurology; Director of Community Engagement at the UVA Br
 > Azhar Peera
 > Systems Engineering and Mathematics, Class of 2028
 
-## Next contacts (drafts after the remaining research)
-- **Ye Sun (Engineering): NeuroFlex**, a soft rehabilitation glove driven by motor-imagery EEG ([PubMed 39943246](https://pubmed.ncbi.nlm.nih.gov/39943246/)). This is the only motor-imagery EEG decoding found at UVA, and probably WEARLab, already #1 in [target-contacts.md](target-contacts.md); confirm the identity. They would be the closest technical match for user testing.
-- **Mark Quigg, MD (Neurology):** used about 800 routine EEGs from UVA's clinical archive in a 2026 study, and co-leads NIH clinical-trial methods training. Ask about data and pilot design.
-- **Andrew Carlson, MD (Neurosurgery, stroke):** co-published in 2025 with a small EEG-device company, a precedent for clinician–startup partnerships.
-- **Introductions:** Jaideep Kapur and Tanya Evans, co-directors of the UVA Brain Institute (announced Dec 2025).
-- Psychology, Engineering and UVA-resources research (IRB and data-use-agreement routes, the Licensing & Ventures Group, student programmes) is being re-run: the first pass was cut off by a usage limit on 6 Oct.
+## 5. Ye (Sarah) Sun — send first
+Associate Professor of Mechanical & Aerospace Engineering (joint in Electrical & Computer Engineering); WEARLab. [Profile](https://engineering.virginia.edu/faculty/ye-sarah-sun) · [WEARLab](https://engineering.virginia.edu/labs-groups/wearlab)
+
+**Why her:**
+- Hers is the only motor-imagery EEG lab at UVA. NeuroFlex (*Sensors* 2025) decodes imagined fist closure on a **16-channel dry OpenBCI Cyton + Daisy cap** to drive a soft rehabilitation glove ([PMC](https://pmc.ncbi.nlm.nih.gov/articles/PMC11820135/)).
+- **She's also the most useful sceptic.** NeuroFlex trained a model per person and concludes that "individually trained models are needed", the opposite of our bet.
+- A fair head-to-head on her rig, a dry consumer-style headset we don't control, would be stronger evidence than anything we run alone.
+- She's the same person as the "Sarah Sun" already #1 in [target-contacts.md](target-contacts.md).
+- **Don't allege leakage.** NeuroFlex doesn't describe its train/test split, so ask about it, don't imply anything.
+
+**Subject:** Per-user vs pooled motor-imagery models: a head-to-head on your OpenBCI rig?
+
+> Dear Professor Sun,
+>
+> I'm Azhar Peera, a second-year Systems Engineering and Mathematics student at UVA. I'm building NeurOS, a startup applying to Y Combinator's Winter 2027 batch. It's software that decodes motor imagery from any EEG headset with no per-user calibration: one pooled model, trained on many people and many headsets, that works for someone it has never seen.
+>
+> Your NeuroFlex paper argues the opposite: that people imagine the same movement differently, so each user needs their own model. That is exactly the question I want to settle honestly. In our first large experiment (seven public datasets, about 340 people), a model that never saw a dataset's lab or amplifier decoded it to within a point of one trained on it. Every one of those datasets, though, was recorded on research-grade wet EEG, never on a dry 16-channel OpenBCI cap like yours.
+>
+> Could I have 20–30 minutes? I'd like to propose a fair head-to-head with people held out: your per-subject transformer against our zero-calibration model, on your hardware. I'd also like to learn:
+> - what dry-electrode artifacts and motion problems you fight on the NeuroFlex rig;
+> - how you split the overlapping epochs between training and testing;
+> - what it would take, under your IRB protocol and a data use agreement, to run or share that comparison.
+>
+> I'm free [two or three time windows] and happy to come to the lab.
+>
+> Thank you,
+> Azhar Peera
+> Systems Engineering and Mathematics, Class of 2028
+
+## 6. Per B. Sederberg
+Professor of Psychology; Director of the Cognitive Science Program; Computational Memory Lab. [Profile](https://psychology.as.virginia.edu/people/sederberg) · [compmem.org](https://compmem.org/)
+
+**Why him:** he co-authored Schwemmer et al., *Nature Medicine* 2018 ([PubMed](https://pubmed.ncbi.nlm.nih.gov/30250141/)). That intracortical decoder kept its accuracy for over a year without daily retraining, through unsupervised updating, and learned new functions through transfer learning. It's the closest UVA precedent for "no calibration", and the same idea as our E2/E3, which adapt to a new user from unlabelled data. He also co-authored Bouton et al., *Nature* 2016, and has worked with Battelle.
+
+**Subject:** Unsupervised updating for a calibration-free EEG decoder: 20 minutes?
+
+> Dear Professor Sederberg,
+>
+> I'm Azhar Peera, a second-year Systems Engineering and Mathematics student at UVA. I'm building NeurOS, a startup applying to Y Combinator's Winter 2027 batch: software that decodes intent from any EEG headset with no calibration session.
+>
+> Your 2018 Nature Medicine decoder, which held its accuracy for over a year by updating itself without supervision, is the closest thing I know to what we're attempting. We do it across people rather than days, on scalp EEG. In our first large experiment (seven public datasets, about 340 people), a model that never saw a dataset decoded it as well as one trained on it, but the gap between people remains. Our next experiments adapt the model to a new person from their first minutes of unlabelled EEG.
+>
+> Could I have 20–30 minutes to ask:
+> - which parts of your unsupervised-updating approach you'd expect to carry over to a new user, as opposed to a new day;
+> - whether you'd critique our evaluation design (people, datasets and devices held out);
+> - what you learned from building a BCI with an industry partner?
+>
+> I'm free [two or three time windows].
+>
+> Thank you,
+> Azhar Peera
+> Systems Engineering and Mathematics, Class of 2028
+
+## 7. Nicole Long
+Long Term Memory Lab, Psychology. [Psychology labs page](https://psychology.as.virginia.edu/research-opportunities-working-lab)
+
+**Why her:**
+- Her 2026 *iScience* paper validated decoding of memory brain states across participants and across studies, on a **64-channel BrainVision actiCAP** at 1,000 Hz under protocol SBS-2115 ([PMC](https://pmc.ncbi.nlm.nih.gov/articles/PMC13543892/)).
+- She holds NINDS R01NS132872 (2023–2028) on multivariate decoding.
+- Her research-grade rig would be the wet reference against which a dry headset gets judged.
+- **Her OSF datasets are CC BY-NC (non-commercial).** Don't ask to train on them; a collaboration would be the route.
+
+**Subject:** Cross-participant EEG decoding: a student startup's question about your 64-channel rig
+
+> Dear Dr. Long,
+>
+> I'm Azhar Peera, a second-year Systems Engineering and Mathematics student at UVA. I'm building NeurOS, a startup applying to Y Combinator's Winter 2027 batch: software that decodes intent from any EEG headset with no per-person calibration.
+>
+> Your 2026 iScience paper, which decodes memory brain states across participants and across studies, is the strongest evidence I've found at UVA that cross-participant decoding can work. That's the premise of our company. In our first large experiment (seven public datasets, about 340 people), a model that never saw a dataset decoded it as well as one trained on it. What we can't yet show is the same person on a research-grade cap and on a consumer headset.
+>
+> Could I have 20 minutes to ask:
+> - what made your classifier hold up across people and studies;
+> - whether one or two supervised sessions recording a short motor-imagery block on your actiCAP and on a dry headset side by side could ever fit under your protocol or an amendment;
+> - how you'd recommend a student team recruit volunteers properly?
+>
+> I'm free [two or three time windows].
+>
+> Thank you,
+> Azhar Peera
+> Systems Engineering and Mathematics, Class of 2028
+
+## 8. Tanya Evans
+Co-Director of the UVA Brain Institute (since Dec 2025); School of Education and Human Development. [Brain Institute news](https://braininstitute.virginia.edu/news/meet-tanya-evans-uva-brain-institute-co-director)
+
+**Why her:**
+- Her group records with **dry wireless Cognionics Quick-20m headsets** (19 channels), a second consumer-style hardware class ([PMC](https://pmc.ncbi.nlm.nih.gov/articles/PMC10518595/)).
+- As co-director, she's the route to Brain Institute introductions and to partners for faculty pilot grants. She has said she wants to lower barriers to collaboration across schools.
+
+**Subject:** A student neurotech startup and the Brain Institute: could I ask for 20 minutes?
+
+> Dear Professor Evans,
+>
+> I'm Azhar Peera, a second-year Systems Engineering and Mathematics student at UVA. I'm building NeurOS, a startup applying to Y Combinator's Winter 2027 batch: software that lets any EEG headset decode its wearer's intent with no calibration session. In our first large experiment, across seven public datasets and about 340 people, a model that never saw a dataset's lab or hardware decoded it as well as one trained on it.
+>
+> You've said you want the Brain Institute to lower the barriers to working across schools, and this project sits right across them: systems engineering, data science, psychology and neurology. I'd love 20 minutes to ask:
+> - which Brain Institute faculty you'd connect a student neurotech project with, and how the Institute supports student-led work;
+> - whether your dry wireless Quick-20m headsets could ever host a supervised session comparing them with research-grade caps;
+> - how you'd approach representative recruitment for headset testing, given your work on representative samples.
+>
+> I'm free [two or three time windows].
+>
+> Thank you,
+> Azhar Peera
+> Systems Engineering and Mathematics, Class of 2028
+
+## UVA rules that shape every ask (from the [research report](uva-contacts-research.md); not legal advice)
+- **UVA owns lab recordings** (policy RES-002). Faculty can't share EEG informally. Sharing takes IRB approval plus a data use agreement signed by the Office of Sponsored Programs, so never ask for raw data in a first email.
+- **EEG testing with people probably needs a faculty PI under IRB-HSR**, where students can't be PI. Purely internal product testing is a grey area: get a written determination with the IRB's "Evaluate My Project" tool.
+- **Keep NeurOS's code and data outside any lab.** Building it with lab equipment, lab data or a paid lab role risks a UVA IP claim (RES-006 for patents, RES-001 for copyright, including software). Ask for supervised sessions, not loaned equipment (PRM-011).
+- **Say up front that NeurOS is a company.** Faculty equity or advising may need conflict-of-interest disclosure (RES-005).
+- **Free help:** the Foundry (walk-in), the Law School's Entrepreneurial Law Clinic, Engineering's VentureForward grants (up to $1K), I-Corps (up to $2,700 for customer discovery).
+- **⏰ E-Cup Concept stage: due 23 Oct at noon** (final 13 Nov), with an Engineering & Healthcare Technologies track and $15K+ in perks for applicants. The year is inferred from the page; confirm at the Foundry.
+- **neurotech@uva** (founded 2026) builds EEG headsets and BCI apps: the nearest student community for collaborators and testers. Testing on members can still need IRB review.
+
+## Sending order and timing
+1. **This week:** Sun, Rasero and Van Horn (or one joint note to Van Horn and Rasero), and Liu.
+2. **Next:** Long, Evans, Sederberg and Puglia.
+3. **Later:**
+   - **Quigg**, for the clinical EEG archive. That's a 2027 horizon, not a YC-timeframe ask.
+   - **Carlson**, for stroke work and a precedent for partnering with a device startup.
+   - **Riggs and Brown**, both in SIE. Reach them through Gregory Gerling, the interim SIE chair.
+4. UVA advises following up after at least ten business days. For mid-October emails that lands around 26–28 Oct, so send the first wave this week if replies are to inform the YC application.
