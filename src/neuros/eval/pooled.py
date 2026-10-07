@@ -38,6 +38,7 @@ workers, on the CPU or on GPUs (``neuros.train.device``), and every finished tas
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import math
@@ -236,6 +237,44 @@ def layout_shortfalls(
     return shortfalls
 
 
+def derive_channels(windows: WindowSet, derived: Mapping[str, Sequence[str]]) -> WindowSet:
+    """Replace each group of source channels with its mean, named as the derived channel.
+
+    The registry's test-only montage profile (``DatasetSpec.derived_channels``, D-037): e.g.
+    Shin2017A's C3 is the mean of the four 10-5 half positions around it. Kept channels stay in
+    their order; derived ones follow in mapping order. Windows are already filtered, and the
+    mean is linear, so averaging here equals averaging before filtering.
+
+    Raises:
+        NeurOSDataError: if a source channel is missing, feeds two derived channels, or a
+            derived channel is already in the window set.
+    """
+    if not derived:
+        return windows
+    sources = [source for group in derived.values() for source in group]
+    if len(set(sources)) != len(sources):
+        raise NeurOSDataError(f"a source channel feeds more than one derived channel: {sources}")
+    missing = sorted(set(sources) - set(windows.ch_names))
+    if missing:
+        raise NeurOSDataError(f"derived channels need {missing}, which these windows lack")
+    clash = sorted(set(derived) & set(windows.ch_names))
+    if clash:
+        raise NeurOSDataError(f"derived channels {clash} are already in the window set")
+    used = set(sources)
+    keep = [index for index, name in enumerate(windows.ch_names) if name not in used]
+    means = [
+        windows.data[:, [windows.ch_names.index(s) for s in group], :].mean(
+            axis=1, dtype=np.float64
+        )
+        for group in derived.values()
+    ]
+    data = np.concatenate(
+        [windows.data[:, keep, :], np.stack(means, axis=1).astype(np.float32)], axis=1
+    )
+    names = tuple(windows.ch_names[i] for i in keep) + tuple(derived)
+    return dataclasses.replace(windows, data=np.ascontiguousarray(data), ch_names=names)
+
+
 def to_layout(
     windows: WindowSet,
     layout: Sequence[str],
@@ -287,8 +326,12 @@ def assemble(
     reference: Reference,
     alignment: Alignment,
     unit: AlignmentUnit,
+    derived: Mapping[str, Mapping[str, Sequence[str]]] | None = None,
 ) -> tuple[PooledWindows, dict[str, dict[str, Any]]]:
     """Map every dataset into ``layout`` and stack them (datasets in the given order).
+
+    ``derived`` gives, per dataset, its test-only derived channels (registry
+    ``derived_channels``, D-037), applied before the dataset is placed in the layout.
 
     Returns:
         The pooled windows and, per dataset, a report: channels present and missing, windows,
@@ -306,11 +349,16 @@ def assemble(
     lengths = {windows.n_samples for windows in per_dataset.values()}
     if len(rates) != 1 or len(lengths) != 1:
         raise NeurOSDataError(f"datasets differ in rate {rates} or window length {lengths}")
+    unknown = sorted(set(derived or {}) - set(per_dataset))
+    if unknown:
+        raise NeurOSDataError(f"derived channels given for datasets not assembled: {unknown}")
     for dataset, windows in per_dataset.items():
         if set(windows.datasets) != {dataset}:
             raise NeurOSDataError(
                 f"windows given for {dataset} hold {sorted(set(windows.datasets))}"
             )
+        mapping = (derived or {}).get(dataset, {})
+        windows = derive_channels(windows, mapping)
         x, present, references = to_layout(
             windows, layout, reference=reference, alignment=alignment, unit=unit
         )
@@ -320,6 +368,7 @@ def assemble(
         reports[dataset] = {
             "channels_present": [ch for ch in layout if ch in windows.ch_names],
             "channels_missing": [ch for ch in layout if ch not in windows.ch_names],
+            "derived_channels": {target: list(group) for target, group in mapping.items()},
             "n_windows": len(windows),
             "n_people": len(windows.people),
             "label_counts": windows.label_counts(),

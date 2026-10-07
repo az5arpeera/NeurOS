@@ -158,14 +158,22 @@ def test_cli_e1_refuses_a_dataset_the_layout_cant_hold_before_loading(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # 6 Oct: E1 stopped at assembly, after all its data preparation, because Shin2017A's 10-5
-    # cap shares only Cz with the motor strip (Q27). The registry says so up front.
+    # cap shared only Cz with the motor strip (Q27). The registry says so up front. Since D-037
+    # Shin2017A derives C3/C4, so the test removes that profile to recreate the misfit.
     pytest.importorskip("torch")
+    import dataclasses
+    from types import MappingProxyType
+
     from neuros.data import registry
 
     def no_moabb(*args: object, **kwargs: object) -> None:
         raise AssertionError("E1 reached MOABB: the layout check came too late")
 
     monkeypatch.setattr(registry, "moabb_dataset", no_moabb)
+    without_profile = dataclasses.replace(registry.DATASETS["Shin2017A"], derived_channels={})
+    monkeypatch.setattr(
+        registry, "DATASETS", MappingProxyType({**registry.DATASETS, "Shin2017A": without_profile})
+    )
     experiment = tmp_path / "e1_shin.yaml"
     experiment.write_text(
         "name: e1_shin\ntrain_datasets: [BNCI2014_001, PhysionetMI]\n"

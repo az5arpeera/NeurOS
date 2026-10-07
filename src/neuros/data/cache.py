@@ -92,6 +92,8 @@ _DESCRIPTIVE_FIELDS = frozenset(
         "pre_cue_fixation_s",
         "rest_source",
         "subjects",
+        # Applied when windows are placed in a model's layout, after the cache (D-037).
+        "derived_channels",
     }
 )
 

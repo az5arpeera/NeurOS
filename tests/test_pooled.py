@@ -14,6 +14,7 @@ from neuros.eval.pooled import (
     PooledWindows,
     TaskSettings,
     assemble,
+    derive_channels,
     layout_shortfalls,
     plan_tasks,
     report,
@@ -77,6 +78,59 @@ def test_layout_shortfalls_matches_to_layouts_rule_before_loading() -> None:
         layout_shortfalls(channels, ())
     with pytest.raises(NeurOSConfigError, match="repeats"):
         layout_shortfalls(channels, ("C3", "Cz", "C3"))
+
+
+def test_derive_channels_replaces_sources_with_their_mean(
+    three_datasets: dict[str, WindowSet],
+) -> None:
+    windows = three_datasets["SynA"]  # C3, C4, Cz, Pz
+    derived = derive_channels(windows, {"C1": ("C3", "Cz")})
+    assert derived.ch_names == ("C4", "Pz", "C1")
+    c3, cz = windows.ch_names.index("C3"), windows.ch_names.index("Cz")
+    expected = (windows.data[:, c3].astype(np.float64) + windows.data[:, cz]) / 2
+    np.testing.assert_allclose(derived.data[:, 2], expected, rtol=1e-6, atol=1e-6)
+    assert derived.data.dtype == np.float32
+    assert derived.labels == windows.labels
+    assert derive_channels(windows, {}) is windows
+    with pytest.raises(NeurOSDataError, match="lack"):
+        derive_channels(windows, {"C1": ("C3", "FC3")})
+    with pytest.raises(NeurOSDataError, match="already in"):
+        derive_channels(windows, {"Cz": ("C3", "C4")})
+    with pytest.raises(NeurOSDataError, match="more than one"):
+        derive_channels(windows, {"C1": ("C3", "Cz"), "C2": ("Cz", "C4")})
+
+
+def test_assemble_applies_a_datasets_derived_channels(
+    three_datasets: dict[str, WindowSet],
+) -> None:
+    # A cap with only Pz and two "half positions" (stand-ins: C3, C4) gains a derived Cz.
+    sparse = three_datasets["SynA"].pick_channels(["C3", "C4", "Pz"])
+    data = {"SynA": sparse, "SynB": three_datasets["SynB"]}
+    plain, plain_reports = assemble(data, LAYOUT, reference="car", alignment="none", unit="session")
+    pooled, reports = assemble(
+        data,
+        LAYOUT,
+        reference="car",
+        alignment="none",
+        unit="session",
+        derived={"SynA": {"Cz": ("C3", "C4")}},
+    )
+    assert reports["SynA"]["channels_present"] == ["Cz", "Pz"]
+    assert reports["SynA"]["derived_channels"] == {"Cz": ["C3", "C4"]}
+    assert plain_reports["SynA"]["channels_present"] == ["C3", "C4", "Pz"]
+    assert reports["SynB"]["derived_channels"] == {}
+    np.testing.assert_array_equal(
+        pooled.x[pooled.datasets == "SynB"], plain.x[plain.datasets == "SynB"]
+    )
+    with pytest.raises(NeurOSDataError, match="not assembled"):
+        assemble(
+            data,
+            LAYOUT,
+            reference="car",
+            alignment="none",
+            unit="session",
+            derived={"Nope": {"Cz": ("C3", "C4")}},
+        )
 
 
 def test_assemble_stacks_datasets_with_masks(three_datasets: dict[str, WindowSet]) -> None:

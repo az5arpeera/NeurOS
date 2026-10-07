@@ -4,6 +4,20 @@ Newest first. Format: **ID · date · decision** — why · who. Superseded deci
 
 ## Decided
 
+- **D-037 · 2026-10-06 · Shin2017A's montage (Q27): derive C3 and C4 from the half positions around them, for testing only.** Amends §4.3's "no interpolation in v1" for one test-only dataset. · Founders chose option 1 ("yes: i agree with q27"); Claude corrected its geometry before building it
+  - **Why:** Shin2017A's 10-5 cap has no C3 or C4, so on E1's motor strip it matched only Cz. A dataset needs at least 2 of the layout's channels, and E1 stopped on it at assembly (6 Oct).
+  - **The correction (7 Oct, MNE `standard_1005` positions):**
+    - Q27's option 1 said C3 ≈ mean(FCC3h, CCP3h) and C5 ≈ mean(FCC5h, CCP5h). That's wrong. A "3h" position sits halfway between columns 3 and 1, so that pair averages to **C3h**, 19 mm medial of C3 (half an electrode spacing). The "C5" pair lands on C5h the same way.
+    - The mean of **all four** half positions around C3 (FCC3h, CCP3h, FCC5h, CCP5h) lands **2.6 mm** from C3. The right side's four land **1.9 mm** from C4.
+    - So the profile derives C3 and C4 only (not C5/C6), and the motor strip reads **C3, Cz and C4** (BNCI2014-004 also has 3).
+    - A test pins this geometry.
+  - **Applied (`registry.derived_channels`, `pooled.derive_channels`):**
+    - Each derived channel replaces its sources when windows are placed in the model's layout: after filtering, before common average and EA.
+    - That happens after the recording cache, so no cached recording changes, and the field is descriptive for the cache key.
+    - Validation: derived names must be canonical and new; each needs ≥ 2 distinct usable sources; a source feeds one channel only; and a dataset with derived channels must declare a training restriction (test-only).
+    - `configs/e1.yaml` tests Shin2017A again.
+  - **Effect:** Shin2017A (23 development people, cue-free) can be tested by every pooled model. Cue-free test people rise from 50 to 73.
+
 - **D-036 · 2026-10-06 · Yang2025's files are 1000× too small as MOABB reads them: rescale by 1000 when harmonising.** A data-correctness fix of the same kind as D-035, found when E1 stopped on it. · Claude (data layer); **kept by the founders, 6 Oct**
   - **Result:** after the fix, all 153 Yang2025 recordings pass validation (all 153 failed before). E1's second run prepared 41 development people (24,592 cue-free windows) without a stop.
   - **What happened:** E1 (started 5 Oct, 21:16 UTC) prepared PhysionetMI, Dreyer2023, Stieger2021, Lee2019_MI and Cho2017, then stopped at Yang2025's first recording: "every channel's std is below 0.1 µV … the data is probably still in volts". The validation lane failed all 153 Yang2025 recordings the same way. The idle auto-stop then shut the machine down as designed.

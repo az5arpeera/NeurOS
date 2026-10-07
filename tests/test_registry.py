@@ -272,3 +272,44 @@ def test_unit_scale_d035_d036() -> None:
     for bad in (0.0, -1.0, 1e-4, 1e4, float("inf"), float("nan")):
         with pytest.raises(NeurOSConfigError, match="unit_scale"):
             make_spec(unit_scale=bad)
+
+
+def test_shin2017a_derives_c3_c4_from_the_half_positions_around_them_d037() -> None:
+    import mne
+    import numpy as np
+
+    spec = get_spec("Shin2017A")
+    assert set(spec.derived_channels) == {"C3", "C4"}
+    assert not spec.may_train  # a derived montage is test-only (Q27)
+    model = set(spec.model_channels)
+    assert {"C3", "C4", "Cz"} <= model
+    assert not model & {s for group in spec.derived_channels.values() for s in group}
+    # The geometry the decision rests on: each derived channel is the mean of sources that
+    # surround its target (a pair like FCC3h + CCP3h would land on C3h, ~19 mm medial of C3).
+    positions = mne.channels.make_standard_montage("standard_1005").get_positions()["ch_pos"]
+    for target, sources in spec.derived_channels.items():
+        centre = np.mean([positions[s] for s in sources], axis=0)
+        assert np.linalg.norm(centre - positions[target]) < 0.005  # metres
+    pair = np.mean([positions["FCC3h"], positions["CCP3h"]], axis=0)
+    assert np.linalg.norm(pair - positions["C3"]) > 0.015
+
+
+def test_derived_channels_are_validated() -> None:
+    four = ("FC3", "CP3", "C5", "C1")
+    ok = make_spec(derived_channels={"C3h": four}, train_restriction="test-only")
+    assert ok.model_channels[-1] == "C3h"
+    assert not set(four) & set(ok.model_channels)
+    with pytest.raises(NeurOSConfigError, match="already recorded"):
+        make_spec(derived_channels={"C3": ("FC3", "CP3")}, train_restriction="test-only")
+    with pytest.raises(NeurOSConfigError, match="at least 2 distinct"):
+        make_spec(derived_channels={"C3h": ("C1",)}, train_restriction="test-only")
+    with pytest.raises(NeurOSConfigError, match="not usable"):
+        make_spec(derived_channels={"C3h": ("C1", "F7")}, train_restriction="test-only")
+    with pytest.raises(NeurOSConfigError, match="feeds both"):
+        make_spec(
+            derived_channels={"C3h": ("C1", "C3"), "C1h": ("C1", "Cz")},
+            train_restriction="test-only",
+        )
+    with pytest.raises(NeurOSConfigError, match="test-only montage profile"):
+        make_spec(derived_channels={"C3h": ("C1", "C3")})
+    assert all(not spec.derived_channels for key, spec in DATASETS.items() if key != "Shin2017A")

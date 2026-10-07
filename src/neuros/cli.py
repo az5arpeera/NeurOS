@@ -1057,12 +1057,17 @@ def cmd_e1(args: argparse.Namespace) -> int:
         if "cue_only" in experiment.conditions:
             task_epoch(get_spec(key), cue_config.signal)
     layout = _e1_layout(experiment.channels)
-    # Every dataset must share enough of the layout's channels: checked from the registry here,
-    # not at assembly after hours of loading (6 Oct: Shin2017A shares only Cz with the motor
-    # strip, so E1 runs without it until Q27 decides its montage).
+    # Every dataset must share enough of the layout's channels, counting its derived channels
+    # (D-037): checked from the registry here, not at assembly after hours of loading (6 Oct:
+    # E1 stopped at assembly because Shin2017A shared only Cz with the motor strip).
     short = layout_shortfalls(
-        {key: get_spec(key).usable_eeg_channels for key in experiment.datasets}, layout
+        {key: get_spec(key).model_channels for key in experiment.datasets}, layout
     )
+    derived = {
+        key: get_spec(key).derived_channels
+        for key in experiment.datasets
+        if get_spec(key).derived_channels
+    }
     if short:
         details = "; ".join(f"{key} has {have or 'none'}" for key, have in short.items())
         raise NeurOSConfigError(
@@ -1095,6 +1100,7 @@ def cmd_e1(args: argparse.Namespace) -> int:
         reference=experiment.reference,
         alignment=experiment.alignment,
         unit=experiment.alignment_unit,
+        derived=derived,
     )
     pooled.save(work / "task")
     people = pooled.people_by_dataset()
@@ -1112,6 +1118,7 @@ def cmd_e1(args: argparse.Namespace) -> int:
             reference=experiment.reference,
             alignment=experiment.alignment,
             unit=experiment.alignment_unit,
+            derived=derived,
         )
         cue_pooled.save(work / "cue_only")
         folders["cue_only"] = work / "cue_only"

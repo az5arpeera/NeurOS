@@ -30,26 +30,8 @@ Founder (3 Oct): "TBD on specific roles". **Proposal** (in the [plan](plan/road-
 - **Founder:** data pipeline, engine/SDK, evaluation harness, outreach, the YC application.
 - **Cofounder:** model training and experiments.
 
-### Q27. Shin2017A's montage (raised 4 Oct, D-033)
-**Why:** Shin2017A's cap samples the motor strip at 10-5 half positions (FCC3h, CCP3h, …) and has no C3 or C4.
-- The model's input (C-core) shares only 6 of its 26 positions with it: F3, F4, Cz, P3, Pz and P4.
-- As things stand, the model would read it like a 6-channel headset *without* the channels that carry left vs right. A test on it would say little.
-
-**Options:**
-1. **Two-neighbour averages onto C-core positions (recommended).**
-   - C3 ≈ mean(FCC3h, CCP3h) and C5 ≈ mean(FCC5h, CCP5h); C4 and C6 likewise. Each pair sits half a step in front of and behind its target.
-   - Test-only, recorded as a montage profile, and never used in training.
-   - It replaces 8 channels with 4, so covariances stay full rank. (The worry about interpolation in §4.3 is rank deficiency, when an interpolated channel sits next to its own sources.)
-2. **Nearest-position relabelling** (FCC3h → C3). Simpler, but it silently shifts each electrode by about 1.5 cm.
-3. **Leave it.** Use Shin2017A only in internal diagnostics (the cue audit), not as a test of the model.
-
-**6 Oct: now blocking Shin2017A's E1 numbers.** E1's input is the motor strip (20 channels, D-031/D-034), and Shin2017A shares only **Cz** with it, while a dataset needs at least 2 of the layout's channels. E1 stopped on this at assembly (after 38 minutes of data preparation), so it now runs without Shin2017A (`configs/e1.yaml`), and `neuros e1` refuses such a dataset before loading anything.
-- That run decides nothing here. Under option 1 or 2, Shin2017A would have C3/C4/C5/C6 equivalents on the strip, and its cue-free test numbers would come from a follow-up run.
-- For comparison, every other E1 dataset has 16–20 of the 20 channels, except BNCI2014-004, which has 3 (C3, Cz, C4).
-
-**Rec:** 1. It's an exception to "no interpolation in v1" (§4.3), so it needs your decision.
-
-**Related, for week 3:** Shin2017A's download also holds **dataset B** (29 people, rest vs mental arithmetic, GPL-3.0). It's a candidate second dataset for testing E6's mental-state head across datasets, with EEGMAT training it.
+### Note: Shin2017A's dataset B (week 3)
+Shin2017A's download also holds **dataset B** (29 people, rest vs mental arithmetic, GPL-3.0). It's a candidate second dataset for testing E6's mental-state head across datasets, with EEGMAT training it.
 
 ### Optional: email g.tec
 Ask about a student/startup price for the Unicorn (a second headset for the hardware-agnostic story).
@@ -79,6 +61,7 @@ Ask about a student/startup price for the Unicorn (a second headset for the hard
 
 | Date | Q | Answer | Decision |
 |---|---|---|---|
+| 2026-10-06 | Q27: Shin2017A's montage | **Option 1, corrected.** Averages of the recorded positions around each missing one, test-only. Checking the geometry showed that two-neighbour pairs land on C3h/C5h (about 19 mm off), so C3 and C4 are each the mean of their four surrounding half positions (2.6 and 1.9 mm off). The motor strip reads C3, Cz and C4 | [D-037](decisions/decision-log.md) |
 | 2026-10-04 | Q26: add cue-free datasets | **Approved, all three.** Yang2025 trains and tests (cue-free); Shin2017A tests only (GPL-3.0); GuttmannFlury2025 is a gaze diagnostic. The locked test set grows to v2 (+22 people, v1 unchanged). Brandl2020, HefmiIch2025 and Chang2025 stay out (non-commercial licences) | [D-033](decisions/decision-log.md) |
 | 2026-10-04 | Q25: cue-controlled evaluation windows | **Adopted.** Every motor-imagery result uses windows that start after the class has left the screen (train and test), next to a cue-only control; datasets whose cue stays up carry a flag. Prompted by E0: 75.0% with the arrow on screen, 60.6% after it | [D-030](decisions/decision-log.md) |
 | 2026-10-03 | Q21: architecture sign-off | **Signed off**, including the L0/L1/L2 claim levels and the evaluation protocol | [D-022](decisions/decision-log.md) |

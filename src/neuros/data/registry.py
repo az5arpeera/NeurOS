@@ -119,6 +119,13 @@ class DatasetSpec:
     # Subjects excluded from every use, with the reason (data-quality failures found by
     # validation). They stay declared so splits and reports remain stable and transparent.
     excluded_subjects: Mapping[int, str] = field(default_factory=dict)
+    # A test-only montage profile (Q27 → D-037): layout positions the cap doesn't have, each
+    # estimated as the mean of the recorded channels that surround it, which it replaces.
+    # Shin2017A's 10-5 cap has no C3/C4, but its four half positions around each one average
+    # to within 3 mm of it (standard_1005). Applied when windows are placed in the model's
+    # layout, after the recording cache, so it never changes a cached recording. A dataset
+    # with derived channels may not train a model we ship.
+    derived_channels: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     notes: str = ""
 
     def __post_init__(self) -> None:
@@ -204,6 +211,45 @@ class DatasetSpec:
             raise NeurOSConfigError(f"{self.key}: every excluded channel needs a reason")
         if not self.usable_eeg_channels:
             raise NeurOSConfigError(f"{self.key}: every EEG channel is excluded")
+        self._check_derived_channels()
+
+    def _check_derived_channels(self) -> None:
+        """Derived channels: canonical new positions, each from ≥ 2 usable channels used once."""
+        if not self.derived_channels:
+            return
+        context = DataContext(dataset=self.key)
+        targets = tuple(self.derived_channels)
+        require_canonical(targets, context)
+        shadowed = sorted(set(targets) & set(self.eeg_channels))
+        if shadowed:
+            raise NeurOSConfigError(
+                f"{self.key}: derived channels {shadowed} are already recorded channels"
+            )
+        usable = set(self.usable_eeg_channels)
+        used: dict[str, str] = {}
+        for target, sources in self.derived_channels.items():
+            if len(sources) < 2 or len(set(sources)) != len(sources):
+                raise NeurOSConfigError(
+                    f"{self.key}: derived channel {target} needs at least 2 distinct sources, "
+                    f"got {list(sources)}"
+                )
+            unknown = sorted(set(sources) - usable)
+            if unknown:
+                raise NeurOSConfigError(
+                    f"{self.key}: derived channel {target}'s sources {unknown} are not usable "
+                    "EEG channels"
+                )
+            for source in sources:
+                if source in used:
+                    raise NeurOSConfigError(
+                        f"{self.key}: channel {source} feeds both {used[source]} and {target}"
+                    )
+                used[source] = target
+        if self.train_restriction is None:
+            raise NeurOSConfigError(
+                f"{self.key}: derived channels are a test-only montage profile (Q27, D-037); "
+                "declare train_restriction"
+            )
 
     def _check_subgroups(self) -> None:
         if not self.subgroups:
@@ -241,6 +287,14 @@ class DatasetSpec:
     def usable_eeg_channels(self) -> tuple[str, ...]:
         """Declared EEG channels minus excluded ones, in declaration order: the model inputs."""
         return tuple(ch for ch in self.eeg_channels if ch not in self.excluded_channels)
+
+    @property
+    def model_channels(self) -> tuple[str, ...]:
+        """What a model's layout can read from this dataset: the usable channels, with each
+        derived channel's sources replaced by the derived channel (appended, in mapping order)."""
+        sources = {source for group in self.derived_channels.values() for source in group}
+        kept = tuple(ch for ch in self.usable_eeg_channels if ch not in sources)
+        return kept + tuple(self.derived_channels)
 
     @property
     def may_train(self) -> bool:
@@ -658,14 +712,22 @@ _SPECS: tuple[DatasetSpec, ...] = (
             "we ship (D-033)"
         ),
         licence_acceptance="GPL-3.0 (https://www.gnu.org/licenses/gpl-3.0.txt)",
+        # D-037 (Q27): no C3/C4 on this 10-5 cap. Each is the mean of the four half positions
+        # around it: 2.6 mm from C3 and 1.9 mm from C4 in MNE's standard_1005 positions. (A pair
+        # such as FCC3h + CCP3h lands on C3h, 19 mm medial of C3, so pairs would mislabel.)
+        derived_channels={
+            "C3": ("FCC3h", "CCP3h", "FCC5h", "CCP5h"),
+            "C4": ("FCC4h", "CCP4h", "FCC6h", "CCP6h"),
+        },
         unverified=("cue_offset_s", "eeg_channels", "non_eeg_channels"),
         notes=(
             "3 MI sessions x 20 trials (10 per class): 60 trials per person, 10 s of imagery "
             "each. 200 Hz release; MOABB loads the 'with occular artifact' (uncleaned) files. "
-            "Only 6 of the 26 C-core channels (F3, F4, Cz, P3, Pz, P4), and no C3 or C4: the "
-            "model can't read it without a montage decision (Q27). Six zips, 6.26 GB, which "
-            "also hold dataset B (mental arithmetic vs rest, a candidate for testing E6). The "
-            "paper is paywalled: the timing comes from MOABB's account of it."
+            "Only 6 of the 26 C-core channels (F3, F4, Cz, P3, Pz, P4) were recorded, and no C3 "
+            "or C4; D-037 derives C3 and C4 from the surrounding half positions for testing, so "
+            "the motor strip reads C3, Cz and C4. Six zips, 6.26 GB, which also hold dataset B "
+            "(mental arithmetic vs rest, a candidate for testing E6). The paper is paywalled: "
+            "the timing comes from MOABB's account of it."
         ),
     ),
     DatasetSpec(
