@@ -403,6 +403,13 @@ _GUTTMANNFLURY2025_DEFECTIVE = (
     "PO3", "F1", "POz", "Oz", "F3", "O2", "P8", "PO7", "FC3", "P7", "P4",
 )  # fmt: skip
 
+# ZhenTec NT1 (Liu2024): 29 semi-dry (saline sponge) EEG electrodes at 10-10 positions. The
+# files use T3/T4/T5/T6, which normalise to T7/T8/P7/P8. Reference CPz (not recorded).
+_LIU2024_CHANNELS = (
+    "Fp1", "Fp2", "F7", "F3", "Fz", "F4", "F8", "FT7", "FC3", "FCz", "FC4", "FT8", "T7", "C3",
+    "Cz", "C4", "T8", "TP7", "CP3", "CP4", "TP8", "P7", "P3", "Pz", "P4", "P8", "O1", "Oz", "O2",
+)  # fmt: skip
+
 _MOABB_SOURCE = "MOABB 1.7.2 source (hard-coded channel list), copied 2026-10-03"
 _MOABB_SOURCE_D033 = "MOABB 1.7.2 source (hard-coded channel list), copied 2026-10-04"
 
@@ -771,6 +778,42 @@ _SPECS: tuple[DatasetSpec, ...] = (
             "The original trigger codes are trial numbers; the re-host encodes 1 = left, "
             "2 = right (to check: 20 + 20 per session). C-core coverage 23 of 26 (F3, FC3 and "
             "P4 are among the defective channels)."
+        ),
+    ),
+    DatasetSpec(
+        key="Liu2024",
+        title="Liu et al. 2024, acute stroke motor imagery on a wireless semi-dry headset",
+        role="diagnostic",
+        paradigm="motor_imagery",
+        moabb_class="Liu2024",
+        subjects=tuple(range(1, 51)),
+        eeg_channels=_LIU2024_CHANNELS,
+        non_eeg_channels=("HEOL", "VEOR"),
+        native_sfreq=500.0,
+        # MOABB's marker is the imagery stage's start (interval [0, 4]), when a video of a hand
+        # gripping a ball starts and plays for the whole 4 s. The instruction stage before it
+        # (its length isn't in MOABB) already names the hand, so the true cue is earlier.
+        cue_offset_s=0.0,
+        task_s=4.0,
+        class_on_screen_s=4.0,
+        pre_cue_fixation_s=None,
+        rest_source="none",
+        licence="CC BY 4.0 (Figshare record 21679035, read through the Figshare API 2026-10-07)",
+        url="https://doi.org/10.6084/m9.figshare.21679035.v5",
+        channels_source="MOABB 1.7.2 dataset metadata (sensors list), copied 2026-10-07",
+        train_restriction=(
+            "test-only (D-038): the consumer-grade hardware transfer test; acute stroke patients, "
+            "a different population from every training dataset"
+        ),
+        unverified=("cue_offset_s", "class_on_screen_s", "eeg_channels"),
+        notes=(
+            "50 acute stroke patients (1-30 days after stroke), one session of 40 trials "
+            "alternating left/right hand grip imagery (20 each), 8-s trials: instruction, 4-s "
+            "imagery with a gripping video, break. Wireless semi-dry headset (3% NaCl sponges), "
+            "500 Hz, plus 2 EOG. Not cue-free: the video plays through the imagery. MOABB notes "
+            "motion artefacts in subjects 4, 5, 13, 14, 18, 24, 28, 33, 42, 43, 47, 48, 49. "
+            "MOABB downloads edffile.zip (463 MB, Figshare MD5 published) plus two small TSVs. "
+            "Motor-strip coverage 7 of 20 (FC3, FC4, C3, Cz, C4, CP3, CP4)."
         ),
     ),
 )

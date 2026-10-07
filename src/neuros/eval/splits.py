@@ -15,6 +15,9 @@ GuttmannFlury2025), drawn the same way before any of their data was downloaded. 
 ``locked_test_v2.yaml``, that names v1 and its digest; ``extends_check`` proves every v1 dataset
 keeps exactly its v1 people. v1 is never edited.
 
+**Version 3 (D-038, 7 Oct)** adds 20% of Liu2024 (the consumer-grade hardware test), drawn
+the same way before any of its data was downloaded; ``locked_test_v3.yaml`` names v2.
+
 Determinism: each dataset draws from its own RNG, seeded by hashing ``seed:dataset``. Adding a
 dataset therefore never changes another dataset's test people.
 
@@ -52,10 +55,11 @@ LOCKED_TEST_DATASETS: Mapping[int, tuple[str, ...]] = MappingProxyType(
     {
         1: _V1_DATASETS,
         2: (*_V1_DATASETS, "Yang2025", "Shin2017A", "GuttmannFlury2025"),
+        3: (*_V1_DATASETS, "Yang2025", "Shin2017A", "GuttmannFlury2025", "Liu2024"),
     }
 )
 # The decision that created each version.
-LOCKED_TEST_DECISIONS: Mapping[int, str] = MappingProxyType({1: "D-026", 2: "D-033"})
+LOCKED_TEST_DECISIONS: Mapping[int, str] = MappingProxyType({1: "D-026", 2: "D-033", 3: "D-038"})
 LOCKED_TEST_VERSION = max(LOCKED_TEST_DATASETS)
 # The committed file of each version (relative to the repository root).
 LOCKED_TEST_FILES: Mapping[int, str] = MappingProxyType(

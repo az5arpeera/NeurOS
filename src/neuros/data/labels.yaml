@@ -103,3 +103,7 @@ event_maps:
   GuttmannFlury2025:
     left_hand: left_hand
     right_hand: right_hand
+  # D-038 (7 Oct): test-only, consumer-grade hardware (wireless semi-dry headset).
+  Liu2024:
+    left_hand: left_hand
+    right_hand: right_hand

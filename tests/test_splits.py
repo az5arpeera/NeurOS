@@ -29,7 +29,8 @@ from .conftest import REPO_ROOT
 
 SPLITS = REPO_ROOT / "configs" / "splits"
 COMMITTED_V1 = SPLITS / "locked_test_v1.yaml"
-COMMITTED = SPLITS / "locked_test_v2.yaml"
+COMMITTED_V2 = SPLITS / "locked_test_v2.yaml"
+COMMITTED = SPLITS / "locked_test_v3.yaml"
 V1_COUNTS = {
     "PhysionetMI": 22,
     "Dreyer2023": 17,
@@ -39,14 +40,19 @@ V1_COUNTS = {
     "EEGMAT": 7,
 }
 # D-033 (4 Oct): round(20%) of 51, 29 and 31 people.
-EXPECTED_COUNTS = {**V1_COUNTS, "Yang2025": 10, "Shin2017A": 6, "GuttmannFlury2025": 6}
+V2_COUNTS = {**V1_COUNTS, "Yang2025": 10, "Shin2017A": 6, "GuttmannFlury2025": 6}
+# D-038 (7 Oct): round(20%) of Liu2024's 50 people.
+EXPECTED_COUNTS = {**V2_COUNTS, "Liu2024": 10}
 
 
 def test_counts_are_twenty_percent_per_dataset() -> None:
     split = make_locked_test_set()
-    assert split.version == LOCKED_TEST_VERSION == 2
+    assert split.version == LOCKED_TEST_VERSION == 3
     assert {k: len(v) for k, v in split.test.items()} == EXPECTED_COUNTS
-    assert sum(EXPECTED_COUNTS.values()) == 101  # v1's 79 + 22 from D-033's datasets
+    assert sum(EXPECTED_COUNTS.values()) == 111  # v2's 101 + 10 from Liu2024 (D-038)
+    v2 = make_locked_test_set(version=2)
+    assert {k: len(v) for k, v in v2.test.items()} == V2_COUNTS
+    assert sum(V2_COUNTS.values()) == 101  # v1's 79 + 22 from D-033's datasets
     v1 = make_locked_test_set(version=1)
     assert {k: len(v) for k, v in v1.test.items()} == V1_COUNTS
     assert sum(V1_COUNTS.values()) == 79  # 72 motor-imagery + 7 EEGMAT people
@@ -97,15 +103,17 @@ def test_datasets_are_drawn_independently() -> None:
 
 
 def test_committed_files_match_recomputation() -> None:
-    for version, path in ((1, COMMITTED_V1), (2, COMMITTED)):
+    for version, path in ((1, COMMITTED_V1), (2, COMMITTED_V2), (3, COMMITTED)):
         stored = load_locked_test_set(path)
         recomputed = make_locked_test_set(version=version)
         assert stored.version == version
         assert dict(stored.test) == dict(recomputed.test)
         assert stored.digest == recomputed.digest
         assert stored.seed == LOCKED_TEST_SEED
-    v2 = load_locked_test_set(COMMITTED)
+    v2 = load_locked_test_set(COMMITTED_V2)
     assert v2.extends == ("locked_test_v1.yaml", load_locked_test_set(COMMITTED_V1).digest)
+    v3 = load_locked_test_set(COMMITTED)
+    assert v3.extends == ("locked_test_v2.yaml", v2.digest)
 
 
 def test_v2_detects_an_edited_v1(tmp_path: Path) -> None:
@@ -119,7 +127,7 @@ def test_v2_detects_an_edited_v1(tmp_path: Path) -> None:
     save_locked_test_set(forged, tmp_path / "locked_test_v1.yaml")
     load_locked_test_set(tmp_path / "locked_test_v1.yaml")  # self-consistent
     copy = tmp_path / "locked_test_v2.yaml"
-    copy.write_text(COMMITTED.read_text(encoding="utf-8"), encoding="utf-8")
+    copy.write_text(COMMITTED_V2.read_text(encoding="utf-8"), encoding="utf-8")
     with pytest.raises(NeurOSSplitError, match=r"extends locked_test_v1\.yaml"):
         load_locked_test_set(copy)
 

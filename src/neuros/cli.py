@@ -57,8 +57,9 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("neuros")
 
-# The current locked test set (D-033: v2 extends D-026's v1 with the cue-free datasets).
-DEFAULT_SPLIT_PATH = Path("configs/splits/locked_test_v2.yaml")
+# The current locked test set: v3 (D-038) = v2 (D-033: v1 of D-026 plus the cue-free datasets)
+# plus Liu2024. tests/test_splits.py checks this is the current version's file.
+DEFAULT_SPLIT_PATH = Path("configs/splits/locked_test_v3.yaml")
 
 
 # ---------------------------------------------------------------------- helpers

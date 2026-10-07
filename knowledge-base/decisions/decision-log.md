@@ -4,6 +4,17 @@ Newest first. Format: **ID · date · decision** — why · who. Superseded deci
 
 ## Decided
 
+- **D-038 · 2026-10-07 · Add Liu2024 as a test-only consumer-grade hardware dataset; locked test set v3; Stieger2021's later sessions wait for the cue test.** · Founders approved the download and chose to wait on Stieger; Claude set the dataset's role and drew v3 by the existing rule
+  - **Why Liu2024:** it's the first public motor-imagery set on non-research hardware we can use commercially ([research](../research/consumer-headset-mi-datasets.md)).
+    - 50 acute stroke patients (1–30 days after stroke), left vs right hand grip imagery.
+    - ZhenTec NT1 wireless headset with semi-dry saline-sponge electrodes, 29 channels; 7 of the 20 motor-strip channels.
+    - CC BY 4.0, read through the Figshare API.
+    - MOABB 1.7.2 loads it; the download is 463 MB, and Figshare publishes its MD5.
+  - **Test-only** (`train_restriction`): it measures hardware transfer, and its people (stroke patients) differ from every training population.
+  - **Not cue-free:** a video of the hand gripping plays through the 4-s imagery, so its numbers always need the cue-only control. MOABB's marker is the video onset; the instruction before it is unverified.
+  - **Locked test set v3** (`configs/splits/locked_test_v3.yaml`): v2 plus 20% of Liu2024 (people 10, 11, 17, 18, 23, 25, 29, 40, 41, 44), drawn with the same seed and method before any of its data was downloaded. 111 people in all; v2's people are unchanged (checked). The CLI's default split is now v3.
+  - **Stieger2021 sessions 3–11** (299.4 GB): not downloaded until the cue test (E1 without the cue-driven datasets) shows whether more of its cued data helps cue-free accuracy.
+
 - **D-037 · 2026-10-06 · Shin2017A's montage (Q27): derive C3 and C4 from the half positions around them, for testing only.** Amends §4.3's "no interpolation in v1" for one test-only dataset. · Founders chose option 1 ("yes: i agree with q27"); Claude corrected its geometry before building it
   - **Why:** Shin2017A's 10-5 cap has no C3 or C4, so on E1's motor strip it matched only Cz. A dataset needs at least 2 of the layout's channels, and E1 stopped on it at assembly (6 Oct).
   - **The correction (7 Oct, MNE `standard_1005` positions):**

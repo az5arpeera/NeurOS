@@ -35,7 +35,7 @@ def test_registry_shape() -> None:
     assert keys_with_role("brain_state") == ("EEGMAT",)
     # D-033 (4 Oct): the cue-free and gaze-diagnostic datasets.
     assert keys_with_role("cue_free") == ("Yang2025", "Shin2017A")
-    assert keys_with_role("diagnostic") == ("GuttmannFlury2025",)
+    assert keys_with_role("diagnostic") == ("GuttmannFlury2025", "Liu2024")  # + D-038
     # ~364 core people (D-011) + 18 literature + 36 EEGMAT + 51 + 29 + 31 (D-033).
     assert sum(DATASETS[k].n_subjects for k in keys_with_role("core")) == 364
     assert [DATASETS[k].n_subjects for k in ("Yang2025", "Shin2017A", "GuttmannFlury2025")] == [
@@ -55,13 +55,18 @@ def test_locked_test_datasets_exclude_bnci() -> None:
         "Yang2025",
         "Shin2017A",
         "GuttmannFlury2025",
+        "Liu2024",  # D-038: locked test set v3
     }
 
 
 def test_training_restrictions_d033() -> None:
     # Shin2017A is GPL-3.0 (testing only until the founders decide); GuttmannFlury2025 is a
     # diagnostic. Everything else may train a model we ship.
-    assert [k for k, s in DATASETS.items() if not s.may_train] == ["Shin2017A", "GuttmannFlury2025"]
+    assert [k for k, s in DATASETS.items() if not s.may_train] == [
+        "Shin2017A",
+        "GuttmannFlury2025",
+        "Liu2024",  # D-038: test-only
+    ]
     assert get_spec("Shin2017A").use == "test"
     assert get_spec("GuttmannFlury2025").use == "diagnostic"
     assert get_spec("Yang2025").use == "train"

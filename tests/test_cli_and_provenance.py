@@ -35,12 +35,12 @@ def test_cli_montage(capsys: pytest.CaptureFixture[str]) -> None:
 
 def test_cli_split_check_and_write(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     splits = REPO_ROOT / "configs" / "splits"
-    v1, v2 = splits / "locked_test_v1.yaml", splits / "locked_test_v2.yaml"
-    assert main(["split", "--path", str(v2)]) == 0  # the current version (D-033)
+    v1, v3 = splits / "locked_test_v1.yaml", splits / "locked_test_v3.yaml"
+    assert main(["split", "--path", str(v3)]) == 0  # the current version (D-038)
     out = capsys.readouterr().out
-    assert "locked test set v2 (D-033)" in out
+    assert "locked test set v3 (D-038)" in out
     assert "integrity OK; matches" in out
-    assert "total: 101 people" in out
+    assert "total: 111 people" in out
     assert main(["split", "--split-version", "1", "--path", str(v1)]) == 0
     assert "total: 79 people" in capsys.readouterr().out
     assert main(["split", "--path", str(v1)]) == 1  # v1's file isn't the current version
