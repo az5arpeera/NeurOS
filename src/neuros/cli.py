@@ -49,6 +49,9 @@ from neuros.errors import NeurOSError
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    import numpy as np
+    from numpy.typing import NDArray
+
     from neuros.config.experiment import LosoExperimentConfig, PooledExperimentConfig
     from neuros.data.cache import RecordingCache
     from neuros.data.recording import Recording
@@ -998,6 +1001,91 @@ def _e1_windows(
     return per_dataset, loaded
 
 
+def _e1_training_windows(
+    experiment: PooledExperimentConfig,
+    config: DataConfig,
+    task_windows: Mapping[str, WindowSet],
+    cache: RecordingCache | None,
+) -> tuple[dict[str, WindowSet], dict[str, NDArray[np.bool_]], dict[str, Any]]:
+    """D-039's training windows for every trainable dataset: crops and extra classes.
+
+    The people are exactly those of ``task_windows`` (the development windows already loaded).
+    A dataset that gains neither crops nor classes reuses its task windows as they are.
+
+    Returns:
+        ``(windows per dataset, primary flags per dataset, report per dataset)``.
+
+    Raises:
+        NeurOSConfigError: if the experiment has no training_windows section, or an extra
+            label isn't in the vocabulary.
+        NeurOSDataError: see ``subject_training_windows``.
+    """
+    import numpy as np
+
+    from neuros.data.download import loading_dataset
+    from neuros.data.registry import get_spec, task_epoch, training_crop_starts
+    from neuros.data.training_windows import subject_training_windows
+    from neuros.data.vocabulary import default_vocabulary
+    from neuros.errors import NeurOSConfigError
+    from neuros.signal.windows import WindowSet
+
+    settings = experiment.training_windows
+    if settings is None:
+        raise NeurOSConfigError("the experiment has no training_windows section")
+    vocab = default_vocabulary()
+    unknown = sorted(set(settings.extra_labels) - set(vocab.labels))
+    if unknown:
+        raise NeurOSConfigError(f"extra_labels {unknown} are not vocabulary labels")
+    per_dataset: dict[str, WindowSet] = {}
+    primary: dict[str, NDArray[np.bool_]] = {}
+    report: dict[str, Any] = {}
+    print("training windows (D-039):", flush=True)
+    for key in experiment.train_datasets:
+        spec = get_spec(key)
+        epoch = task_epoch(spec, config.signal)
+        starts = (
+            training_crop_starts(spec, config.signal, settings.crop_stride_s)
+            if settings.crop_stride_s is not None
+            else (epoch.start_s,)
+        )
+        own = set(vocab.event_maps[key].values())
+        labels = [label for label in experiment.train_labels if label in own]
+        extra = [label for label in labels if label not in experiment.labels]
+        windows = task_windows[key]
+        if len(starts) == 1 and not extra:  # nothing to add: the task windows as they are
+            per_dataset[key] = windows
+            primary[key] = np.ones(len(windows), dtype=bool)
+            report[key] = {"crop_starts_s": list(starts), "labels": labels, "reused": True}
+            print(f"{key}: as tested ({len(windows)} windows)", flush=True)
+            continue
+        dataset = loading_dataset(spec, config.data_dir)
+        sets, flags, summaries = [], [], []
+        for subject in dict.fromkeys(windows.subjects.tolist()):
+            cut, first, summary = subject_training_windows(
+                spec, subject, vocab, config, labels, starts, dataset=dataset, cache=cache
+            )
+            sets.append(cut)
+            flags.append(first)
+            summaries.append(summary)
+        per_dataset[key] = WindowSet.concat(sets)
+        primary[key] = np.concatenate(flags)
+        report[key] = {
+            "crop_starts_s": list(starts),
+            "labels": labels,
+            "reused": False,
+            "n_trials": int(primary[key].sum()),
+            "n_windows": len(per_dataset[key]),
+            "label_counts": per_dataset[key].label_counts(),
+            "per_subject": summaries,
+        }
+        print(
+            f"{key}: {report[key]['n_trials']} trials -> {len(per_dataset[key])} windows "
+            f"(crops at {', '.join(f'{s:g}' for s in starts)} s; classes {', '.join(labels)})",
+            flush=True,
+        )
+    return per_dataset, primary, report
+
+
 def _e1_warmup_sets(
     experiment: PooledExperimentConfig,
     config: DataConfig,
@@ -1181,6 +1269,26 @@ def cmd_e1(args: argparse.Namespace) -> int:
         warmup_report = _e1_warmup_sets(
             experiment, config, task_windows, layout, people, cache, work, folders
         )
+    training_report: dict[str, Any] | None = None
+    if experiment.training_windows is not None:  # D-039: aligned by the task windows' references
+        train_windows, primary, training_report = _e1_training_windows(
+            experiment, config, task_windows, cache
+        )
+        train_pooled, train_assembly = assemble(
+            train_windows,
+            layout,
+            reference=experiment.reference,
+            alignment=experiment.alignment,
+            unit=experiment.alignment_unit,
+            derived={key: m for key, m in derived.items() if key in train_windows},
+            references_from={key: task_windows[key] for key in train_windows},
+            primary=primary,
+        )
+        train_pooled.save(work / "train")
+        folders["train"] = work / "train"
+        for key, entry in train_assembly.items():  # the references are the task windows'
+            training_report[key]["n_people"] = entry["n_people"]
+        del train_windows, train_pooled, primary
     del task_windows, pooled  # workers map the saved arrays
     if "cue_only" in experiment.conditions:
         print("cue-only control windows:", flush=True)
@@ -1209,6 +1317,7 @@ def cmd_e1(args: argparse.Namespace) -> int:
         deterministic=deterministic,
         threads=args.threads,
         extra_kinds=tuple(warmup_report["kinds"]) if warmup_report else (),
+        train_classes=experiment.train_labels if training_report is not None else (),
     )
     payload: dict[str, Any] = {
         "complete": False,
@@ -1230,6 +1339,8 @@ def cmd_e1(args: argparse.Namespace) -> int:
     }
     if warmup_report is not None:
         payload["warmup"] = warmup_report
+    if training_report is not None:
+        payload["training_windows"] = training_report
 
     def save() -> None:
         tmp = out.with_suffix(".json.tmp")
@@ -1249,6 +1360,7 @@ def cmd_e1(args: argparse.Namespace) -> int:
             folds=experiment.folds,
             validation_fraction=experiment.validation_fraction,
             seed=seed,
+            train_data="train" if training_report is not None else None,
         )
         print(f"seed {seed}: {len(tasks)} models on {args.workers} worker(s)", flush=True)
         save()

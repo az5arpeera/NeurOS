@@ -35,12 +35,20 @@ class TensorData:
         y: ``[n]`` int64 class indices into ``classes``.
         people: ``dataset:subject`` per window (for per-person metrics and the sampler).
         classes: class names; index i is logit i.
+        allowed: optional ``[n, len(classes)]`` bool: the classes each window competes among
+            (D-039's extra classes: a window's softmax runs over its own dataset's classes;
+            validation and test windows over the scored labels only). None = every class.
+        primary: optional ``[n]`` bool: True for one window per trial, False for the extra
+            training crops of a trial (D-039). An epoch counts primary windows, so crops
+            don't add steps. None = every window is primary.
     """
 
     x: torch.Tensor
     y: torch.Tensor
     people: tuple[str, ...]
     classes: tuple[str, ...]
+    allowed: torch.Tensor | None = None
+    primary: torch.Tensor | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.x, torch.Tensor) or self.x.dim() != 3:
@@ -60,9 +68,35 @@ class TensorData:
             raise NeurOSDataError(f"class indices must lie in [0, {len(self.classes)})")
         if len(self.people) != n:
             raise NeurOSDataError(f"{n} windows but {len(self.people)} person ids")
+        if self.allowed is not None:
+            mask = self.allowed
+            if not isinstance(mask, torch.Tensor) or mask.dtype != torch.bool:
+                raise NeurOSDataError("allowed must be a bool tensor")
+            if mask.shape != (n, len(self.classes)):
+                raise NeurOSDataError(
+                    f"allowed must be [{n}, {len(self.classes)}], got {tuple(mask.shape)}"
+                )
+            # Every window must be allowed its own class, and compete with at least one other:
+            # a softmax over one class is constant and teaches nothing.
+            if not bool(mask[torch.arange(n), self.y].all()):
+                raise NeurOSDataError("a window's own class is masked out (allowed)")
+            if int(mask.sum(dim=1).min()) < 2:
+                raise NeurOSDataError("every window must be allowed at least 2 classes")
+        if self.primary is not None:
+            if not isinstance(self.primary, torch.Tensor) or self.primary.dtype != torch.bool:
+                raise NeurOSDataError("primary must be a bool tensor")
+            if self.primary.shape != (n,):
+                raise NeurOSDataError(f"primary must be [{n}], got {tuple(self.primary.shape)}")
+            if not bool(self.primary.any()):
+                raise NeurOSDataError("no primary window: every trial needs one")
 
     def __len__(self) -> int:
         return int(self.x.shape[0])
+
+    @property
+    def n_primary(self) -> int:
+        """Windows that count towards an epoch: one per trial (all, without ``primary``)."""
+        return len(self) if self.primary is None else int(self.primary.sum())
 
     @property
     def n_channels(self) -> int:

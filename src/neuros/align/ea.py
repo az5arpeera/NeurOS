@@ -26,6 +26,7 @@ That's expected and tested.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
 
@@ -255,6 +256,37 @@ def align_groups(
         aligned[rows] = apply_alignment(windows.data[rows], reference)
         references[group] = reference
     return windows.with_data(aligned), references
+
+
+def align_with_references(
+    windows: WindowSet,
+    references: Mapping[str, AlignmentReference],
+    *,
+    unit: AlignmentUnit,
+) -> WindowSet:
+    """Align each group's windows with a reference computed elsewhere, keyed as ``align_groups``
+    keys them (``dataset:subject`` or ``dataset:subject/session``).
+
+    D-039's training windows (crops, extra classes) use the references of the same session's
+    *test* windows, so a person's session is whitened identically whichever window is drawn,
+    and the test windows keep exactly E1's alignment.
+
+    Raises:
+        NeurOSConfigError: on an unknown unit.
+        NeurOSDataError: if a group has no reference, or the channel counts differ.
+    """
+    group_of = np.array(alignment_groups(windows, unit))
+    missing = sorted(set(group_of.tolist()) - set(references))
+    if missing:
+        raise NeurOSDataError(
+            f"no alignment reference for {len(missing)} group(s), e.g. {missing[:3]}: every "
+            "session with training windows needs test windows to align them"
+        )
+    aligned = np.empty_like(windows.data)
+    for group in dict.fromkeys(group_of.tolist()):
+        rows = np.flatnonzero(group_of == group)
+        aligned[rows] = apply_alignment(windows.data[rows], references[group])
+    return windows.with_data(aligned)
 
 
 def align_per_person(

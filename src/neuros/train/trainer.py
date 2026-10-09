@@ -136,6 +136,41 @@ def predict_logits(model: nn.Module, x: torch.Tensor, batch_size: int) -> torch.
     return torch.cat(parts)
 
 
+def masked_cross_entropy(
+    logits: torch.Tensor,
+    target: torch.Tensor,
+    allowed: torch.Tensor,
+    *,
+    label_smoothing: float = 0.0,
+) -> torch.Tensor:
+    """Mean cross-entropy where each window's softmax runs over its ``allowed`` classes only.
+
+    D-039's extra classes: a PhysionetMI window competes among PhysionetMI's classes, and is
+    never pushed away from "tongue", which PhysionetMI doesn't have. Label smoothing spreads
+    its mass ε over the allowed classes only (PyTorch's spreads it over every class, which
+    with masked logits would be an infinite loss). With every class allowed this equals
+    ``F.cross_entropy(logits, target, label_smoothing=ε)`` (tested).
+
+    Args:
+        logits: ``[B, C]``. target: ``[B]`` class indices. allowed: ``[B, C]`` bool, with each
+            window's own class allowed (``TensorData`` checks it).
+    """
+    if not 0.0 <= label_smoothing < 1.0:
+        raise NeurOSConfigError(f"label_smoothing must be in [0, 1), got {label_smoothing}")
+    if allowed.shape != logits.shape or target.shape != logits.shape[:1]:
+        raise NeurOSDataError(
+            f"logits {tuple(logits.shape)}, target {tuple(target.shape)} and allowed "
+            f"{tuple(allowed.shape)} don't match"
+        )
+    log_p = F.log_softmax(logits.masked_fill(~allowed, float("-inf")), dim=1)
+    nll = -log_p.gather(1, target[:, None]).squeeze(1)
+    if label_smoothing == 0.0:
+        return nll.mean()
+    # Masked entries are -inf: replace them before summing (0 x -inf would be NaN).
+    uniform = -torch.where(allowed, log_p, torch.zeros_like(log_p)).sum(dim=1) / allowed.sum(1)
+    return ((1.0 - label_smoothing) * nll + label_smoothing * uniform).mean()
+
+
 @dataclass(frozen=True)
 class Evaluation:
     """Validation metrics, each averaged over people (statistics over people, §8.2)."""
@@ -155,10 +190,15 @@ class Evaluation:
 def evaluate(model: nn.Module, data: TensorData, batch_size: int) -> Evaluation:
     """Per-person cross-entropy and balanced accuracy, averaged over people.
 
+    With ``data.allowed`` (D-039), each window's loss and prediction use its allowed classes
+    only: a head that also learned feet and tongue is validated on left vs right.
+
     Raises:
         NeurOSTrainingError: if the loss is NaN/Inf (the weights are unusable).
     """
     logits = predict_logits(model, data.x, batch_size)
+    if data.allowed is not None:  # disallowed classes can neither win nor share probability
+        logits = logits.masked_fill(~data.allowed, float("-inf"))
     predicted = logits.argmax(dim=1).numpy()
     truth = data.y.numpy()
     person_of = np.array(data.people)
@@ -288,7 +328,10 @@ def train_classifier(
         people_per_batch=config.people_per_batch,
         windows_per_person=config.windows_per_person,
         seed=seed,
+        # D-039: an epoch is a pass over the trials; extra crops vary what a step sees.
+        epoch_windows=train.n_primary if train.primary is not None else None,
     )
+    allowed = train.allowed  # None: every class competes (E0/E1's plain cross-entropy)
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=config.lr, weight_decay=config.weight_decay
     )
@@ -313,11 +356,19 @@ def train_classifier(
         for batch_number, batch in enumerate(sampler.epoch(), start=1):
             rows = torch.from_numpy(batch)
             logits = model(train.x[rows].to(target, non_blocking=True))
-            loss = F.cross_entropy(
-                logits,
-                train.y[rows].to(target, non_blocking=True),
-                label_smoothing=config.label_smoothing,
-            )
+            if allowed is None:
+                loss = F.cross_entropy(
+                    logits,
+                    train.y[rows].to(target, non_blocking=True),
+                    label_smoothing=config.label_smoothing,
+                )
+            else:
+                loss = masked_cross_entropy(
+                    logits,
+                    train.y[rows].to(target, non_blocking=True),
+                    allowed[rows].to(target, non_blocking=True),
+                    label_smoothing=config.label_smoothing,
+                )
             loss_value = float(loss.detach())
             if not math.isfinite(loss_value):
                 raise NeurOSTrainingError(

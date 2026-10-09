@@ -226,6 +226,42 @@ class WarmupConfig(BaseModel):
         return self
 
 
+class TrainingWindowsConfig(BaseModel):
+    """D-039, "use more of what we have": train on more windows than the test uses.
+
+    Validation and test windows never change: the D-030 window, scored on ``labels`` only.
+    Without this section (or with both options off) training is exactly E1's.
+
+    - **Crops** (``crop_stride_s``): extra training windows every ``crop_stride_s`` seconds,
+      from the test window to the end of the task, never earlier (towards the cue). Only
+      datasets whose class leaves the screen early gain any (Yang2025, BNCI2014-001); see
+      ``neuros.data.registry.training_crop_starts``. An epoch still counts one window per
+      trial, so crops vary what each step sees without adding steps.
+    - **More classes** (``extra_labels``): the head also learns these classes, from the
+      training datasets that have them (BNCI2014-001's feet and tongue, PhysionetMI's and
+      Stieger2021's both hands and rest). Each window's softmax runs over its own dataset's
+      classes only, and validation and test still score ``labels`` only.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", allow_inf_nan=False)
+
+    # Seconds between training crops; null = one window per trial (the test window).
+    crop_stride_s: float | None = Field(default=None, gt=0.0, le=10.0)
+    # Vocabulary labels the head learns besides the experiment's labels (checked at load).
+    extra_labels: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def _check(self) -> TrainingWindowsConfig:
+        if len(set(self.extra_labels)) != len(self.extra_labels):
+            raise ValueError(f"extra_labels has duplicates: {list(self.extra_labels)}")
+        if self.crop_stride_s is None and not self.extra_labels:
+            raise ValueError(
+                "training_windows changes nothing: set crop_stride_s and/or extra_labels, or "
+                "leave the section out"
+            )
+        return self
+
+
 class PooledExperimentConfig(BaseModel):
     """E1: pooled training across datasets, against single-dataset and leave-one-dataset-out
     models, with the cue-only control (``neuros.eval.pooled``)."""
@@ -258,6 +294,8 @@ class PooledExperimentConfig(BaseModel):
     train: TrainConfig = TrainConfig()
     # E2: score the pooled models' test people under online-style warm-up alignment too.
     warmup: WarmupConfig | None = None
+    # D-039: training crops and extra classes (validation and test windows are unchanged).
+    training_windows: TrainingWindowsConfig | None = None
 
     @model_validator(mode="after")
     def _check(self) -> PooledExperimentConfig:
@@ -299,12 +337,23 @@ class PooledExperimentConfig(BaseModel):
                 raise ValueError("warmup replaces per-session EA: needs alignment ea, unit session")
             if len(self.seeds) != 1:
                 raise ValueError("warmup builds its sets for one seed's folds: give one seed")
+        if self.training_windows is not None:
+            overlap = sorted(set(self.training_windows.extra_labels) & set(self.labels))
+            if overlap:
+                raise ValueError(f"extra_labels repeat the experiment's labels: {overlap}")
         return self
 
     @property
     def datasets(self) -> tuple[str, ...]:
         """Every dataset the experiment loads: trained-on first, then test-only."""
         return (*self.train_datasets, *self.test_only_datasets)
+
+    @property
+    def train_labels(self) -> tuple[str, ...]:
+        """The classes the model's head learns: ``labels`` first (so their logits keep their
+        indices), then any extra classes (D-039)."""
+        extra = self.training_windows.extra_labels if self.training_windows else ()
+        return (*self.labels, *extra)
 
 
 def load_pooled_experiment_config(path: str | Path) -> PooledExperimentConfig:

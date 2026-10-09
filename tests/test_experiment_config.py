@@ -235,3 +235,36 @@ def test_e2_configs_follow_e1_and_measure_the_cue_free_warmup() -> None:
     smoke = load_pooled_experiment_config(REPO_ROOT / "configs" / "e2_smoke.yaml")
     assert smoke.warmup is not None
     assert smoke.warmup.datasets == ("BNCI2014_001",)
+
+
+@pytest.mark.parametrize("name", ["e2_crops", "e2_multiclass", "e2_crops_multiclass"])
+def test_d039_configs_are_e2_with_more_training_windows(name: str) -> None:
+    e2 = load_pooled_experiment_config(REPO_ROOT / "configs" / "e2.yaml")
+    variant = load_pooled_experiment_config(REPO_ROOT / "configs" / f"{name}.yaml")
+    assert variant.training_windows is not None
+    # Same data, recipe, seed, folds and warm-up sets: the scores pair with E2's person by
+    # person, and only what the models train on differs.
+    for field in (
+        "train_datasets",
+        "test_only_datasets",
+        "labels",
+        "channels",
+        "reference",
+        "alignment",
+        "alignment_unit",
+        "signal",
+        "model",
+        "train",
+        "seeds",
+        "folds",
+        "validation_fraction",
+        "warmup",
+    ):
+        assert getattr(variant, field) == getattr(e2, field), field
+    assert variant.conditions == ("pooled",)  # E2's cue-only control covers the same windows
+    crops = variant.training_windows.crop_stride_s
+    extra = variant.training_windows.extra_labels
+    assert (crops is not None) == ("crops" in name)
+    assert bool(extra) == ("multiclass" in name)
+    if extra:
+        assert set(extra) == {"feet", "tongue", "both_hands", "rest"}

@@ -53,11 +53,14 @@ class SubjectBalancedSampler:
         people_per_batch: K. Capped at the number of distinct people (logged).
         windows_per_person: M.
         seed: seeds the generator for people, class remainders and queue shuffles.
-        batches_per_epoch: default ``ceil(n_windows / (K × M))``.
+        batches_per_epoch: default ``ceil(epoch_windows / (K × M))``.
+        epoch_windows: how many windows an epoch covers; default all of them. With D-039's
+            training crops it is one per trial, so crops don't lengthen epochs.
 
     Raises:
         NeurOSDataError: on empty or mismatched inputs.
-        NeurOSConfigError: on non-positive K, M or batches per epoch.
+        NeurOSConfigError: on non-positive K, M or batches per epoch, or ``epoch_windows``
+            outside [1, n_windows].
     """
 
     def __init__(
@@ -69,6 +72,7 @@ class SubjectBalancedSampler:
         windows_per_person: int,
         seed: int,
         batches_per_epoch: int | None = None,
+        epoch_windows: int | None = None,
     ) -> None:
         person_of = np.asarray(people)
         label_of = np.asarray(labels)
@@ -87,6 +91,10 @@ class SubjectBalancedSampler:
             )
         if batches_per_epoch is not None and batches_per_epoch < 1:
             raise NeurOSConfigError(f"batches_per_epoch must be >= 1, got {batches_per_epoch}")
+        if epoch_windows is not None and not 1 <= epoch_windows <= person_of.size:
+            raise NeurOSConfigError(
+                f"epoch_windows must be in [1, {person_of.size}], got {epoch_windows}"
+            )
 
         self._rng = np.random.default_rng(seed)
         # Person order = first appearance; class order = sorted. Both deterministic.
@@ -112,8 +120,9 @@ class SubjectBalancedSampler:
         self.windows_per_person = windows_per_person
         self.batch_size = self.people_per_batch * windows_per_person
         self.n_windows = int(person_of.size)
+        self.epoch_windows = epoch_windows or self.n_windows
         self.batches_per_epoch = batches_per_epoch or max(
-            1, math.ceil(self.n_windows / self.batch_size)
+            1, math.ceil(self.epoch_windows / self.batch_size)
         )
 
     def _take(self, key: tuple[int, Hashable], count: int) -> NDArray[np.int64]:

@@ -34,6 +34,12 @@ once to a work folder as ``.npy`` files, and worker processes map them read-only
 receiving gigabytes through pickling. Each model is a task; tasks run in parallel in spawned
 workers, on the CPU or on GPUs (``neuros.train.device``), and every finished task is handed to
 ``on_task`` so the caller can save the result file as it grows.
+
+**More training windows than test windows (D-039).** Optionally, models train on a separate
+"train" window set: extra crops later in each trial's cue-free span, and extra classes (feet,
+tongue, both hands, rest) from the datasets that have them. Validation and test windows are
+unchanged, and so is their alignment: the training windows take the EA references of the same
+session's test windows. Without that set, every step is exactly E1's.
 """
 
 from __future__ import annotations
@@ -53,7 +59,7 @@ from typing import Any, Literal
 import numpy as np
 from numpy.typing import NDArray
 
-from neuros.align.ea import align_groups
+from neuros.align.ea import align_groups, align_with_references
 from neuros.config.experiment import (
     Alignment,
     AlignmentUnit,
@@ -69,7 +75,8 @@ from neuros.signal.reference import common_average_reference
 from neuros.signal.windows import WindowSet
 
 Progress = Callable[[str], None]
-DataKind = Literal["task", "cue_only"]
+# "train": D-039's training windows (crops, extra classes); validation and test stay on "task".
+DataKind = Literal["task", "cue_only", "train"]
 
 # Windows per chunk when computing an RMS over a memory-mapped array (bounded memory).
 _RMS_CHUNK = 4096
@@ -93,6 +100,8 @@ class PooledWindows:
         flags: per-window quality flags (``neuros.signal.windows.WindowFlag``), for reports.
         layout: the channel of each row.
         sfreq: samples per second.
+        primary: optional, True for one window per trial and False for a trial's extra
+            training crops (D-039: an epoch counts primary windows). None = all primary.
     """
 
     x: NDArray[np.float32]
@@ -103,6 +112,7 @@ class PooledWindows:
     flags: NDArray[np.uint8]
     layout: tuple[str, ...]
     sfreq: float
+    primary: NDArray[np.bool_] | None = None
 
     def __post_init__(self) -> None:
         if self.x.dtype != np.float32 or self.x.ndim != 3:
@@ -119,6 +129,11 @@ class PooledWindows:
                 raise NeurOSDataError(f"{name} must hold one entry per window ({n})")
         if not (math.isfinite(self.sfreq) and self.sfreq > 0):
             raise NeurOSDataError(f"sfreq must be positive, got {self.sfreq}")
+        if self.primary is not None:
+            if self.primary.shape != (n,) or self.primary.dtype != np.bool_:
+                raise NeurOSDataError(f"primary must be a [{n}] bool array")
+            if not self.primary.any():
+                raise NeurOSDataError("no primary window: every trial needs one")
 
     def __len__(self) -> int:
         return int(self.x.shape[0])
@@ -141,6 +156,7 @@ class PooledWindows:
 
     # ------------------------------------------------------------------ disk
     _ARRAYS = ("x", "present", "labels", "people", "datasets", "flags")
+    _OPTIONAL_ARRAYS = ("primary",)  # saved only when set; meta.json lists what was saved
 
     def save(self, folder: Path) -> None:
         """Write every array as ``.npy`` plus ``meta.json`` with SHA-256 digests.
@@ -153,7 +169,10 @@ class PooledWindows:
             raise NeurOSDataError(f"{folder} already holds pooled windows")
         folder.mkdir(parents=True, exist_ok=True)
         digests: dict[str, str] = {}
-        for name in self._ARRAYS:
+        names = self._ARRAYS + tuple(
+            name for name in self._OPTIONAL_ARRAYS if getattr(self, name) is not None
+        )
+        for name in names:
             path = folder / f"{name}.npy"
             np.save(path, np.ascontiguousarray(getattr(self, name)), allow_pickle=False)
             digests[name] = _sha256(path)
@@ -182,7 +201,9 @@ class PooledWindows:
             raise NeurOSDataError(f"{folder}: no pooled windows (meta.json missing)")
         meta = json.loads(meta_file.read_text(encoding="utf-8"))
         arrays: dict[str, Any] = {}
-        for name in cls._ARRAYS:
+        # Optional arrays are part of the set exactly when meta.json has their digest.
+        optional = tuple(name for name in cls._OPTIONAL_ARRAYS if name in meta["sha256"])
+        for name in cls._ARRAYS + optional:
             path = folder / f"{name}.npy"
             if not path.is_file():
                 raise NeurOSDataError(f"{folder}: {name}.npy is missing")
@@ -305,16 +326,22 @@ def to_layout(
     reference: Reference,
     alignment: Alignment,
     unit: AlignmentUnit,
+    references_from: WindowSet | None = None,
 ) -> tuple[NDArray[np.float32], NDArray[np.bool_], dict[str, dict[str, float | int]]]:
     """One dataset's windows in the shared layout: CAR and EA on the channels it has, zeros
     elsewhere (§4.3).
+
+    ``references_from``: compute each group's EA reference from these windows instead (same
+    dataset and channels; prepared the same way) and apply it to ``windows``. D-039's training
+    windows take the test windows' references, so test alignment stays exactly E1's.
 
     Returns:
         ``(x [n, len(layout), samples], present [n, len(layout)], EA reference summaries)``.
 
     Raises:
         NeurOSDataError: if the dataset has fewer than ``MIN_LAYOUT_CHANNELS`` of the layout's
-            channels (CAR and covariances need at least two).
+            channels (CAR and covariances need at least two), if ``references_from`` has other
+            channels, or if a group of ``windows`` has no reference there.
         NeurOSConfigError: on an unknown reference or alignment.
     """
     have = [ch for ch in layout if ch in windows.ch_names]
@@ -323,14 +350,28 @@ def to_layout(
             f"{sorted(set(windows.datasets))}: only {have} of the layout's channels; at least "
             f"{MIN_LAYOUT_CHANNELS} are needed"
         )
-    subset = windows.pick_channels(have)  # layout order
-    if reference == "car":
-        subset = subset.with_data(common_average_reference(subset.data))
-    elif reference != "as_recorded":
-        raise NeurOSConfigError(f"unknown reference {reference!r} (as_recorded, car)")
+    if references_from is not None and set(references_from.ch_names) != set(windows.ch_names):
+        raise NeurOSDataError(
+            "references_from must have the same channels as the windows it aligns: "
+            f"{sorted(references_from.ch_names)} vs {sorted(windows.ch_names)}"
+        )
+
+    def referenced(source: WindowSet) -> WindowSet:
+        picked = source.pick_channels(have)  # layout order
+        if reference == "car":
+            return picked.with_data(common_average_reference(picked.data))
+        if reference != "as_recorded":
+            raise NeurOSConfigError(f"unknown reference {reference!r} (as_recorded, car)")
+        return picked
+
+    subset = referenced(windows)
     summaries: dict[str, dict[str, float | int]] = {}
     if alignment == "ea":
-        subset, references = align_groups(subset, unit=unit)
+        if references_from is None:
+            subset, references = align_groups(subset, unit=unit)
+        else:
+            _, references = align_groups(referenced(references_from), unit=unit)
+            subset = align_with_references(subset, references, unit=unit)
         summaries = {group: ref.summary() for group, ref in references.items()}
     elif alignment != "none":
         raise NeurOSConfigError(f"unknown alignment {alignment!r} (none, ea)")
@@ -350,11 +391,17 @@ def assemble(
     alignment: Alignment,
     unit: AlignmentUnit,
     derived: Mapping[str, Mapping[str, Sequence[str]]] | None = None,
+    references_from: Mapping[str, WindowSet] | None = None,
+    primary: Mapping[str, NDArray[np.bool_]] | None = None,
 ) -> tuple[PooledWindows, dict[str, dict[str, Any]]]:
     """Map every dataset into ``layout`` and stack them (datasets in the given order).
 
     ``derived`` gives, per dataset, its test-only derived channels (registry
     ``derived_channels``, D-037), applied before the dataset is placed in the layout.
+
+    D-039's training set: ``references_from`` gives, for every dataset, the windows whose EA
+    references align it (the test windows); ``primary`` marks, per dataset and window, the one
+    window per trial that counts towards an epoch (the rest are extra crops).
 
     Returns:
         The pooled windows and, per dataset, a report: channels present and missing, windows,
@@ -362,7 +409,8 @@ def assemble(
 
     Raises:
         NeurOSDataError: on an empty input, mixed sampling rates or window lengths, a window
-            set holding another dataset's windows, or non-finite values after alignment.
+            set holding another dataset's windows, non-finite values after alignment, or a
+            ``references_from``/``primary`` that doesn't cover exactly the datasets given.
     """
     if not per_dataset:
         raise NeurOSDataError("no datasets to assemble")
@@ -375,15 +423,33 @@ def assemble(
     unknown = sorted(set(derived or {}) - set(per_dataset))
     if unknown:
         raise NeurOSDataError(f"derived channels given for datasets not assembled: {unknown}")
+    for name, given in (("references_from", references_from), ("primary", primary)):
+        if given is not None and set(given) != set(per_dataset):
+            raise NeurOSDataError(
+                f"{name} must cover exactly the datasets assembled: {sorted(given)} vs "
+                f"{sorted(per_dataset)}"
+            )
     for dataset, windows in per_dataset.items():
         if set(windows.datasets) != {dataset}:
             raise NeurOSDataError(
                 f"windows given for {dataset} hold {sorted(set(windows.datasets))}"
             )
+        if primary is not None and np.asarray(primary[dataset]).shape != (len(windows),):
+            raise NeurOSDataError(f"{dataset}: primary must hold one flag per window")
         mapping = (derived or {}).get(dataset, {})
         windows = derive_channels(windows, mapping)
+        source = None
+        if references_from is not None:
+            source = derive_channels(references_from[dataset], mapping)
+            if set(source.datasets) != {dataset}:
+                raise NeurOSDataError(f"references_from for {dataset} holds other datasets")
         x, present, references = to_layout(
-            windows, layout, reference=reference, alignment=alignment, unit=unit
+            windows,
+            layout,
+            reference=reference,
+            alignment=alignment,
+            unit=unit,
+            references_from=source,
         )
         if not np.isfinite(x).all():
             raise NeurOSDataError(f"{dataset}: non-finite values after alignment")
@@ -406,7 +472,15 @@ def assemble(
         flags=np.concatenate([w.flags for _, _, w in parts]).astype(np.uint8),
         layout=tuple(layout),
         sfreq=float(next(iter(rates))),
+        primary=(
+            None
+            if primary is None
+            else np.concatenate([np.asarray(primary[d], dtype=bool) for d in per_dataset])
+        ),
     )
+    if primary is not None:
+        for dataset in per_dataset:
+            reports[dataset]["n_trials"] = int(np.count_nonzero(primary[dataset]))
     return pooled, reports
 
 
@@ -417,14 +491,17 @@ class ModelTask:
 
     name: str  # e.g. "pooled/fold2", "single/Cho2017/fold2", "lodo/Cho2017", "cue_only/fold2"
     condition: PooledCondition
-    data: DataKind
+    data: DataKind  # validation and test windows (and training windows, unless train_data)
     train: tuple[str, ...]
     validation: tuple[str, ...]
     test: tuple[str, ...]
     seed: int
+    train_data: DataKind | None = None  # D-039: train on another window set
 
     def __post_init__(self) -> None:
         Fold(index=0, test=self.test, validation=self.validation, train=self.train)  # checks
+        if self.train_data == self.data:
+            raise NeurOSConfigError(f"{self.name}: train_data repeats data ({self.data!r})")
 
 
 def split_validation(
@@ -468,12 +545,16 @@ def plan_tasks(
     folds: int,
     validation_fraction: float,
     seed: int,
+    train_data: DataKind | None = None,
 ) -> list[ModelTask]:
     """Every model E1 trains (see the module docstring), in a fixed order.
 
     Args:
         people: each dataset's development people (``dataset:subject``), test-only included.
         trainable: the datasets whose people may train (the rest are only tested).
+        train_data: the window set the pooled, single-dataset and LODO models train on, when it
+            isn't the task windows they're tested on (D-039). The cue-only control always trains
+            on its own windows.
 
     Raises:
         NeurOSConfigError: on an unknown dataset in ``trainable``, fewer than 2 trainable
@@ -498,7 +579,10 @@ def plan_tasks(
         if not train or not test:
             return  # e.g. a single-dataset fold of a dataset with no test people in that fold
         kept, validation = split_validation(train, validation_fraction, seed=seed, tag=name)
-        tasks.append(ModelTask(name, condition, data, kept, validation, tuple(test), seed))
+        trains_on = train_data if data == "task" else None
+        tasks.append(
+            ModelTask(name, condition, data, kept, validation, tuple(test), seed, trains_on)
+        )
 
     for k, fold in enumerate(fold_sets):
         outside = [p for p in trainable_people if p not in fold]
@@ -526,7 +610,7 @@ def plan_tasks(
 class TaskSettings:
     """What every task shares (picklable, sent to each worker once)."""
 
-    classes: tuple[str, ...]
+    classes: tuple[str, ...]  # the labels scored in validation and test (logits 0..k-1)
     model: EEGNetConfig
     train: TrainConfig
     device: str
@@ -536,6 +620,24 @@ class TaskSettings:
     # people on, after training: E2's warm-up sets (``neuros.eval.warmup``).
     extra_kinds: tuple[str, ...] = ()
     extra_conditions: tuple[str, ...] = ("pooled",)
+    # D-039: the head's classes for models trained on the "train" windows: ``classes`` first,
+    # then the extra classes. Empty = ``classes``.
+    train_classes: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.train_classes and self.train_classes[: len(self.classes)] != self.classes:
+            raise NeurOSConfigError(
+                f"train_classes {list(self.train_classes)} must start with the scored classes "
+                f"{list(self.classes)}, so their logits keep their indices"
+            )
+        if len(set(self.train_classes)) != len(self.train_classes):
+            raise NeurOSConfigError(f"train_classes has duplicates: {list(self.train_classes)}")
+
+    def head_classes(self, task: ModelTask) -> tuple[str, ...]:
+        """The classes of ``task``'s model: the extra classes only when it trains on them."""
+        if task.train_data is not None and self.train_classes:
+            return self.train_classes
+        return self.classes
 
 
 def _rms(x: NDArray[np.float32], rows: NDArray[np.int64]) -> float:
@@ -551,6 +653,24 @@ def _rms(x: NDArray[np.float32], rows: NDArray[np.int64]) -> float:
     return rms
 
 
+def _predict(
+    model: Any,
+    x: Any,
+    settings: TaskSettings,
+    head: Sequence[str],
+    predict_logits: Callable[..., Any],
+) -> NDArray[np.str_]:
+    """The scored class (one of ``settings.classes``) for every window in ``x``.
+
+    A head with extra classes (D-039) is read on the scored classes' logits only: a left/right
+    test window is never answered "feet". With no extra classes this is the plain argmax.
+    """
+    logits = predict_logits(model, x, settings.train.eval_batch_size)
+    if tuple(head) != settings.classes:
+        logits = logits[:, : len(settings.classes)]  # the scored classes come first
+    return np.array([settings.classes[i] for i in logits.argmax(dim=1).tolist()], dtype=str)
+
+
 def _score_people(
     model: Any,
     windows: PooledWindows,
@@ -558,7 +678,7 @@ def _score_people(
     scale: float,
     settings: TaskSettings,
     predict_logits: Callable[..., Any],
-    index: Mapping[str, int],
+    head: Sequence[str],
 ) -> list[dict[str, Any]]:
     """Score the trained ``model`` on the given people's windows in ``windows`` (those present
     there); the same input scale as training. Empty if none of the people are present."""
@@ -571,11 +691,10 @@ def _score_people(
     x = np.array(windows.x[rows], dtype=np.float32)
     x /= np.float32(scale)
     truth = windows.labels[rows]
-    unknown = sorted(set(truth.tolist()) - set(index))
+    unknown = sorted(set(truth.tolist()) - set(settings.classes))
     if unknown:
-        raise NeurOSDataError(f"extra windows carry labels {unknown} that aren't classes")
-    logits = predict_logits(model, torch.from_numpy(x), settings.train.eval_batch_size)
-    predicted = np.array([settings.classes[i] for i in logits.argmax(dim=1).tolist()], dtype=str)
+        raise NeurOSDataError(f"extra windows carry labels {unknown} that aren't scored classes")
+    predicted = _predict(model, torch.from_numpy(x), settings, head, predict_logits)
     person_of = windows.people[rows]
     flagged = windows.flags[rows] != 0
     scores: list[dict[str, Any]] = []
@@ -591,19 +710,36 @@ def _score_people(
     return scores
 
 
+def _dataset_classes(windows: PooledWindows) -> dict[str, frozenset[str]]:
+    """Each dataset's classes in a window set (D-039: a window's softmax runs over these)."""
+    pairs = np.unique(np.stack([windows.datasets, windows.labels]), axis=1)
+    classes: dict[str, set[str]] = {}
+    for dataset, label in pairs.T.tolist():
+        classes.setdefault(dataset, set()).add(label)
+    return {dataset: frozenset(labels) for dataset, labels in classes.items()}
+
+
 def run_task(
     task: ModelTask,
     data: PooledWindows,
     settings: TaskSettings,
     progress: Progress | None = None,
     extra: Mapping[str, PooledWindows] | None = None,
+    train_data: PooledWindows | None = None,
 ) -> dict[str, Any]:
     """Train one model on ``task.train`` and score every person in ``task.test``.
 
     ``extra`` maps more window sets to score the same test people on (those present in each;
     the training input scale applies), reported under ``extra_scores``: E2's warm-up sets.
 
+    ``train_data`` (D-039, for a task with ``train_data`` set): the training people's windows
+    come from it (crops, extra classes) instead of ``data``; validation and test people's
+    windows always come from ``data``. With extra classes, each training window's softmax runs
+    over its own dataset's classes, and validation and test over ``settings.classes``.
+
     Raises:
+        NeurOSConfigError: if ``train_data`` is given without ``task.train_data``, or the other
+            way round.
         NeurOSDataError: if a person in the task has no windows, or a label isn't a class.
     """
     import torch
@@ -613,6 +749,11 @@ def run_task(
     from neuros.train.device import configure_determinism, describe_device, resolve_device
     from neuros.train.trainer import predict_logits, train_classifier
 
+    if (task.train_data is None) != (train_data is None):
+        raise NeurOSConfigError(
+            f"{task.name}: train_data is {task.train_data!r} but its windows were "
+            f"{'not ' if train_data is None else ''}given"
+        )
     say: Progress = progress or (lambda message: print(message, flush=True))
     torch.set_num_threads(settings.threads)
     # A stable per-task index spreads tasks over GPUs (Python's hash() differs per process).
@@ -620,37 +761,62 @@ def run_task(
     device = resolve_device(settings.device, worker_index=slot)
     configure_determinism(device, settings.deterministic)
     started = time.perf_counter()
-    index = {name: i for i, name in enumerate(settings.classes)}
+    head = settings.head_classes(task)
+    index = {name: i for i, name in enumerate(head)}
+    source = train_data if train_data is not None else data
+    # Masks only when the head has classes the scored windows don't: otherwise training,
+    # validation and test are exactly E1's (plain cross-entropy and argmax).
+    masked = head != settings.classes
+    own_classes = _dataset_classes(source) if masked else {}
 
-    def rows(people: Sequence[str]) -> NDArray[np.int64]:
-        found = data.rows_of(people)
-        present = set(data.people[found].tolist())
+    def rows(windows: PooledWindows, people: Sequence[str]) -> NDArray[np.int64]:
+        found = windows.rows_of(people)
+        present = set(windows.people[found].tolist())
         missing = sorted(set(people) - present)
         if missing:
             raise NeurOSDataError(f"{task.name}: no windows for {missing[:5]}")
         return found
 
-    def tensors(people: Sequence[str], scale: float) -> TensorData:
-        picked = rows(people)
-        x = np.array(data.x[picked], dtype=np.float32)  # a private, writable copy
+    def tensors(
+        windows: PooledWindows, people: Sequence[str], scale: float, *, training: bool
+    ) -> TensorData:
+        picked = rows(windows, people)
+        x = np.array(windows.x[picked], dtype=np.float32)  # a private, writable copy
         x /= np.float32(scale)
-        labels = data.labels[picked].tolist()
-        unknown = sorted(set(labels) - set(index))
+        labels = windows.labels[picked].tolist()
+        allowed_names = set(head) if training else set(settings.classes)
+        unknown = sorted(set(labels) - allowed_names)
         if unknown:
             raise NeurOSDataError(f"{task.name}: labels {unknown} aren't classes")
         y = np.array([index[label] for label in labels], dtype=np.int64)
+        allowed = None
+        if masked:
+            if training:  # each window competes among its own dataset's classes
+                table = {
+                    d: np.array([c in own for c in head], dtype=bool)
+                    for d, own in own_classes.items()
+                }
+                allowed = np.stack([table[d] for d in windows.datasets[picked].tolist()])
+            else:  # validation and test: the scored classes only
+                allowed = np.zeros((picked.size, len(head)), dtype=bool)
+                allowed[:, : len(settings.classes)] = True
+        primary = None
+        if training and windows.primary is not None:
+            primary = torch.from_numpy(np.array(windows.primary[picked], dtype=bool))
         return TensorData(
             x=torch.from_numpy(x),
             y=torch.from_numpy(y),
-            people=tuple(data.people[picked].tolist()),
-            classes=settings.classes,
+            people=tuple(windows.people[picked].tolist()),
+            classes=head,
+            allowed=None if allowed is None else torch.from_numpy(allowed),
+            primary=primary,
         )
 
-    scale = _rms(data.x, rows(task.train))
-    train = tensors(task.train, scale)
-    validation = tensors(task.validation, scale) if task.validation else None
+    scale = _rms(source.x, rows(source, task.train))
+    train = tensors(source, task.train, scale, training=True)
+    validation = tensors(data, task.validation, scale, training=False) if task.validation else None
     torch.manual_seed(task.seed)  # weight initialisation
-    model = EEGNetClassifier(train.n_channels, train.n_samples, settings.classes, settings.model)
+    model = EEGNetClassifier(train.n_channels, train.n_samples, head, settings.model)
     result = train_classifier(
         model,
         train,
@@ -660,18 +826,12 @@ def run_task(
         progress=lambda line: say(f"[{task.name}] {line}"),
         device=device,
     )
-    test_rows = rows(task.test)
-    test = tensors(task.test, scale)
-    predicted = [
-        settings.classes[i]
-        for i in predict_logits(model, test.x, settings.train.eval_batch_size)
-        .argmax(dim=1)
-        .tolist()
-    ]
+    test_rows = rows(data, task.test)
+    test = tensors(data, task.test, scale, training=False)
+    predicted_array = _predict(model, test.x, settings, head, predict_logits)
     person_of = data.people[test_rows]
     truth = data.labels[test_rows]
     flagged = data.flags[test_rows] != 0
-    predicted_array = np.array(predicted, dtype=str)
     scores: list[dict[str, Any]] = []
     for person in task.test:
         mine = person_of == person
@@ -685,7 +845,7 @@ def run_task(
     extra_scores: dict[str, list[dict[str, Any]]] = {}
     for kind, windows in (extra or {}).items():
         extra_scores[kind] = _score_people(
-            model, windows, task.test, scale, settings, predict_logits, index
+            model, windows, task.test, scale, settings, predict_logits, head
         )
     seconds = time.perf_counter() - started
     mean = float(np.mean([s["balanced_accuracy_raw"] for s in scores]))
@@ -700,6 +860,11 @@ def run_task(
         "n_validation_people": len(task.validation),
         "n_test_people": len(task.test),
         "n_train_windows": len(train),
+        **(
+            {"train_data": task.train_data, "n_train_trials": train.n_primary}
+            if task.train_data is not None
+            else {}
+        ),
         "input_scale": scale,
         "scores": scores,
         "train": result.to_dict(),
@@ -728,9 +893,20 @@ def _extra_for(
     return {kind: data[kind] for kind in settings.extra_kinds}
 
 
+def _train_for(task: ModelTask, data: Mapping[str, PooledWindows]) -> PooledWindows | None:
+    """The window set a task trains on when it isn't its test windows (D-039)."""
+    return None if task.train_data is None else data[task.train_data]
+
+
 def _run_in_worker(task: ModelTask) -> dict[str, Any]:
     data, settings = _WORKER["data"], _WORKER["settings"]
-    return run_task(task, data[task.data], settings, extra=_extra_for(task, data, settings))
+    return run_task(
+        task,
+        data[task.data],
+        settings,
+        extra=_extra_for(task, data, settings),
+        train_data=_train_for(task, data),
+    )
 
 
 def run_tasks(
@@ -749,7 +925,8 @@ def run_tasks(
     """
     if workers < 1:
         raise NeurOSConfigError(f"workers must be >= 1, got {workers}")
-    missing = sorted(({t.data for t in tasks} | set(settings.extra_kinds)) - set(folders))
+    needed = {t.data for t in tasks} | {t.train_data for t in tasks if t.train_data}
+    missing = sorted((needed | set(settings.extra_kinds)) - set(folders))
     if missing:
         raise NeurOSConfigError(f"tasks need {missing} windows, which weren't assembled")
     say: Progress = progress or (lambda message: print(message, flush=True))
@@ -758,7 +935,12 @@ def run_tasks(
         data = {kind: PooledWindows.load(path) for kind, path in folders.items()}
         for task in tasks:
             outcome = run_task(
-                task, data[task.data], settings, say, extra=_extra_for(task, data, settings)
+                task,
+                data[task.data],
+                settings,
+                say,
+                extra=_extra_for(task, data, settings),
+                train_data=_train_for(task, data),
             )
             outcomes[task.name] = outcome
             if on_task:

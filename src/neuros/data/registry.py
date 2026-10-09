@@ -943,6 +943,51 @@ def task_epoch(spec: DatasetSpec, contract: SignalContract) -> TaskEpoch:
     return TaskEpoch(round(start, 9), round(end, 9), rule, cue_free)
 
 
+# The most training crops one trial may yield: a guard against a stride that would multiply the
+# training set by hundreds (memory), not a modelling choice.
+MAX_CROPS_PER_TRIAL = 64
+
+
+def training_crop_starts(
+    spec: DatasetSpec, contract: SignalContract, stride_s: float
+) -> tuple[float, ...]:
+    """Where training crops start, in seconds from the cue ("use more of what we have", D-039).
+
+    The first crop is the test window itself (``task_epoch``). Further crops slide *later*
+    in steps of ``stride_s``, for as long as a whole window still fits before the task ends.
+    They never move earlier, towards the cue: an earlier window would sit closer to the
+    class display and the cue's onset response, the shortcut D-030 removes. So:
+
+    - on cue-free datasets (the class leaves the screen early), every crop is cue-free too:
+      Yang2025's imagery runs 1.5-5.5 s, so 2-s crops can start anywhere in [1.75, 3.5] s;
+    - where the class stays up all task, the test window is already the latest one, so the
+      only crop is the test window: training there is unchanged.
+
+    Only the contract's own rule is supported; a fixed epoch (diagnostics, the cue-only
+    control) has no task span to crop.
+
+    Raises:
+        NeurOSConfigError: on a non-positive or non-finite stride, a fixed contract epoch, or
+            more than ``MAX_CROPS_PER_TRIAL`` crops.
+    """
+    if not (math.isfinite(stride_s) and stride_s > 0):
+        raise NeurOSConfigError(f"crop stride must be a positive number of seconds, got {stride_s}")
+    epoch = task_epoch(spec, contract)
+    if epoch.rule != "after_cue":
+        raise NeurOSConfigError(
+            f"{spec.key}: training crops follow the contract's after-cue rule (D-030); a fixed "
+            f"epoch ({epoch.start_s:g}-{epoch.end_s:g} s) has no task span to crop"
+        )
+    latest = spec.task_s - contract.window_s  # the last start whose window ends with the task
+    count = math.floor((latest - epoch.start_s) / stride_s + _EPOCH_TOL_S) + 1
+    if count > MAX_CROPS_PER_TRIAL:
+        raise NeurOSConfigError(
+            f"{spec.key}: a {stride_s:g}-s stride gives {count} crops per trial (at most "
+            f"{MAX_CROPS_PER_TRIAL}); use a longer stride"
+        )
+    return tuple(round(epoch.start_s + k * stride_s, 9) for k in range(max(count, 1)))
+
+
 def check_registry(vocabulary: Vocabulary, contract: SignalContract) -> None:
     """Cross-check the registry against the vocabulary and the signal contract.
 

@@ -4,6 +4,21 @@ Newest first. Format: **ID · date · decision** — why · who. Superseded deci
 
 ## Decided
 
+- **D-039 · 2026-10-09 · "Use more of what we have": training crops later in each trial, and extra classes with a per-dataset softmax; test windows unchanged.** Implements the 6 Oct approval ("use more of what we have"). · Founders approved the idea; Claude set the rules below (founders may veto)
+  - **Why:** E2 found the ceiling, not the warm-up speed, is what keeps cue-free accuracy below usable ([Q28](../open-questions.md)). Both levers add training signal without new data or new downloads.
+  - **Crops** (`training_windows.crop_stride_s`; `registry.training_crop_starts`):
+    - Extra training windows start at the test window and slide **later**, every stride, while a whole window still fits in the task. **Never earlier:** an earlier window sits closer to the class display and the cue's onset response, the shortcut D-030 removes.
+    - So only datasets whose class leaves the screen early gain crops: Yang2025 (imagery 1.5–5.5 s: 4 crops at a 0.5-s stride) and BNCI2014-001 (2). Where the class stays up all task, the test window is already the latest one, and training is unchanged.
+    - An epoch still counts one window per trial, so crops vary what each step sees without adding steps (early stopping and SWA keep their meaning).
+  - **Extra classes** (`training_windows.extra_labels`: feet, tongue, both hands, rest):
+    - One head over every class; **each training window's softmax runs over its own dataset's classes only.** A PhysionetMI window is never pushed away from "tongue", which PhysionetMI never recorded. Label smoothing is spread over the allowed classes.
+    - From BNCI2014-001 (feet, tongue), PhysionetMI (both hands, feet, rest between trials) and Stieger2021 (both hands, rest).
+    - Validation and test score **left vs right only**, on the left/right logits: a test window is never answered "feet".
+  - **Unchanged:** validation and test windows (D-030's window), and their alignment. Training windows take the EA reference of the same session's test windows. Without the `training_windows` section, every step is E1's: tests check that training on a copy of the test windows reproduces E1 bit for bit.
+  - **The cache isn't touched:** the window cutting lives in `neuros.data.training_windows`, outside the modules the recording cache's key hashes, so no dataset is re-prepared.
+  - **E4-zs** (hold "feet" out and test the text head zero-shot) must leave feet out of `extra_labels`.
+  - **Runs:** `configs/e2_crops.yaml`, `e2_multiclass.yaml` and `e2_crops_multiclass.yaml` are E2 with one change each, scored person by person against E2's pooled and warm-up numbers.
+
 - **D-038 · 2026-10-07 · Add Liu2024 as a test-only consumer-grade hardware dataset; locked test set v3; Stieger2021's later sessions wait for the cue test.** · Founders approved the download and chose to wait on Stieger; Claude set the dataset's role and drew v3 by the existing rule
   - **Why Liu2024:** it's the first public motor-imagery set on non-research hardware we can use commercially ([research](../research/consumer-headset-mi-datasets.md)).
     - 50 acute stroke patients (1–30 days after stroke), left vs right hand grip imagery.
