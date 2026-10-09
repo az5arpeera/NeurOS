@@ -61,6 +61,10 @@ def test_publisher_checksums_are_packaged_and_well_formed() -> None:
     assert "zenodo/18970793/S01.zip" in zenodo["files"]
     figshare = publisher_checksums("Yang2025")
     assert figshare["files"]["WBCIC_SHU_Motor_Imagery_dataset.zip"]["bytes"] == 65_630_556_299
+    # D-038: MOABB saves Liu2024's three Figshare files under their file ids, not their names.
+    liu = publisher_checksums("Liu2024")["files"]
+    assert set(liu) == {f"MNE-liu2024-data/files/{i}" for i in (38516654, 38516078, 38516084)}
+    assert liu["MNE-liu2024-data/files/38516654"]["bytes"] == 462_843_633  # edffile.zip
     assert publisher_checksums("BNCI2014_001") == {}  # no published archive checksums
 
 

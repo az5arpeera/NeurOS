@@ -1,0 +1,20 @@
+{
+ "dataset": "Liu2024",
+ "source": "Figshare API, article 21679035 (https://api.figshare.com/v2/articles/21679035), read 2026-10-07: supplied_md5 = computed_md5",
+ "note": "Three files: the EDF archive (edffile.zip) and the electrodes and events tables shared by every person. Keys are path suffixes of the local files: MOABB stores each one under files/<Figshare file id> without its published name.",
+ "algorithm": "md5",
+ "files": {
+  "MNE-liu2024-data/files/38516654": {
+   "bytes": 462843633,
+   "md5": "aa4f96a0e8456f377f30d1ee8f41be40"
+  },
+  "MNE-liu2024-data/files/38516078": {
+   "bytes": 761,
+   "md5": "803e56c5d8713a2e037cae49b46f2c5d"
+  },
+  "MNE-liu2024-data/files/38516084": {
+   "bytes": 3732,
+   "md5": "f1c1f482471b90a7e067d9c502889647"
+  }
+ }
+}
