@@ -106,12 +106,16 @@ Claude Code pairs on all engineering. **Founders send all outreach;** Claude dra
   - **Three seeds:** pooling +1.3 points (p = 1e-5).
   - **Ceilings:** zero-calibration EEGNet beats within-dataset Riemannian LOSO on 6 of 7 training datasets. A day-1 calibrated model beats it only on BNCI2014-001.
   - **E0b, EEGNet part:** no band preference. 8–30 Hz stands; the contract default switches at the freeze (D-034).
-  - **E2** (warm-up curve; Shin2017A's first numbers) smoke-tested 7 Oct; the full run started 9 Oct.
-- **Next:**
-  - E2 results → S (seconds of warm-up within 2 points of a full session).
-  - A same-session calibrated ceiling on every dataset (the number to quote against "just calibrate").
-  - Training crops and multi-class auxiliary training ("use more of what we have").
-  - The founders: the Stieger2021 decision, outreach (drafts ready), the 16-vCPU quota request.
+  - **E2 done 9 Oct** ([results](../results/2026-10-09-e2-warmup-curve.md)):
+    - the warm-up closes 52–65% of the gap in 2 minutes, but cue-free accuracy at 120 s is 57–66% and only 10 of 73 people reach 70%;
+    - S = 120 s on Yang2025, longer elsewhere;
+    - Shin2017A 62.3% (unseen hardware, cue-only at chance).
+- **Next (before D-031's gate, ≈ 16 Oct; Q28):**
+  - Training crops and multi-class auxiliary training ("use more of what we have"): the lever on the ceiling.
+  - A same-session calibrated ceiling on Yang2025, BNCI2014-001 and Shin2017A (the number to quote against "just calibrate").
+  - E2 v2: budgets of 180 and 300 s, a sweep of the prior's weight, and a per-profile prior for new hardware.
+  - The fallback in parallel: E6's rest vs mental-effort head.
+  - The founders: Q28 (the gate), Q29 (Stieger2021), outreach (drafts ready), the 16-vCPU quota request.
 
 ## Week 1: Sat 3 → Fri 9 Oct · data and baselines
 | Day | Engineering | Business / YC |

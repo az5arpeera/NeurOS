@@ -9,6 +9,27 @@ Priority: 🔴 blocking · 🟠 this week · 🟡 can wait until after the MVP.
 
 ---
 
+## 🟠 This week (added 9 Oct)
+
+### Q28. D-031's gate (≈ 16 Oct): does the application still lead with time-to-usable intent?
+**What E2 found** ([results](results/2026-10-09-e2-warmup-curve.md)):
+- The warm-up works. Two minutes of unlabeled EEG close 52–65% of the gap to full-session alignment on all three cue-free datasets.
+- **The level is too low to call usable.**
+  - After 120 s: 56.8% (Yang2025), 66.0% (BNCI2014-001) and 57.1% (Shin2017A, unseen hardware).
+  - Only 10 of 73 cue-free people reach 70%; even full-session alignment reaches 15 of 73.
+- The §8.6 hypothesis S ≤ 45 s fails: S is 120 s on Yang2025 and longer elsewhere.
+
+**Recommendation:** don't decide on this run. By Thu 15 Oct, run the two levers that could move the ceiling, then decide on 16 Oct as planned:
+1. "Use more of what we have": training crops and multi-class auxiliary training (approved 6 Oct);
+2. a same-session calibrated ceiling, so "usable" has a reference.
+
+Meanwhile, prepare the fallback in parallel: E6's rest vs mental-effort head (EEGMAT, plus Shin2017A's dataset B). If the levers don't lift cue-free accuracy at 120 s to around 65% or more on Yang2025 and Shin2017A, lead with the rigour story and the state channel.
+
+### Q29. Stieger2021's sessions 3–11 (299 GB)
+**Recommendation: don't download them** ([cue test](results/2026-10-06-e1-followups-cue-test-seeds-ceilings.md)).
+- Stieger2021's data mostly helps its own people. Their task window doesn't beat the cue alone (68.4% vs 66.1%, p = 0.13).
+- Removing all three cue-driven training sets didn't change the cue-free numbers.
+
 ## 🟠 Still open (2026-10-03): coding has started; these don't block it
 
 ### Q6b. Cluster details (fallback since D-032: training moves to AWS credits)
