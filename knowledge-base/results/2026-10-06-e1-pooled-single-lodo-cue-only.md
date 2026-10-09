@@ -9,6 +9,7 @@
 **Status:**
 - Development numbers on development people only; the locked test set never loaded.
 - One seed (20261005). The model is EEGNet + EA, which E0 checked against the literature.
+- **Updated 9 Oct** ([follow-ups](2026-10-06-e1-followups-cue-test-seeds-ceilings.md)): at three seeds pooling gains +1.3 points overall (p = 1e-5). Yang2025 now leans toward pooling (+1.1, p = 0.058); this seed's single model scored unusually high there.
 
 **Summary:**
 - **Pooling helps a little overall, a lot on the smallest dataset, and costs the largest one.**

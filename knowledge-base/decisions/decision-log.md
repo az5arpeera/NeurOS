@@ -73,6 +73,10 @@ Newest first. Format: **ID · date · decision** — why · who. Superseded deci
   - **Applied later:** the contract's default band (§4.2, `configs/data.yaml`) stays 4–30 Hz until E0b's EEGNet check on AWS agrees.
     - That switch will pin 4–30 Hz in E0's configs, so earlier results still regenerate.
     - EEGNet learns its own filters, so it could use a wider band differently.
+  - **EEGNet check, 6 Oct** ([results](../results/2026-10-06-e1-followups-cue-test-seeds-ceilings.md#e0b-eegnet-part-430-hz-vs-830-hz)): no band preference.
+    - 8–30 minus 4–30 Hz: +1.0 points on BNCI2014-001 (4 of 9 people, p = 1.0) and +0.2 on PhysionetMI (38 of 84, p = 0.87).
+    - **8–30 Hz stands.** The Riemannian models prefer it, and EEGNet loses nothing.
+    - **The contract default switches at the freeze (24 Oct), not now.** The switch re-keys every cache and moves the validation amplitude flags, which are measured in the contract band. Every experiment config already sets 8–30 Hz explicitly. The frozen recipe will write all its settings into `configs/data.yaml` in one step.
 
 - **D-033 · 2026-10-04 · Add the cue-free and gaze-diagnostic datasets (Q26).** Amends the data lock (D-011) and §8.1. · Founder (approved the Q26 recommendation)
   - **Why:** under D-030 only BNCI2014-001 (9 people) had a cue-free window.

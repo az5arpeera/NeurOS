@@ -100,10 +100,18 @@ Claude Code pairs on all engineering. **Founders send all outreach;** Claude dra
     - cue-free motor imagery: 69.4% (BNCI2014-001) and 58.8% (Yang2025);
     - Dreyer2023's cue alone decodes at 74.4%.
   - Shin2017A waits for Q27: it shares only Cz with the motor strip.
+- **6–9 Oct** ([follow-ups](../results/2026-10-06-e1-followups-cue-test-seeds-ceilings.md)):
+  - Q27 answered (D-037: Shin2017A's C3/C4 derived from its half positions). Liu2024 added as test-only consumer-grade hardware (D-038; downloaded, checksums match, 50/50 recordings validate). Locked test set v3.
+  - **Cue test:** the cue-driven training datasets don't hurt the cue-free numbers, so they stay. Stieger2021's sessions 3–11 aren't worth 299 GB (recommendation; the founders decide).
+  - **Three seeds:** pooling +1.3 points (p = 1e-5).
+  - **Ceilings:** zero-calibration EEGNet beats within-dataset Riemannian LOSO on 6 of 7 training datasets. A day-1 calibrated model beats it only on BNCI2014-001.
+  - **E0b, EEGNet part:** no band preference. 8–30 Hz stands; the contract default switches at the freeze (D-034).
+  - **E2** (warm-up curve; Shin2017A's first numbers) smoke-tested 7 Oct; the full run started 9 Oct.
 - **Next:**
-  - E0b's PhysionetMI 8–30 Hz arm → the contract band (D-034).
-  - The founders: Q27, the 16-vCPU quota request, outreach.
-  - E1 seeds, a calibrated baseline on Yang2025, cue audits of the new datasets; revisit the §8.6 headline with E1's numbers.
+  - E2 results → S (seconds of warm-up within 2 points of a full session).
+  - A same-session calibrated ceiling on every dataset (the number to quote against "just calibrate").
+  - Training crops and multi-class auxiliary training ("use more of what we have").
+  - The founders: the Stieger2021 decision, outreach (drafts ready), the 16-vCPU quota request.
 
 ## Week 1: Sat 3 → Fri 9 Oct · data and baselines
 | Day | Engineering | Business / YC |
