@@ -7,7 +7,8 @@
 | Where | What |
 |---|---|
 | [`knowledge-base/`](knowledge-base/README.md) | Start here: research, datasets, decisions, the [MVP architecture](knowledge-base/architecture/mvp-architecture.md) (the coding guideline) and the [plan](knowledge-base/plan/road-to-nov-1.md) |
-| [`src/neuros/`](src/neuros/__init__.py) | The Python package (architecture §9). So far: the data layer (registry, harmonisation, validation, montage, vocabulary, splits), the causal signal chain (`signal/`), Euclidean Alignment (`align/`), the EEGNet encoder (`models/`) and its trainer (`train/`), metrics, Riemannian baselines and leave-one-person-out runs (`eval/`) |
+| [`src/neuros/`](src/neuros/__init__.py) | The Python package (architecture §9): the data layer (registry, harmonisation, validation, montage, vocabulary, splits), the causal signal chain (`signal/`), Euclidean Alignment (`align/`), the EEGNet encoder (`models/`) and its trainer (`train/`), experiments (`eval/`), and the **live engine** (`engine/`: sources, quality gate, online alignment, policy, model bundle, WebSocket server, simulator) with its Python client (`client.py`) |
+| [`clients/js/`](clients/js/) | The JavaScript SDK (`neuros-client.js`) and the live demo page (`demo.html`, served by the engine) |
 | [`configs/`](configs/) | The data config (the signed-off signal contract), one YAML per experiment (`e0.yaml`, ...) and the **locked test set** |
 | [`tests/`](tests/) | Unit and property tests on synthetic EEG; `data`-marked tests run against downloaded datasets |
 
@@ -33,6 +34,42 @@ uv run neuros --config configs/data.yaml loso --experiment configs/e0.yaml  # E0
 - `neuros loso` trains one fold per person in parallel processes (default: CPUs ÷ 2 workers × 2 threads). E0 takes about 50 minutes per alignment on the dev laptop. Add `--max-epochs 2 --subjects 1 2 3` for a quick smoke test.
 - Offline windows start after the class has left the screen (D-030). `neuros datasets` shows each dataset's window and flags the ones where the class stays on screen; `baseline --window START END` fixes a window for diagnostics such as the cue-only control (`--window 0 0.5`).
 - Optional: `uv run pre-commit install` runs format, lint and types before each commit.
+
+## The live engine (headset → intents)
+
+Needs the engine extra: `uv sync --inexact --extra engine` (pylsl, websockets, brainflow; `--inexact` keeps the dev/ml packages).
+
+```bash
+# 1. A model bundle: the shipping model + what the engine needs (GPU recommended)
+uv run neuros --config configs/data.yaml bundle --experiment configs/e2.yaml --out bundles/mvp-v0 --device cuda
+
+# 2a. Rehearse with a virtual headset: a dataset person the bundle never trained on, in real time
+uv run neuros --config configs/data.yaml simulate --bundle bundles/mvp-v0 \
+    --dataset GuttmannFlury2025 --subject 3 --speed 1 --serve --wait-for-app
+#     then open http://127.0.0.1:8765/ (the demo page)
+
+# 2b. The real headset (OpenBCI Ganglion over BrainFlow; channels named by its profile)
+uv run neuros --config configs/data.yaml run --bundle bundles/mvp-v0 \
+    --brainflow GANGLION_BOARD --serial-port COM3 --headset ganglion
+#     or any LSL EEG stream: --lsl [NAME]
+```
+
+Apps receive `neuros.intent.v0` events (architecture §7.3) on `ws://127.0.0.1:8765`; the engine binds to this machine only.
+
+```js
+import { NeurOSClient } from "./clients/js/neuros-client.js";
+new NeurOSClient("ws://127.0.0.1:8765").on("intent", (e) => console.log(e.command)).connect();
+```
+
+```python
+from neuros.client import intents
+async for event in intents():            # inside an async function
+    print(event["type"], event.get("command"))
+```
+
+- Decisions arrive 8 times a second. `HOLD` comes with a reason (`warmup`, `low_confidence`, `unrecognized`, `flat`, `saturated`, `motion`, `signal_gap`); the engine never guesses.
+- `neuros simulate` refuses locked-test people, and people who trained the bundle (their accuracy would be inflated) unless `--allow-seen`. `--out FILE` writes the replay's score against the ground truth.
+- `neuros simulate --lsl-out NAME` publishes a session as an LSL stream for rehearsing `neuros run --lsl NAME`. LSL opens network sockets (Windows may ask for firewall permission); the LSL test runs only with `NEUROS_LSL_TESTS=1`.
 
 ## House rules for code
 

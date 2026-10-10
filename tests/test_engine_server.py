@@ -190,3 +190,37 @@ def test_score_counts_only_commands_inside_task_periods() -> None:
     assert score.n_commands == 5
     with pytest.raises(NeurOSConfigError, match="shorter"):
         score_replay(events, markers, {}, window_s=2.0, task_start_s=1.0, task_end_s=2.0)
+
+
+def test_python_client_receives_and_validates_messages() -> None:
+    from neuros.client import intents, parse
+
+    assert parse("not json") is None
+    assert parse(json.dumps({"schema": "other", "type": "intent"})) is None
+    assert parse(json.dumps({"schema": "neuros.intent.v0", "type": "bogus"})) is None
+    assert parse(json.dumps({"schema": "neuros.intent.v0", "type": "hello"})) == {
+        "schema": "neuros.intent.v0",
+        "type": "hello",
+    }
+
+    async def scenario() -> list[dict]:
+        hub = EventHub(["LEFT", "RIGHT"])
+        server = await start_server(hub, port=0, static_dir=None)
+        port = server.sockets[0].getsockname()[1]
+        received: list[dict] = []
+        try:
+            stream = intents(f"ws://127.0.0.1:{port}", reconnect=False)
+            received.append(await anext(stream))  # hello
+            await hub.broadcast(_intent(0, 3.0))
+            received.append(await anext(stream))
+            await stream.aclose()
+        finally:
+            server.close()
+            await server.wait_closed()
+        return received
+
+    hello, intent = asyncio.run(scenario())
+    assert hello["type"] == "hello"
+    assert intent["command"] == "LEFT"
+    with pytest.raises(NeurOSConfigError, match="ws://"):
+        asyncio.run(anext(intents("http://127.0.0.1:1")))
