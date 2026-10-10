@@ -929,10 +929,13 @@ def cmd_simulate(args: argparse.Namespace) -> int:
         window_s=bundle.contract.window_s,
         task_start_s=epoch.start_s,
         task_end_s=spec.task_s,
+        tolerance_s=bundle.contract.hop_s / 2,  # the decision nearest a one-window epoch counts
     )
+    where = "cue-free task windows" if epoch.cue_free else "task windows (class on screen)"
     print(
         f"\n{score.n_decisions} decisions, {score.n_commands} commands; holds {dict(score.holds)}"
-        f"\ncommands inside cue-free task periods: {score.task_commands}, correct "
+        f"\n{where}: {score.task_decisions} decisions, {score.task_commands} commands "
+        f"({score.commit_rate * 100:.0f}% committed), correct "
         f"{score.task_accuracy * 100:.1f}% (balanced {score.balanced_task_accuracy * 100:.1f}%)"
         f"\nlatency: median {score.latency_median_ms:.2f} ms, p99 {score.latency_p99_ms:.2f} ms"
     )

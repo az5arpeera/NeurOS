@@ -121,12 +121,18 @@ class ReplayScore:
     n_decisions: int
     n_commands: int
     holds: Mapping[str, int]
-    task_commands: int  # commands whose window lies in a cue-free task period
+    task_decisions: int  # decisions (commands and HOLDs) whose window lies in a task period
+    task_commands: int  # commands whose window lies in a task period
     task_correct: int
     per_class: Mapping[str, tuple[int, int]]  # class -> (correct, commands)
     latency_median_ms: float
     latency_p99_ms: float
     states: tuple[tuple[float, str], ...]  # (t, state) at each change
+
+    @property
+    def commit_rate(self) -> float:
+        """The share of task-period decisions that were commands rather than HOLD."""
+        return self.task_commands / self.task_decisions if self.task_decisions else math.nan
 
     @property
     def task_accuracy(self) -> float:
@@ -142,6 +148,8 @@ class ReplayScore:
             "n_decisions": self.n_decisions,
             "n_commands": self.n_commands,
             "holds": dict(self.holds),
+            "task_decisions": self.task_decisions,
+            "commit_rate": self.commit_rate,
             "task_commands": self.task_commands,
             "task_accuracy": self.task_accuracy,
             "balanced_task_accuracy": self.balanced_task_accuracy,
@@ -160,42 +168,55 @@ def score_replay(
     window_s: float,
     task_start_s: float,
     task_end_s: float,
+    tolerance_s: float = 0.0,
 ) -> ReplayScore:
     """Score commands against the markers.
 
-    A command counts when its decision window ``[t - window_s, t]`` lies within
-    ``[cue + task_start_s, cue + task_end_s]`` of some marker: the cue-free part of a trial
-    (D-030's start), up to the end of the task. Commands elsewhere (rest, between trials) are
-    counted but not scored: there is no ground truth for them.
+    A decision is scored when its window ``[t - window_s, t]`` lies within
+    ``[cue + task_start_s - tolerance_s, cue + task_end_s + tolerance_s]`` of some marker: the
+    task epoch of a trial (D-030's start), up to the end of the task. Decisions elsewhere (rest,
+    between trials) are counted but not scored: there is no ground truth for them.
+
+    ``tolerance_s`` should be half the engine's hop. Without it, a task period exactly one window
+    long (the latest-window rule, for datasets whose class stays on screen) scores nothing: it
+    needs a decision ending at one exact instant, and decisions come every hop at sample-quantized
+    times (bug found 10 Oct: all 34 test-only replays scored 0 commands). With half a hop, the
+    decision nearest that instant counts, as the offline evaluation's single window does.
 
     Raises:
-        NeurOSConfigError: on a task period shorter than the window.
+        NeurOSConfigError: on a task period shorter than the window, or a tolerance that is
+            negative or not shorter than the window.
     """
     if not task_end_s - task_start_s >= window_s:
         raise NeurOSConfigError(
             f"the task period [{task_start_s}, {task_end_s}] s is shorter than a "
             f"{window_s}-s window"
         )
+    if not (math.isfinite(tolerance_s) and 0.0 <= tolerance_s < window_s):
+        raise NeurOSConfigError(f"tolerance_s must be in [0, {window_s}), got {tolerance_s}")
     intents = [e for e in events if isinstance(e, IntentEvent)]
     holds: dict[str, int] = {}
     per_class: dict[str, list[int]] = {label: [0, 0] for label in commands}
-    task_commands = task_correct = 0
+    task_decisions = task_commands = task_correct = 0
     cues = np.array([m.t for m in markers])
     labels = [m.label for m in markers]
+    slack = tolerance_s + 1e-9
     for event in intents:
         if event.command == HOLD:
             key = str(event.hold_reason)
             holds[key] = holds.get(key, 0) + 1
-            continue
         start = event.t - window_s
         inside = np.flatnonzero(
-            (start >= cues + task_start_s - 1e-9) & (event.t <= cues + task_end_s + 1e-9)
+            (start >= cues + task_start_s - slack) & (event.t <= cues + task_end_s + slack)
         )
         if inside.size == 0:
             continue
         label = labels[int(inside[-1])]
         if label not in commands:
             continue  # a class this app didn't enable
+        task_decisions += 1
+        if event.command == HOLD:
+            continue
         task_commands += 1
         right = event.command == commands[label]
         task_correct += right
@@ -207,6 +228,7 @@ def score_replay(
         n_decisions=len(intents),
         n_commands=sum(1 for e in intents if e.command != HOLD),
         holds=holds,
+        task_decisions=task_decisions,
         task_commands=task_commands,
         task_correct=task_correct,
         per_class={k: (v[0], v[1]) for k, v in per_class.items()},

@@ -188,8 +188,29 @@ def test_score_counts_only_commands_inside_task_periods() -> None:
     assert score.balanced_task_accuracy == pytest.approx(0.75)
     assert score.holds == {"low_confidence": 1}
     assert score.n_commands == 5
+    assert score.task_decisions == 4  # 3 scored commands + the HOLD at 13.5 ([11.5, 13.5])
+    assert score.commit_rate == pytest.approx(0.75)
     with pytest.raises(NeurOSConfigError, match="shorter"):
         score_replay(events, markers, {}, window_s=2.0, task_start_s=1.0, task_end_s=2.0)
+    with pytest.raises(NeurOSConfigError, match="tolerance"):
+        score_replay(
+            events, markers, {}, window_s=2.0, task_start_s=1.0, task_end_s=4.0, tolerance_s=2.0
+        )
+
+
+def test_score_finds_the_decision_nearest_a_one_window_epoch() -> None:
+    """Regression (10 Oct): a task epoch exactly one window long (class on screen all task) needs a
+    decision ending at cue + task_end; decisions every 1/8 s at sample times never hit it exactly,
+    so every test-only replay scored 0 commands. Half a hop of tolerance finds the nearest one."""
+    markers = [Marker(10.0, "left_hand")]
+    hop = 0.125
+    # Decisions every hop, offset by 0.004 s (sample quantization): none ends exactly at 14.5.
+    events = [_intent(i, 13.004 + i * hop, "LEFT") for i in range(24)]
+    kwargs = {"window_s": 2.0, "task_start_s": 2.5, "task_end_s": 4.5}
+    commands = {"left_hand": "LEFT", "right_hand": "RIGHT"}
+    assert score_replay(events, markers, commands, **kwargs).task_decisions == 0
+    score = score_replay(events, markers, commands, **kwargs, tolerance_s=hop / 2)
+    assert (score.task_decisions, score.task_commands, score.task_correct) == (1, 1, 1)
 
 
 def test_python_client_receives_and_validates_messages() -> None:
