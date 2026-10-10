@@ -597,6 +597,103 @@ def cmd_baseline(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_calibration(args: argparse.Namespace) -> int:
+    """The calibration curve (Q28, 10 Oct): a person's own calibrated decoder vs data used.
+
+    Same windows as ``neuros baseline`` (development people, D-030's cue-controlled epoch, the
+    same channels, reference and band), so the curve sits next to E0b's and E1's numbers.
+    """
+    from neuros.config.experiment import apply_signal_overrides
+    from neuros.data.registry import get_spec
+    from neuros.eval.calibration import calibration_curve, minutes_label
+    from neuros.provenance import stamp
+
+    config = _config(args)
+    if args.band is not None:
+        config = config.model_copy(
+            update={
+                "signal": apply_signal_overrides(
+                    config.signal, {"band_hz": [float(edge) for edge in args.band]}
+                )
+            }
+        )
+    spec = get_spec(args.dataset)
+    provenance = stamp(config, dataset=spec.key)  # at the start: the code that runs
+    _warn_if_dirty(provenance)
+    windows, summaries, subjects, epoch = _dev_windows(
+        config,
+        spec.key,
+        args.subjects,
+        args.labels,
+        args.channels,
+        args.split,
+        "a calibration-curve run",
+        cache=_recording_cache(config, args),
+    )
+    print(
+        f"\n{len(windows)} windows, {len(windows.people)} people, {len(windows.ch_names)} "
+        f"channels ({args.channels}), {epoch.describe()}, reference {args.reference}, "
+        f"calibrated per {args.block}\n"
+    )
+    result = calibration_curve(
+        windows,
+        labels=args.labels,
+        sizes=args.sizes,
+        block=args.block,
+        reference=args.reference,
+        progress=print,
+    )
+    rows = []
+    for point in result["curve"]:
+        acc = point["summary_balanced_accuracy"]
+        rows.append(
+            [
+                str(point["n_per_class"]),
+                minutes_label(point["minutes_median"]),
+                str(point["n_people"]),
+                f"{acc['mean'] * 100:.1f} ± {acc['std'] * 100:.1f}",
+                f"[{acc['ci95_low'] * 100:.1f}, {acc['ci95_high'] * 100:.1f}]",
+                f"{acc['share_usable'] * 100:.0f}%",
+            ]
+        )
+    print()
+    print(
+        _table(
+            rows,
+            ["per class", "calibration", "people", "bal. acc %", "95% CI", ">=70%"],
+        )
+    )
+    name = f"{spec.key}_{'-'.join(args.labels)}_{args.channels}_{args.reference}_{args.block}"
+    if args.band is not None:
+        name += f"_band{args.band[0]:g}-{args.band[1]:g}"
+    if args.subjects:
+        name += "_subj" + "-".join(str(s) for s in args.subjects)
+    out = config.results_dir / "calibration" / f"{name}.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "provenance": _finished(provenance),
+        "protocol": {
+            "dataset": spec.key,
+            "labels": list(args.labels),
+            "channels": list(windows.ch_names),
+            "channel_set": args.channels,
+            "band_hz": list(config.signal.band_hz),
+            **epoch.to_dict(),
+            "class_on_screen_s": spec.class_on_screen_s,
+            "cue_margin_s": config.signal.cue_margin_s,
+            "window_s": config.signal.window_s,
+            "sfreq": config.signal.sfreq,
+            "subjects": subjects,
+            "split_file": str(args.split),
+        },
+        "subjects": summaries,
+        **result,
+    }
+    out.write_text(json.dumps(payload, indent=1), encoding="utf-8", newline="\n")
+    print(f"\nresults: {out}")
+    return 0
+
+
 def _default_fold_workers() -> int:
     """Parallel folds for the Riemannian baselines: half the CPUs, at most 12.
 
@@ -1622,6 +1719,51 @@ def build_parser() -> argparse.ArgumentParser:
         help="recompute every recording instead of using the preprocessed cache (§4.5)",
     )
     p.set_defaults(func=cmd_baseline)
+
+    p = sub.add_parser(
+        "calibration",
+        help="calibration curve: a person's own calibrated decoder vs windows used (Q28)",
+    )
+    p.add_argument("--dataset", required=True)
+    p.add_argument(
+        "--subjects",
+        type=int,
+        nargs="+",
+        default=None,
+        help="default: the dataset's development people (usable, not in the locked test set)",
+    )
+    p.add_argument("--labels", nargs="+", default=["left_hand", "right_hand"])
+    p.add_argument("--channels", choices=["all", "c-core", "motor"], default="motor")
+    p.add_argument("--reference", choices=["as_recorded", "car"], default="car")
+    p.add_argument(
+        "--band",
+        type=float,
+        nargs=2,
+        default=None,
+        metavar=("LOW", "HIGH"),
+        help="band-pass edges in Hz instead of the contract's default (E1 used 8 30)",
+    )
+    p.add_argument(
+        "--block",
+        choices=["session", "person"],
+        default="session",
+        help="calibrate and test within each session, or within each person (sessions "
+        "concatenated in order; for datasets with very short sessions)",
+    )
+    p.add_argument(
+        "--sizes",
+        type=int,
+        nargs="+",
+        default=[5, 10, 20, 40],
+        help="windows per class to calibrate on (the whole calibration pool is always added)",
+    )
+    p.add_argument("--split", default=str(DEFAULT_SPLIT_PATH), help="locked test set file")
+    p.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="recompute every recording instead of using the preprocessed cache (§4.5)",
+    )
+    p.set_defaults(func=cmd_calibration)
 
     p = sub.add_parser("audit", help="cue-contamination audit of a cued dataset (D-030)")
     p.add_argument("--dataset", required=True)
