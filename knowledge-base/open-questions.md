@@ -25,6 +25,12 @@ Priority: 🔴 blocking · 🟠 this week · 🟡 can wait until after the MVP.
 
 Meanwhile, prepare the fallback in parallel: E6's rest vs mental-effort head (EEGMAT, plus Shin2017A's dataset B). If the levers don't lift cue-free accuracy at 120 s to around 65% or more on Yang2025 and Shin2017A, lead with the rigour story and the state channel.
 
+**Update 10 Oct: lever 1 is done and doesn't meet the bar** ([results](results/2026-10-10-d039-crops-multiclass.md)).
+- Crops, extra classes or both: +0.3 to +0.4 overall, within seed noise.
+- At 120 s: Yang2025 56.8% in every variant; Shin2017A at best 59.9% (E2 57.1%, n.s.); BNCI2014-001 unchanged at 66.0%.
+- 12–13 of 73 cue-free people reach 70% (E2 10).
+- Lever 2, the same-session calibrated ceiling, measures the reference; it can't lift the number. On the bar above, this points to the fallback. The founders decide on 16 Oct.
+
 ### Q29. Stieger2021's sessions 3–11 (299 GB)
 **Recommendation: don't download them** ([cue test](results/2026-10-06-e1-followups-cue-test-seeds-ceilings.md)).
 - Stieger2021's data mostly helps its own people. Their task window doesn't beat the cue alone (68.4% vs 66.1%, p = 0.13).

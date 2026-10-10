@@ -110,8 +110,11 @@ Claude Code pairs on all engineering. **Founders send all outreach;** Claude dra
     - the warm-up closes 52–65% of the gap in 2 minutes, but cue-free accuracy at 120 s is 57–66% and only 10 of 73 people reach 70%;
     - S = 120 s on Yang2025, longer elsewhere;
     - Shin2017A 62.3% (unseen hardware, cue-only at chance).
+- **10 Oct: D-039 done** ([results](../results/2026-10-10-d039-crops-multiclass.md)):
+  - Crops, extra classes or both: +0.3 to +0.4 overall (within seed noise). The cue-free numbers at 120 s are unchanged (Yang2025 56.8% in every variant). Q28's bar isn't met; E2's recipe stays.
+  - The first crop runs were void: two glitched Yang2025 crops broke 4 of 5 models. An artifact rule now drops them (`8605be4`).
 - **Next (before D-031's gate, ≈ 16 Oct; Q28):**
-  - Training crops and multi-class auxiliary training ("use more of what we have"): the lever on the ceiling.
+  - ~~Training crops and multi-class auxiliary training~~: done 10 Oct, no lift.
   - A same-session calibrated ceiling on Yang2025, BNCI2014-001 and Shin2017A (the number to quote against "just calibrate").
   - E2 v2: budgets of 180 and 300 s, a sweep of the prior's weight, and a per-profile prior for new hardware.
   - The fallback in parallel: E6's rest vs mental-effort head.

@@ -18,6 +18,12 @@ Newest first. Format: **ID · date · decision** — why · who. Superseded deci
   - **The cache isn't touched:** the window cutting lives in `neuros.data.training_windows`, outside the modules the recording cache's key hashes, so no dataset is re-prepared.
   - **E4-zs** (hold "feet" out and test the text head zero-shot) must leave feet out of `extra_labels`.
   - **Runs:** `configs/e2_crops.yaml`, `e2_multiclass.yaml` and `e2_crops_multiclass.yaml` are E2 with one change each, scored person by person against E2's pooled and warm-up numbers.
+  - **Follow-up 10 Oct: result, and an artifact rule** ([results](../results/2026-10-10-d039-crops-multiclass.md)).
+    - **Neither lever moves the ceiling:** +0.3 to +0.4 overall, within seed noise; the cue-free numbers at 120 s are unchanged. **E2's recipe stays the default** (no `training_windows` section). The code stays, for E4-zs and later checks.
+    - **Artifact rule (`eval.pooled.screen_amplitude`, `8605be4`):** a newly cut training window is dropped if its RMS is more than **50×** its person's median window RMS, or if it isn't finite.
+      - Genuine windows reach 10.6× and test windows 7.7×.
+      - Two glitched Yang2025 crops at 7,200–7,650× broke the first crop runs: they set the input scale and the batch-norm statistics, and 4 of 5 models answered one class.
+      - Windows that E1/E2 already trained on never go through the rule. Run reports count drops per dataset and per person.
 
 - **D-038 · 2026-10-07 · Add Liu2024 as a test-only consumer-grade hardware dataset; locked test set v3; Stieger2021's later sessions wait for the cue test.** · Founders approved the download and chose to wait on Stieger; Claude set the dataset's role and drew v3 by the existing rule
   - **Why Liu2024:** it's the first public motor-imagery set on non-research hardware we can use commercially ([research](../research/consumer-headset-mi-datasets.md)).
