@@ -255,6 +255,27 @@ The runtime is PyTorch on CPU, because test-time adaptation needs gradients.
 
 **Latency target:** < 10 ms typical and < 30 ms at p99 per decision on a laptop CPU. To be measured.
 
+**As built (10 Oct), `neuros.engine`:**
+- **Stages 1–6, 8 and 9 are built.** Stage 7 (test-time adaptation) isn't yet; it comes with E3.
+- **Ingest** (`sources.py`):
+  - `LslSource` reads channel labels and units from the stream. It refuses streams whose units are undeclared unless the units are given; it never guesses.
+  - `BrainFlowSource` reads OpenBCI, Muse and Unicorn boards, plus BrainFlow's synthetic board.
+- **The pipeline** (`pipeline.Engine`): the shared `StreamingPreprocessor` and `WindowStream`, the quality gate, the common average, E2's online reference and placement in the layout, then the decoder and the policy.
+  - Live windows equal the offline pipeline's bit for bit, however the stream is chunked (tested).
+- **Quality gate** (`quality.py`):
+  - flat (< 0.5 µV standard deviation) and saturated (> 2000 µV), checked before the common average;
+  - motion (> 500 µV peak to peak after it), E2's gate.
+  - These thresholds are provisional until they're tuned on Cho2017's rest. The muscle check needs the raw signal and isn't built yet.
+- **Policy** (`policy.py`): EMA smoothing over 0.5 s, θ = 0.6 (provisional), a debounce of 2, and decoy classes held as `unrecognized`.
+- **Model bundle** (`bundle.py`, `neuros bundle`):
+  - It holds the weights (loaded weights-only, with a SHA-256 check), the layout, the classes, the input scale and the contract.
+  - It also stores each training person's mean raw covariance, from which the engine builds R_pop for whatever channels the headset has when it starts.
+- **Output** (`server.py`):
+  - A WebSocket on 127.0.0.1:8765. Other hosts are refused unless allowed explicitly (§10).
+  - Apps get a `hello` on connecting, and slow apps are dropped rather than waited for.
+  - The same port serves the demo page (`clients/js/demo.html`).
+- **Measured:** on synthetic data, median latency is 0.3 ms with a log-variance decoder; on BrainFlow's synthetic board with an EEGNet bundle, 1.6–2.3 ms.
+
 ### 7.2 Engine states
 `DISCONNECTED → SETTLING → ADAPTING → STEADY`, plus `DEGRADED`:
 - **SETTLING** covers 0–30 s. Decisions flow from about t = 3 s and are tagged `settling`.
@@ -301,6 +322,16 @@ neuros simulate --dataset PhysionetMI --subject 12 --headset ganglion
 neuros run      --headset ganglion --model bundles/mvp-v0
 ```
 JavaScript: `new NeurOSClient("ws://localhost:8765").on("intent", e => ...)` (D-014).
+
+**As built (10 Oct):**
+- **Commands:**
+  - `neuros bundle --experiment configs/e2.yaml --out bundles/mvp-v0` trains the shipping model.
+  - `neuros simulate --bundle B --dataset D --subject N [--speed 1 --serve | --lsl-out NAME]` replays a session. It refuses locked-test people, and people who trained the bundle unless `--allow-seen`.
+  - `neuros run --bundle B (--brainflow GANGLION_BOARD --headset ganglion | --lsl [NAME])` runs the live engine.
+- **Clients:** `clients/js/neuros-client.js` has no dependencies and reconnects by itself. `neuros.client.intents()` is the Python async client.
+- **Headsets:**
+  - **Ganglion profile** (D-025): C3, Cz, C4, Pz, so the model sees C3/Cz/C4. That's Shin2017A's profile, whose zero-calibration numbers (57% after 2 min, 62% over a full session) are the closest preview of the demo.
+  - **Muse:** has no motor-strip channels (TP9, AF7, AF8, TP10), so motor imagery can't run on a Muse at all.
 
 ## 8. 🔒 Evaluation protocol (decides every number we publish)
 
