@@ -820,6 +820,139 @@ def cmd_bundle(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_simulate(args: argparse.Namespace) -> int:
+    """Replay a dataset person's raw session through the real engine (§7.4): a virtual
+    headset. With ``--serve``, apps receive the events live on ws://127.0.0.1:PORT."""
+    import asyncio
+
+    from neuros.data.download import loading_dataset
+    from neuros.data.harmonize import harmonize_moabb_subject
+    from neuros.data.recording import person_id
+    from neuros.data.registry import get_spec, task_epoch
+    from neuros.data.vocabulary import default_vocabulary
+    from neuros.engine.bundle import ModelBundle
+    from neuros.engine.pipeline import Engine
+    from neuros.engine.policy import PolicySettings
+    from neuros.engine.runner import replay, score_replay
+    from neuros.engine.server import EventHub, start_server
+    from neuros.engine.simulator import Simulator
+    from neuros.errors import NeurOSConfigError
+    from neuros.eval.calibration import natural_key
+
+    bundle = ModelBundle.load(Path(args.bundle))
+    config = _config(args)
+    spec = get_spec(args.dataset)
+    person = person_id(spec.key, args.subject)
+    _dev_subjects(spec, [args.subject], args.split, "a simulation")  # never a locked test person
+    seen = set(bundle.provenance.get("train_people", [])) | set(
+        bundle.provenance.get("validation_people", [])
+    )
+    if person in seen and not args.allow_seen:
+        raise NeurOSConfigError(
+            f"{person} trained this bundle: a replay would overstate accuracy. Pick a person it "
+            "never saw (e.g. a test-only dataset), or pass --allow-seen for plumbing checks"
+        )
+    recordings = harmonize_moabb_subject(
+        spec, args.subject, default_vocabulary(), dataset=loading_dataset(spec, config.data_dir)
+    )
+    sessions = sorted({r.session for r in recordings}, key=natural_key)
+    session = args.session if args.session is not None else sessions[0]
+    runs = sorted((r for r in recordings if r.session == session), key=lambda r: natural_key(r.run))
+    if not runs:
+        raise NeurOSConfigError(f"{person} has no session {session!r} (sessions: {sessions})")
+    commands = {"left_hand": "LEFT", "right_hand": "RIGHT"}
+    engine = Engine(
+        bundle.decoder(),
+        bundle.engine_config(
+            runs[0].ch_names,
+            runs[0].sfreq,
+            policy=PolicySettings(
+                commands={c: commands.get(c, c.upper()) for c in bundle.classes},
+                threshold=args.threshold,
+            ),
+        ),
+    )
+    simulators = []
+    t0 = 0.0
+    for recording in runs:  # a 5-s pause between runs, as between a real session's blocks
+        simulator = Simulator(recording, t0=t0, noise_uv=args.noise_uv, seed=args.subject)
+        simulators.append(simulator)
+        t0 += simulator.duration_s + 5.0
+    print(
+        f"{person} session {session}: {len(runs)} run(s), {t0 / 60:.1f} min; headset profile "
+        f"{len(engine.profile)} channels {list(engine.profile)}",
+        flush=True,
+    )
+
+    def show(event: Any) -> None:
+        from neuros.engine.events import StatusEvent
+
+        if isinstance(event, StatusEvent):
+            print(f"[{event.t:8.1f} s] state {event.previous} -> {event.state} ({event.reason})")
+
+    async def main() -> list[Any]:
+        hub = EventHub(list(engine.config.policy.commands.values())) if args.serve else None
+        server = None
+        if hub is not None:
+            server = await start_server(hub, port=args.port)
+            print(
+                f"serving intents on ws://127.0.0.1:{args.port}; demo page: http://127.0.0.1:{args.port}/"
+            )
+            if args.wait_for_app:
+                print("waiting for an app to connect ...", flush=True)
+                while hub.n_clients == 0:
+                    await asyncio.sleep(0.2)
+        try:
+            return await replay(simulators, engine, hub=hub, speed=args.speed, on_event=show)
+        finally:
+            if server is not None:
+                server.close()
+                await server.wait_closed()
+
+    events = asyncio.run(main())
+    epoch = task_epoch(spec, bundle.contract)
+    markers = [m for s in simulators for m in s.markers]
+    score = score_replay(
+        events,
+        markers,
+        engine.config.policy.commands,
+        window_s=bundle.contract.window_s,
+        task_start_s=epoch.start_s,
+        task_end_s=spec.task_s,
+    )
+    print(
+        f"\n{score.n_decisions} decisions, {score.n_commands} commands; holds {dict(score.holds)}"
+        f"\ncommands inside cue-free task periods: {score.task_commands}, correct "
+        f"{score.task_accuracy * 100:.1f}% (balanced {score.balanced_task_accuracy * 100:.1f}%)"
+        f"\nlatency: median {score.latency_median_ms:.2f} ms, p99 {score.latency_p99_ms:.2f} ms"
+    )
+    if args.out:
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(
+            json.dumps(
+                {
+                    "person": person,
+                    "session": session,
+                    "bundle": str(args.bundle),
+                    "bundle_provenance": {
+                        k: v
+                        for k, v in bundle.provenance.items()
+                        if k not in ("train_people", "validation_people")
+                    },
+                    "threshold": args.threshold,
+                    "noise_uv": args.noise_uv,
+                    "score": score.to_dict(),
+                },
+                indent=1,
+            ),
+            encoding="utf-8",
+            newline="\n",
+        )
+        print(f"results: {out}")
+    return 0
+
+
 def _default_fold_workers() -> int:
     """Parallel folds for the Riemannian baselines: half the CPUs, at most 12.
 
@@ -2010,6 +2143,35 @@ def build_parser() -> argparse.ArgumentParser:
         help="recompute every recording instead of using the preprocessed cache (§4.5)",
     )
     p.set_defaults(func=cmd_bundle)
+
+    p = sub.add_parser(
+        "simulate", help="replay a dataset person's session through the engine (virtual headset)"
+    )
+    p.add_argument("--bundle", required=True, help="a model bundle folder (`neuros bundle`)")
+    p.add_argument("--dataset", required=True)
+    p.add_argument("--subject", type=int, required=True)
+    p.add_argument("--session", default=None, help="default: the person's first session")
+    p.add_argument(
+        "--speed",
+        type=float,
+        default=None,
+        help="1.0 = real time (demo); default: as fast as possible",
+    )
+    p.add_argument("--threshold", type=float, default=0.6, help="the policy's θ (0.5-1)")
+    p.add_argument("--noise-uv", type=float, default=0.0, help="added white noise (µV)")
+    p.add_argument("--serve", action="store_true", help="broadcast events on a local WebSocket")
+    p.add_argument("--port", type=int, default=8765)
+    p.add_argument(
+        "--wait-for-app", action="store_true", help="with --serve: start once an app connects"
+    )
+    p.add_argument(
+        "--allow-seen",
+        action="store_true",
+        help="allow a person who trained the bundle (plumbing checks only: accuracy is inflated)",
+    )
+    p.add_argument("--out", default=None, help="write the replay's score as JSON")
+    p.add_argument("--split", default=str(DEFAULT_SPLIT_PATH), help="locked test set file")
+    p.set_defaults(func=cmd_simulate)
 
     p = sub.add_parser("audit", help="cue-contamination audit of a cued dataset (D-030)")
     p.add_argument("--dataset", required=True)

@@ -1,0 +1,120 @@
+<!doctype html>
+<!--
+  NeurOS live demo page: shows the engine's decisions as they arrive.
+  Start the engine with a local WebSocket, e.g.
+    uv run --no-sync neuros --config configs/data.yaml simulate --bundle bundles/mvp-v0 \
+      --dataset GuttmannFlury2025 --subject 3 --speed 1 --serve --wait-for-app
+  then open http://127.0.0.1:8765/ in a browser: the engine serves this page and the page
+  connects back to it. Everything stays on this computer.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NeurOS live</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --fg: #1d1d1b; --muted: #6b6b66; --card: #ffffff; --line: #e3e2dc;
+    --left: #2f6fdf; --right: #d4572a; --hold: #9a9a93; --ok: #2e8b57; --bad: #c0392b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #151514; --fg: #ecebe6; --muted: #9a9993; --card: #1f1f1d; --line: #33322f; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 16px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px; }
+  header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: 20px; margin: 0; }
+  .pill { font-size: 13px; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-top: 16px; }
+  #command { font-size: clamp(56px, 16vw, 120px); font-weight: 700; text-align: center; letter-spacing: 0.02em; transition: color 0.15s; }
+  #reason { text-align: center; color: var(--muted); min-height: 1.4em; }
+  .bars { display: grid; gap: 10px; margin-top: 8px; }
+  .bar { display: grid; grid-template-columns: 70px 1fr 52px; gap: 10px; align-items: center; font-variant-numeric: tabular-nums; }
+  .track { height: 14px; background: var(--line); border-radius: 7px; overflow: hidden; }
+  .fill { height: 100%; width: 0%; transition: width 0.12s linear; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  .stat .label { color: var(--muted); font-size: 13px; }
+  .stat .value { font-size: 20px; font-variant-numeric: tabular-nums; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; background: var(--hold); }
+  footer { color: var(--muted); font-size: 13px; margin-top: 16px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>NeurOS live</h1>
+    <span class="pill" id="connection"><span class="dot" id="dot"></span>connecting…</span>
+  </header>
+
+  <section class="card">
+    <div id="command">—</div>
+    <div id="reason">waiting for the engine</div>
+    <div class="bars" id="bars"></div>
+  </section>
+
+  <section class="card grid">
+    <div class="stat"><div class="label">Engine state</div><div class="value" id="state">—</div></div>
+    <div class="stat"><div class="label">Good data in alignment</div><div class="value" id="data">—</div></div>
+    <div class="stat"><div class="label">Signal quality</div><div class="value" id="quality">—</div></div>
+    <div class="stat"><div class="label">Latency</div><div class="value" id="latency">—</div></div>
+  </section>
+
+  <footer>Decisions arrive 8 times a second. HOLD means the engine isn't confident enough, the
+  signal is bad, or it is still warming up; it never guesses.</footer>
+</main>
+
+<script type="module">
+  import { NeurOSClient } from "./neuros-client.js";
+
+  // Served by the engine: connect back to the same address. (Opened from disk, browsers
+  // block the module import anyway; the fallback is for pages served elsewhere.)
+  const port = new URLSearchParams(location.search).get("port") || "8765";
+  const url = location.protocol.startsWith("http") ? `ws://${location.host}` : `ws://127.0.0.1:${port}`;
+  const client = new NeurOSClient(url);
+  const $ = (id) => document.getElementById(id);
+  const colors = { LEFT: "var(--left)", RIGHT: "var(--right)" };
+  const reasons = {
+    low_confidence: "not confident yet", unrecognized: "not a command this app uses",
+    motion: "movement artifact", muscle: "muscle artifact", flat: "an electrode is off",
+    saturated: "amplifier saturated", signal_gap: "signal interrupted", warmup: "warming up",
+    adaptation_reset: "re-adapting",
+  };
+
+  function drawBars(names) {
+    $("bars").innerHTML = "";
+    for (const name of names) {
+      const row = document.createElement("div");
+      row.className = "bar";
+      row.innerHTML = `<span>${name}</span><div class="track"><div class="fill" id="fill-${name}"></div></div><span id="pct-${name}">—</span>`;
+      row.querySelector(".fill").style.background = colors[name] || "var(--hold)";
+      $("bars").appendChild(row);
+    }
+  }
+
+  client
+    .on("open", () => { $("connection").lastChild.textContent = "connected"; $("dot").style.background = "var(--ok)"; })
+    .on("close", () => { $("connection").lastChild.textContent = "reconnecting…"; $("dot").style.background = "var(--hold)"; })
+    .on("hello", (e) => { drawBars(e.commands); $("state").textContent = e.state; })
+    .on("status", (e) => { $("state").textContent = e.state; })
+    .on("intent", (e) => {
+      const command = e.command;
+      $("command").textContent = command;
+      $("command").style.color = colors[command] || "var(--hold)";
+      $("reason").textContent = command === "HOLD" ? (reasons[e.hold_reason] || e.hold_reason)
+                                                   : `${Math.round(e.confidence * 100)}% sure`;
+      for (const [name, p] of Object.entries(e.probs)) {
+        const fill = $(`fill-${name}`);
+        if (fill) { fill.style.width = `${(p * 100).toFixed(0)}%`; $(`pct-${name}`).textContent = `${Math.round(p * 100)}%`; }
+      }
+      $("state").textContent = e.calibration.state;
+      $("data").textContent = `${e.calibration.seconds_of_data.toFixed(0)} s`;
+      $("quality").textContent = e.quality.ok ? "good" : `bad: ${e.quality.bad_channels.join(", ") || e.hold_reason}`;
+      $("quality").style.color = e.quality.ok ? "var(--ok)" : "var(--bad)";
+      $("latency").textContent = `${e.latency_ms.toFixed(1)} ms`;
+    })
+    .connect();
+</script>
+</body>
+</html>
