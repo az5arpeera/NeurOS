@@ -53,6 +53,14 @@ More public data or model variants didn't move the ceiling (D-039), so the claim
 
 **Next, evidence 2 (needs a go-ahead, about 1–2 GPU-hours):** our model plus 5 or 10 trials per hand of fine-tuning. **Pass bar, set before running:** on Yang2025 and BNCI2014-001, fine-tuned with 10 per hand (~3 min) at or above the half-session calibration (60.5% and 73.8%, paired, not significantly worse). If it passes, the headline is "a 15-minute calibration's accuracy in 3 minutes". If not, the claim stays "zero calibration is worth a few minutes of calibration".
 
+**Update 10 Oct, evidence 2 done** ([results](results/2026-10-10-q30-finetune-q31-fit-check.md)): **passes the lenient reading of the bar, fails the strict one.**
+- Our model plus 10 trials per hand (~3 min) is **within 0.7 points** of a 13-minute calibration on Yang2025 (59.8% vs 60.5%; 95% CI −2.7 to +1.2, p = 0.48) and **within 2.5** of a 10-minute one on BNCI2014-001 (71.4% vs 73.8%; CI −5.3 to +0.3, p = 0.30). Not significantly worse, but below.
+- With 20 per hand (~5 min), Yang2025 is above it (+1.3, n.s.).
+- With the same trials, it beats conventional calibration by 3–6 points (Yang2025, 10 per hand: +4.2, p = 0.001).
+- **Recommended headline:** "3 minutes of calibration on top of NeurOS comes within 1–3 points of a 10–13-minute calibration; 5 minutes matches it." Not "a 15-minute calibration's accuracy in 3 minutes": the means are slightly below.
+- **Recommended product step:** offer an optional ~3-minute guided calibration on top of zero calibration. It needs a cue screen in the demo and a fine-tune step in the engine; the fine-tune itself takes seconds.
+- **Unchanged:** the level (about 60% on Yang2025; 7 of 41 people at 70%). Q28's gate still decides the lead.
+
 **Also for the founders:** whether the demo should lean on a more reliable signal: mental state (E6) or SSVEP. SSVEP needs on-screen flicker and electrodes at the back of the head; check the headset first.
 
 ### Q31. A one-minute "fit check": can unlabeled EEG predict who NeurOS will work for? (added 10 Oct; bar set before running)
@@ -73,6 +81,10 @@ Then correlate it with:
 - **Pass:** within-dataset Spearman correlation ≥ 0.4 with p < 0.01, pooled across the three datasets. Each person is ranked within their own dataset, so differences between datasets can't drive it. If it passes, the engine gets a fit check (week 3).
 - **Fail:** drop the idea.
 - **Cost:** CPU, minutes.
+
+**Result 10 Oct: FAIL. The fit check is dropped** ([results](results/2026-10-10-q30-finetune-q31-fit-check.md)).
+- First-minute resting rhythm vs zero-calibration accuracy: within-dataset r = +0.23 (p = 0.056), against a bar of r ≥ 0.4 with p < 0.01.
+- Secondary readings reach r ≈ 0.34 (p < 0.01): a real but weak link, too weak to tell one person whether NeurOS will work for them.
 
 ### Q29. Stieger2021's sessions 3–11 (299 GB)
 **Recommendation: don't download them** ([cue test](results/2026-10-06-e1-followups-cue-test-seeds-ceilings.md)).

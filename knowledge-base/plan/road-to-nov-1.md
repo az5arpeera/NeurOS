@@ -123,6 +123,23 @@ Claude Code pairs on all engineering. **Founders send all outreach;** Claude dra
     - zero calibration after 2 min ≈ 5–20 labelled trials per hand of conventional calibration;
     - a full 10–15-min calibration is 4–8 points better, and still leaves most people below 70%.
     - Next proposed: fine-tuning our model on 5–10 trials per hand (Q30).
+  - **Q30 and Q31 done** ([results](../results/2026-10-10-q30-finetune-q31-fit-check.md)):
+    - our model + 10 trials per hand (~3 min) is within 1–3 points of a 10–13-min calibration (not significantly worse; strict bar fails, lenient passes); 20 per hand (~5 min) matches it on Yang2025;
+    - the 1-minute fit check fails (r = 0.23); dropped.
+    - Next: the shipping bundle and a real-data replay through the engine (bar below), then an optional 3-minute guided calibration in the engine if the founders take Q30's headline.
+  - **The shipping bundle and the real-data replay (bar set 10 Oct, before running):**
+    - **Decision:** is `mvp-v0` (E2's recipe trained on all 7 training datasets' development people) the bundle for the live demo and the founders' headset test, or is there a gap between the engine and the offline numbers to fix first?
+    - **Run:**
+      - `neuros bundle --experiment configs/e2.yaml` (GPU);
+      - then `neuros simulate` as fast as possible, θ = 0.6, on every development person of the two test-only datasets the engine reads without derived channels: BNCI2014_004 (9) and GuttmannFlury2025 (25), first session each.
+      - Neither dataset trained the bundle. Both keep the class on screen, so these numbers check the engine; they are not a cue-free headline.
+    - **Pass (all four):**
+      1. All 34 replays finish without an error.
+      2. Committed commands in the scored task windows are right at least as often as E2's offline accuracy for the same people, minus 5 points (the largest gap E2 measured between streaming and full-session alignment). Balanced; mean over people; E2 61.9% and 62.3%, so the bar is ≥ 57.2% across the 34.
+      3. No stuck output: across people, each class gets at least 30% of the committed commands, and the engine commits on at least 20% of task-window decisions.
+      4. Engine latency p99 < 50 ms per decision.
+    - **Fail:** no live demo or headset test with this bundle until the gap is found.
+    - **Cost:** about 15 GPU-minutes plus about 30 CPU-minutes.
   - The engine extra (pylsl, websockets, brainflow) is installed on the laptop (approved 10 Oct).
 - **Next (before D-031's gate, ≈ 16 Oct; Q28):**
   - ~~Training crops and multi-class auxiliary training~~: done 10 Oct, no lift.
