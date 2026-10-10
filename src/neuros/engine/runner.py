@@ -72,6 +72,48 @@ async def replay(
     return events
 
 
+async def run_live(
+    source: Any,
+    engine: Engine,
+    *,
+    hub: EventHub | None = None,
+    seconds: float | None = None,
+    on_event: Callable[[Event], None] | None = None,
+) -> list[Event]:
+    """Feed a live source (``sources.LslSource`` / ``BrainFlowSource``) to ``engine`` until
+    ``seconds`` have passed (None: until cancelled, e.g. Ctrl+C); return the events.
+
+    The source's blocking pulls run in a worker thread, so the WebSocket keeps serving apps.
+    The source is closed and the engine told the stream ended, whatever stops the loop.
+
+    Raises:
+        NeurOSConfigError: on a non-positive ``seconds``.
+    """
+    if seconds is not None and not (math.isfinite(seconds) and seconds > 0):
+        raise NeurOSConfigError(f"seconds must be None or > 0, got {seconds}")
+    loop = asyncio.get_running_loop()
+    iterator = source.chunks()
+    events: list[Event] = []
+    started = loop.time()
+
+    async def emit(batch: list[Event]) -> None:
+        for event in batch:
+            events.append(event)
+            if on_event is not None:
+                on_event(event)
+            if hub is not None:
+                await hub.broadcast(event)
+
+    try:
+        while seconds is None or loop.time() - started < seconds:
+            samples, stamps = await loop.run_in_executor(None, next, iterator)
+            await emit(engine.push(samples, stamps))
+    finally:
+        await emit(engine.close())
+        source.close()
+    return events
+
+
 @dataclass(frozen=True)
 class ReplayScore:
     """How the decisions compare with the markers (see ``score_replay``)."""

@@ -883,6 +883,16 @@ def cmd_simulate(args: argparse.Namespace) -> int:
         f"{len(engine.profile)} channels {list(engine.profile)}",
         flush=True,
     )
+    if args.lsl_out:  # a virtual headset for `neuros run --lsl NAME` (rehearsal)
+        from neuros.engine.sources import publish_lsl
+
+        speed = args.speed or 1.0
+        print(f"publishing LSL stream {args.lsl_out!r} at {speed:g}x real time (Ctrl+C stops)")
+        try:
+            publish_lsl(simulators, name=args.lsl_out, speed=speed)
+        except KeyboardInterrupt:
+            print("stopped")
+        return 0
 
     def show(event: Any) -> None:
         from neuros.engine.events import StatusEvent
@@ -950,6 +960,100 @@ def cmd_simulate(args: argparse.Namespace) -> int:
             newline="\n",
         )
         print(f"results: {out}")
+    return 0
+
+
+def _source_channels(stream_names: Sequence[str], profile_name: str | None) -> tuple[str, ...]:
+    """The stream's channels as 10-20 names: mapped through a headset profile's device labels
+    (``--headset``), or as published when no profile is given.
+
+    Raises:
+        NeurOSConfigError: if a profile is given and a stream label isn't one of its devices.
+    """
+    from neuros.data.montage import load_profile
+    from neuros.errors import NeurOSConfigError
+
+    if profile_name is None:
+        return tuple(stream_names)
+    profile = load_profile(profile_name)
+    mapping = {c.device: c.canonical for c in profile.channels}
+    unknown = [name for name in stream_names if name not in mapping]
+    if unknown:
+        raise NeurOSConfigError(
+            f"stream channels {unknown} aren't devices of profile {profile.name!r} "
+            f"({list(mapping)}): update the profile's device labels"
+        )
+    return tuple(mapping[name] for name in stream_names)
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    """The live engine (§7.5 `neuros run`): headset in (LSL or BrainFlow), intents out on a
+    local WebSocket, until Ctrl+C (or ``--seconds``)."""
+    import asyncio
+
+    from neuros.data.montage import load_profile
+    from neuros.engine.bundle import ModelBundle
+    from neuros.engine.events import StatusEvent
+    from neuros.engine.pipeline import Engine
+    from neuros.engine.policy import PolicySettings
+    from neuros.engine.runner import run_live
+    from neuros.engine.server import EventHub, start_server
+    from neuros.engine.sources import BrainFlowSource, LslSource, describe_source
+    from neuros.errors import NeurOSConfigError
+
+    bundle = ModelBundle.load(Path(args.bundle))
+    if (args.lsl is None) == (args.brainflow is None):
+        raise NeurOSConfigError("choose one source: --lsl [NAME] or --brainflow BOARD")
+    if args.brainflow is not None:
+        from brainflow.board_shim import BoardIds
+
+        try:
+            board = int(args.brainflow)
+        except ValueError:
+            if not hasattr(BoardIds, args.brainflow):
+                raise NeurOSConfigError(f"unknown BrainFlow board {args.brainflow!r}") from None
+            board = getattr(BoardIds, args.brainflow).value
+        names = None
+        if args.headset is not None:  # BrainFlow streams rows in the profile's device order
+            names = list(load_profile(args.headset).canonical_channels)
+        source: Any = BrainFlowSource(board, serial_port=args.serial_port, ch_names=names)
+        channels = source.ch_names
+    else:
+        source = LslSource(args.lsl or None, units=args.units)
+        channels = _source_channels(source.ch_names, args.headset)
+    print(describe_source(source), "->", list(channels), flush=True)
+    commands = {"left_hand": "LEFT", "right_hand": "RIGHT"}
+    engine = Engine(
+        bundle.decoder(),
+        bundle.engine_config(
+            channels,
+            source.sfreq,
+            policy=PolicySettings(
+                commands={c: commands.get(c, c.upper()) for c in bundle.classes},
+                threshold=args.threshold,
+            ),
+        ),
+    )
+    print(f"model channels on this headset: {list(engine.profile)}", flush=True)
+
+    def show(event: Any) -> None:
+        if isinstance(event, StatusEvent):
+            print(f"[{event.t:10.1f}] state {event.previous} -> {event.state} ({event.reason})")
+
+    async def main() -> None:
+        hub = EventHub(list(engine.config.policy.commands.values()))
+        server = await start_server(hub, port=args.port)
+        print(f"intents on ws://127.0.0.1:{args.port}; demo page: http://127.0.0.1:{args.port}/")
+        try:
+            await run_live(source, engine, hub=hub, seconds=args.seconds, on_event=show)
+        finally:
+            server.close()
+            await server.wait_closed()
+
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("stopped")
     return 0
 
 
@@ -2170,8 +2274,35 @@ def build_parser() -> argparse.ArgumentParser:
         help="allow a person who trained the bundle (plumbing checks only: accuracy is inflated)",
     )
     p.add_argument("--out", default=None, help="write the replay's score as JSON")
+    p.add_argument(
+        "--lsl-out",
+        default=None,
+        metavar="NAME",
+        help="publish the session as an LSL stream (a virtual headset for `neuros run --lsl`) "
+        "instead of running the engine here",
+    )
     p.add_argument("--split", default=str(DEFAULT_SPLIT_PATH), help="locked test set file")
     p.set_defaults(func=cmd_simulate)
+
+    p = sub.add_parser("run", help="the live engine: headset in, intents out (local WebSocket)")
+    p.add_argument("--bundle", required=True, help="a model bundle folder (`neuros bundle`)")
+    p.add_argument(
+        "--lsl", nargs="?", const="", default=None, metavar="NAME",
+        help="read an LSL EEG stream (by name; without a name, the first EEG stream)",
+    )  # fmt: skip
+    p.add_argument(
+        "--brainflow", default=None, metavar="BOARD",
+        help="read a BrainFlow board, e.g. GANGLION_BOARD or SYNTHETIC_BOARD",
+    )  # fmt: skip
+    p.add_argument("--serial-port", default="", help="the board's port (BrainFlow)")
+    p.add_argument(
+        "--headset", default=None, help="a headset profile mapping its channels (e.g. ganglion)"
+    )
+    p.add_argument("--units", default=None, help="the stream's units if it doesn't declare them")
+    p.add_argument("--threshold", type=float, default=0.6, help="the policy's θ (0.5-1)")
+    p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--seconds", type=float, default=None, help="stop after this long")
+    p.set_defaults(func=cmd_run)
 
     p = sub.add_parser("audit", help="cue-contamination audit of a cued dataset (D-030)")
     p.add_argument("--dataset", required=True)

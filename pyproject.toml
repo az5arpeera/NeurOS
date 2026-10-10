@@ -128,6 +128,7 @@ plugins = ["pydantic.mypy"]
 module = [
     "mne.*", "moabb.*", "pyriemann.*", "scipy.*", "pyarrow.*", "pandas.*", "sklearn.*",
     "threadpoolctl",  # installed by scikit-learn; caps BLAS threads in baseline fold workers
+    "pylsl", "pylsl.*", "brainflow.*",  # the engine extra (live headset sources)
 ]
 ignore_missing_imports = true
 
