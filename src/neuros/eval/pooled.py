@@ -60,7 +60,7 @@ from collections.abc import Callable, Collection, Mapping, Sequence
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 from numpy.typing import NDArray
@@ -79,6 +79,9 @@ from neuros.eval.metrics import paired_wilcoxon, score_person, summarize
 from neuros.eval.splits import Fold, make_dev_folds, seeded_rng
 from neuros.signal.reference import common_average_reference
 from neuros.signal.windows import WindowSet
+
+if TYPE_CHECKING:  # finetune imports this module; only its type is needed here
+    from neuros.eval.finetune import FinetuneSettings
 
 Progress = Callable[[str], None]
 # "train": D-039's training windows (crops, extra classes); validation and test stay on "task".
@@ -871,6 +874,9 @@ class TaskSettings:
     # D-039: the head's classes for models trained on the "train" windows: ``classes`` first,
     # then the extra classes. Empty = ``classes``.
     train_classes: tuple[str, ...] = ()
+    # Q30: fine-tune each pooled model's test people on their first labelled trials
+    # (``neuros.eval.finetune``); None = no fine-tuning.
+    finetune: FinetuneSettings | None = None
 
     def __post_init__(self) -> None:
         if self.train_classes and self.train_classes[: len(self.classes)] != self.classes:
@@ -989,6 +995,7 @@ def run_task(
     progress: Progress | None = None,
     extra: Mapping[str, PooledWindows] | None = None,
     train_data: PooledWindows | None = None,
+    finetune_sets: Mapping[int, tuple[PooledWindows, PooledWindows]] | None = None,
 ) -> dict[str, Any]:
     """Train one model on ``task.train`` and score every person in ``task.test``.
 
@@ -999,6 +1006,10 @@ def run_task(
     come from it (crops, extra classes) instead of ``data``; validation and test people's
     windows always come from ``data``. With extra classes, each training window's softmax runs
     over its own dataset's classes, and validation and test over ``settings.classes``.
+
+    ``finetune_sets`` (Q30, with ``settings.finetune``): per calibration size, the calibration
+    and test windows of the warm-up datasets' people; after training, each test person present
+    is scored with the model as is and with a fine-tuned copy, under ``finetune``.
 
     Before anything is computed from them, the training and validation windows pass the
     amplitude guard (``check_amplitude``): a window above ``ARTIFACT_RMS_FACTOR`` times its
@@ -1126,6 +1137,21 @@ def run_task(
         extra_scores[kind] = _score_people(
             model, windows, task.test, scale, settings, predict_logits, head
         )
+    finetune_scores: dict[str, Any] | None = None
+    if finetune_sets and settings.finetune is not None:
+        from neuros.eval.finetune import finetune_and_score
+
+        finetune_scores = finetune_and_score(
+            model,
+            task.test,
+            finetune_sets,
+            scale=scale,
+            settings=settings,
+            finetune=settings.finetune,
+            head=head,
+            seed=task.seed,
+            device=device,
+        )
     seconds = time.perf_counter() - started
     mean = float(np.mean([s["balanced_accuracy_raw"] for s in scores]))
     minutes = seconds / 60
@@ -1151,6 +1177,7 @@ def run_task(
         "hardware": describe_device(device, deterministic=settings.deterministic),
         "seconds": round(seconds, 1),
         **({"extra_scores": extra_scores} if extra_scores else {}),
+        **({"finetune": finetune_scores} if finetune_scores is not None else {}),
     }
 
 
@@ -1177,6 +1204,23 @@ def _train_for(task: ModelTask, data: Mapping[str, PooledWindows]) -> PooledWind
     return None if task.train_data is None else data[task.train_data]
 
 
+def _finetune_kinds(settings: TaskSettings) -> list[tuple[int, str, str]]:
+    if settings.finetune is None:
+        return []
+    from neuros.eval.finetune import finetune_kinds
+
+    return finetune_kinds(settings.finetune.sizes)
+
+
+def _finetune_for(
+    task: ModelTask, data: Mapping[str, PooledWindows], settings: TaskSettings
+) -> dict[int, tuple[PooledWindows, PooledWindows]] | None:
+    """Q30's calibration and test sets for a pooled model (None when not fine-tuning)."""
+    if settings.finetune is None or task.condition != "pooled":
+        return None
+    return {n: (data[cal], data[test]) for n, cal, test in _finetune_kinds(settings)}
+
+
 def _run_in_worker(task: ModelTask) -> dict[str, Any]:
     data, settings = _WORKER["data"], _WORKER["settings"]
     return run_task(
@@ -1185,6 +1229,7 @@ def _run_in_worker(task: ModelTask) -> dict[str, Any]:
         settings,
         extra=_extra_for(task, data, settings),
         train_data=_train_for(task, data),
+        finetune_sets=_finetune_for(task, data, settings),
     )
 
 
@@ -1204,7 +1249,8 @@ def run_tasks(
     """
     if workers < 1:
         raise NeurOSConfigError(f"workers must be >= 1, got {workers}")
-    needed = {t.data for t in tasks} | {t.train_data for t in tasks if t.train_data}
+    needed: set[str] = {t.data for t in tasks} | {t.train_data for t in tasks if t.train_data}
+    needed |= {kind for _, cal, test in _finetune_kinds(settings) for kind in (cal, test)}
     missing = sorted((needed | set(settings.extra_kinds)) - set(folders))
     if missing:
         raise NeurOSConfigError(f"tasks need {missing} windows, which weren't assembled")
@@ -1220,6 +1266,7 @@ def run_tasks(
                 say,
                 extra=_extra_for(task, data, settings),
                 train_data=_train_for(task, data),
+                finetune_sets=_finetune_for(task, data, settings),
             )
             outcomes[task.name] = outcome
             if on_task:

@@ -58,7 +58,7 @@ DEFAULT_SIZES: tuple[int, ...] = (5, 10, 20, 40)
 ALL = "all"
 
 
-def _natural_key(name: str) -> tuple[Any, ...]:
+def natural_key(name: str) -> tuple[Any, ...]:
     """Sort key that orders "run_2" before "run_10" (digits compared as numbers)."""
     return tuple(int(part) if part.isdigit() else part for part in re.split(r"(\d+)", name))
 
@@ -70,7 +70,7 @@ def chronological_order(windows: WindowSet, rows: NDArray[np.int64]) -> NDArray[
     so this is the order the person recorded them in.
     """
     keys = [
-        (_natural_key(windows.sessions[i]), _natural_key(windows.runs[i]), int(windows.starts[i]))
+        (natural_key(windows.sessions[i]), natural_key(windows.runs[i]), int(windows.starts[i]))
         for i in rows.tolist()
     ]
     order = sorted(range(rows.size), key=keys.__getitem__)

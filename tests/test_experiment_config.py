@@ -268,3 +268,32 @@ def test_d039_configs_are_e2_with_more_training_windows(name: str) -> None:
     assert bool(extra) == ("multiclass" in name)
     if extra:
         assert set(extra) == {"feet", "tongue", "both_hands", "rest"}
+
+
+def test_finetune_config_is_e2_plus_finetuning() -> None:
+    # Q30: the same models as E2 (data, recipe, seed, folds, warm-up), so E2's numbers reproduce
+    # and the fine-tuned scores pair with the calibration curve's.
+    e2 = load_pooled_experiment_config(REPO_ROOT / "configs" / "e2.yaml")
+    variant = load_pooled_experiment_config(REPO_ROOT / "configs" / "e2_finetune.yaml")
+    for field in (
+        "train_datasets",
+        "test_only_datasets",
+        "labels",
+        "channels",
+        "reference",
+        "alignment",
+        "alignment_unit",
+        "signal",
+        "model",
+        "train",
+        "seeds",
+        "folds",
+        "validation_fraction",
+        "warmup",
+    ):
+        assert getattr(variant, field) == getattr(e2, field), field
+    assert variant.conditions == ("pooled",)
+    assert variant.training_windows is None
+    assert variant.finetune is not None
+    assert variant.finetune.sizes == (5, 10, 20)
+    assert set(variant.finetune.datasets) == set(e2.warmup.datasets)  # type: ignore[union-attr]

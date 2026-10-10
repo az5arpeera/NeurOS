@@ -262,6 +262,49 @@ class TrainingWindowsConfig(BaseModel):
         return self
 
 
+class FinetuneConfig(BaseModel):
+    """Q30, "calibration saved": each test person's pooled model fine-tuned on their first few
+    labelled trials, scored on the calibration curve's test trials (``neuros.eval.finetune``).
+
+    The recipe is fixed here **before** the run and never tuned on test people (10 Oct): every
+    layer, AdamW with the training weight decay and label smoothing, a cosine learning rate
+    from ``lr`` to ``min_lr`` over ``epochs`` full batches (all the person's calibration
+    windows, balanced by class), no early stopping (there is no one to validate on), no SWA,
+    batch-norm statistics recomputed on the calibration windows (the trainer always does).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", allow_inf_nan=False)
+
+    # Datasets whose test people are fine-tuned (each must also be a warm-up dataset: the
+    # stream settings and the population prior are E2's).
+    datasets: tuple[str, ...] = Field(min_length=1)
+    # Labelled trials per class to calibrate on (the curve's x-axis).
+    sizes: tuple[int, ...] = (5, 10, 20)
+    # Calibrate and test within each session (default) or within each person (sessions in
+    # order; Shin2017A's sessions hold 10 trials per class).
+    blocks: dict[str, Literal["session", "person"]] = Field(default_factory=dict)
+    # Calibration time starts this long before the first calibration window (the trial's cue
+    # and fixation), so the reference only uses data recorded during the calibration.
+    lead_s: float = Field(default=4.0, ge=0.0, le=30.0)
+    epochs: int = Field(default=50, ge=1, le=1000)
+    lr: float = Field(default=5e-4, gt=0.0, le=1.0)
+    min_lr: float = Field(default=5e-5, ge=0.0)
+
+    @model_validator(mode="after")
+    def _check(self) -> FinetuneConfig:
+        if len(set(self.datasets)) != len(self.datasets):
+            raise ValueError(f"finetune datasets have duplicates: {list(self.datasets)}")
+        sizes = list(self.sizes)
+        if not sizes or sizes != sorted(set(sizes)) or sizes[0] < 1:
+            raise ValueError(f"sizes must be distinct, ascending and >= 1, got {sizes}")
+        unknown = sorted(set(self.blocks) - set(self.datasets))
+        if unknown:
+            raise ValueError(f"blocks name datasets that aren't fine-tuned: {unknown}")
+        if self.min_lr > self.lr:
+            raise ValueError(f"min_lr ({self.min_lr}) must not exceed lr ({self.lr})")
+        return self
+
+
 class PooledExperimentConfig(BaseModel):
     """E1: pooled training across datasets, against single-dataset and leave-one-dataset-out
     models, with the cue-only control (``neuros.eval.pooled``)."""
@@ -296,6 +339,8 @@ class PooledExperimentConfig(BaseModel):
     warmup: WarmupConfig | None = None
     # D-039: training crops and extra classes (validation and test windows are unchanged).
     training_windows: TrainingWindowsConfig | None = None
+    # Q30: the pooled models fine-tuned on each test person's first few labelled trials.
+    finetune: FinetuneConfig | None = None
 
     @model_validator(mode="after")
     def _check(self) -> PooledExperimentConfig:
@@ -341,6 +386,16 @@ class PooledExperimentConfig(BaseModel):
             overlap = sorted(set(self.training_windows.extra_labels) & set(self.labels))
             if overlap:
                 raise ValueError(f"extra_labels repeat the experiment's labels: {overlap}")
+        if self.finetune is not None:
+            if self.warmup is None:
+                raise ValueError(
+                    "finetune uses the warm-up's stream settings and prior: add warmup"
+                )
+            outside = sorted(set(self.finetune.datasets) - set(self.warmup.datasets))
+            if outside:
+                raise ValueError(f"finetune datasets {outside} aren't warm-up datasets")
+            if self.training_windows is not None and self.training_windows.extra_labels:
+                raise ValueError("finetune fine-tunes a head over labels only: no extra_labels")
         return self
 
     @property

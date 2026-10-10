@@ -55,6 +55,25 @@ More public data or model variants didn't move the ceiling (D-039), so the claim
 
 **Also for the founders:** whether the demo should lean on a more reliable signal: mental state (E6) or SSVEP. SSVEP needs on-screen flicker and electrodes at the back of the head; check the headset first.
 
+### Q31. A one-minute "fit check": can unlabeled EEG predict who NeurOS will work for? (added 10 Oct; bar set before running)
+**Why:** even with full calibration, most people stay below 70% on our cue-free datasets. A product should tell a new user early whether motor imagery will work for them, instead of letting them struggle.
+
+**Evidence from the literature:** the height of the resting ~10 Hz sensorimotor rhythm above the background predicted later BCI accuracy (Blankertz et al. 2010, NeuroImage; r ≈ 0.5).
+
+**Test:** `neuros smr` (`neuros.eval.smr`). For each of the 73 cue-free development people, compute the peak height in dB:
+- **Data:** the first 60 s of their first session, unlabeled.
+- **Channels:** C3/C4.
+- **Measure:** the 8–13 Hz peak above a 1/f line fitted at 4.5–7 and 25–28 Hz.
+
+Then correlate it with:
+- **Primary:** their zero-calibration accuracy (E2's pooled model, full-session alignment).
+- **Secondary:** E2's accuracy after 120 s, and the half-session calibrated accuracy.
+
+**Decision and pass bar (set 10 Oct, before running):**
+- **Pass:** within-dataset Spearman correlation ≥ 0.4 with p < 0.01, pooled across the three datasets. Each person is ranked within their own dataset, so differences between datasets can't drive it. If it passes, the engine gets a fit check (week 3).
+- **Fail:** drop the idea.
+- **Cost:** CPU, minutes.
+
 ### Q29. Stieger2021's sessions 3–11 (299 GB)
 **Recommendation: don't download them** ([cue test](results/2026-10-06-e1-followups-cue-test-seeds-ceilings.md)).
 - Stieger2021's data mostly helps its own people. Their task window doesn't beat the cue alone (68.4% vs 66.1%, p = 0.13).

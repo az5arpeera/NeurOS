@@ -47,7 +47,7 @@ from neuros.config.schemas import DataConfig, load_data_config
 from neuros.errors import NeurOSError
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
     from neuros.config.experiment import LosoExperimentConfig, PooledExperimentConfig
     from neuros.data.cache import RecordingCache
@@ -694,6 +694,70 @@ def cmd_calibration(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_smr(args: argparse.Namespace) -> int:
+    """Resting SMR strength per development person (Q31: can the first minute predict who
+    NeurOS will work for?). Unlabeled data only; the pass bar is set in the open questions."""
+    from neuros.data.download import loading_dataset, require_downloaded
+    from neuros.data.prepare import prepare_subject
+    from neuros.data.recording import person_id
+    from neuros.data.registry import get_spec
+    from neuros.data.vocabulary import default_vocabulary
+    from neuros.errors import NeurOSConfigError
+    from neuros.eval.smr import FLOOR_BANDS, PEAK_BAND, SMR_CHANNELS, smr_strength
+    from neuros.eval.warmup import profile_channels
+    from neuros.provenance import stamp
+
+    if not (args.seconds > 0):
+        raise NeurOSConfigError(f"--seconds must be > 0, got {args.seconds}")
+    config = _config(args)
+    provenance = stamp(config)  # at the start: the code that runs
+    _warn_if_dirty(provenance)
+    cache = _recording_cache(config, args)
+    vocab = default_vocabulary()
+    layout = _e1_layout("motor")
+    people: dict[str, Any] = {}
+    for key in args.datasets:
+        spec = get_spec(key)
+        profile = profile_channels(layout, spec)
+        subjects = _dev_subjects(spec, None, args.split, "an SMR-strength run")
+        require_downloaded(spec, subjects, config.data_dir)
+        dataset = loading_dataset(spec, config.data_dir)
+        for subject in subjects:
+            if cache is None:
+                recordings = prepare_subject(spec, subject, vocab, config, dataset=dataset)
+            else:
+                recordings, _ = cache.load_or_prepare(
+                    spec, subject, vocab, config, prepare=prepare_subject, dataset=dataset
+                )
+            person = person_id(spec.key, subject)
+            first = smr_strength(recordings, spec, profile, seconds=args.seconds)
+            whole = smr_strength(recordings, spec, profile, seconds=None)
+            people[person] = {"dataset": spec.key, "first": first, "whole_session": whole}
+            print(
+                f"{person}: {first['smr_db']:.2f} dB in the first {first['seconds_used']:.0f} s, "
+                f"{whole['smr_db']:.2f} dB over the first session",
+                flush=True,
+            )
+    out = config.results_dir / "smr" / f"smr_{'-'.join(args.datasets)}_{args.seconds:g}s.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "provenance": _finished(provenance),
+        "protocol": {
+            "datasets": list(args.datasets),
+            "seconds": args.seconds,
+            "channels": list(SMR_CHANNELS),
+            "floor_bands_hz": [list(b) for b in FLOOR_BANDS],
+            "peak_band_hz": list(PEAK_BAND),
+            "band_hz": list(config.signal.band_hz),
+            "split_file": str(args.split),
+        },
+        "people": people,
+    }
+    out.write_text(json.dumps(payload, indent=1), encoding="utf-8", newline="\n")
+    print(f"\nresults: {out}")
+    return 0
+
+
 def _default_fold_workers() -> int:
     """Parallel folds for the Riemannian baselines: half the CPUs, at most 12.
 
@@ -1264,6 +1328,79 @@ def _e1_training_windows(
     return PooledWindows.concat(parts), report
 
 
+def _recording_loader(
+    config: DataConfig, cache: RecordingCache | None
+) -> Callable[[str, int], list[Recording]]:
+    """``(dataset, subject) → that person's preprocessed recordings``, from the cache (MOABB is
+    only touched on a cache miss, once per dataset)."""
+    from neuros.data.download import loading_dataset
+    from neuros.data.prepare import prepare_subject
+    from neuros.data.registry import get_spec
+    from neuros.data.vocabulary import default_vocabulary
+
+    vocab = default_vocabulary()
+    moabb_objects: dict[str, Any] = {}
+
+    def load(key: str, subject: int) -> list[Recording]:
+        spec = get_spec(key)
+        if key not in moabb_objects:
+            moabb_objects[key] = loading_dataset(spec, config.data_dir)
+        if cache is None:
+            return prepare_subject(spec, subject, vocab, config, dataset=moabb_objects[key])
+        recordings, _ = cache.load_or_prepare(
+            spec, subject, vocab, config, prepare=prepare_subject, dataset=moabb_objects[key]
+        )
+        return recordings
+
+    return load
+
+
+def _e1_finetune_sets(
+    experiment: PooledExperimentConfig,
+    config: DataConfig,
+    task_windows: Mapping[str, WindowSet],
+    layout: Sequence[str],
+    people: Mapping[str, Sequence[str]],
+    cache: RecordingCache | None,
+    work: Path,
+    folders: dict[str, Path],
+) -> dict[str, Any]:
+    """Q30: build and save the fine-tuning sets, add them to ``folders``, return the report.
+
+    Raises:
+        NeurOSConfigError: if the experiment has no finetune or warm-up section.
+    """
+    from neuros.data.registry import get_spec
+    from neuros.errors import NeurOSConfigError
+    from neuros.eval.finetune import build_finetune_sets
+    from neuros.eval.splits import make_dev_folds
+
+    if experiment.finetune is None or experiment.warmup is None:
+        raise NeurOSConfigError("fine-tuning needs the finetune and warmup sections")
+    folds = make_dev_folds(
+        {d: [int(p.split(":", 1)[1]) for p in members] for d, members in people.items()},
+        n_folds=experiment.folds,
+        seed=experiment.seeds[0],
+    )
+    print("fine-tune sets (Q30):", flush=True)
+    sets, report = build_finetune_sets(
+        task_windows,
+        layout,
+        specs={key: get_spec(key) for key in task_windows},
+        folds=folds,
+        trainable=experiment.train_datasets,
+        labels=experiment.labels,
+        warmup=experiment.warmup,
+        finetune=experiment.finetune,
+        load_recordings=_recording_loader(config, cache),
+        max_ptp_uv=config.validation.ptp_flag_uv,
+    )
+    for kind, windows in sets.items():
+        windows.save(work / kind)
+        folders[kind] = work / kind
+    return report
+
+
 def _e1_warmup_sets(
     experiment: PooledExperimentConfig,
     config: DataConfig,
@@ -1342,6 +1479,7 @@ def cmd_e1(args: argparse.Namespace) -> int:
     )
     from neuros.data.registry import assert_may_train, get_spec, task_epoch
     from neuros.errors import NeurOSConfigError
+    from neuros.eval.finetune import FinetuneSettings
     from neuros.eval.pooled import (
         MIN_LAYOUT_CHANNELS,
         TaskSettings,
@@ -1450,6 +1588,12 @@ def cmd_e1(args: argparse.Namespace) -> int:
             experiment, config, task_windows, layout, people, cache, work, folders
         )
         _memory_note("warm-up sets saved")
+    finetune_report: dict[str, Any] | None = None
+    if experiment.finetune is not None:  # Q30: calibration and test windows per size
+        finetune_report = _e1_finetune_sets(
+            experiment, config, task_windows, layout, people, cache, work, folders
+        )
+        _memory_note("fine-tune sets saved")
     training_report: dict[str, Any] | None = None
     if experiment.training_windows is not None:  # D-039: aligned by the task windows' references
         train_pooled, training_report = _e1_training_windows(
@@ -1491,6 +1635,11 @@ def cmd_e1(args: argparse.Namespace) -> int:
         threads=args.threads,
         extra_kinds=tuple(warmup_report["kinds"]) if warmup_report else (),
         train_classes=experiment.train_labels if training_report is not None else (),
+        finetune=(
+            FinetuneSettings.from_config(experiment.finetune)
+            if experiment.finetune is not None
+            else None
+        ),
     )
     payload: dict[str, Any] = {
         "complete": False,
@@ -1514,6 +1663,8 @@ def cmd_e1(args: argparse.Namespace) -> int:
         payload["warmup"] = warmup_report
     if training_report is not None:
         payload["training_windows"] = training_report
+    if finetune_report is not None:
+        payload["finetune"] = finetune_report
 
     def save() -> None:
         tmp = out.with_suffix(".json.tmp")
@@ -1764,6 +1915,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="recompute every recording instead of using the preprocessed cache (§4.5)",
     )
     p.set_defaults(func=cmd_calibration)
+
+    p = sub.add_parser(
+        "smr",
+        help="resting sensorimotor-rhythm strength per person, from unlabeled data (Q31)",
+    )
+    p.add_argument("--datasets", nargs="+", required=True)
+    p.add_argument(
+        "--seconds",
+        type=float,
+        default=60.0,
+        help="how much of the first session's start to use (the engine's first minute)",
+    )
+    p.add_argument("--split", default=str(DEFAULT_SPLIT_PATH), help="locked test set file")
+    p.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="recompute every recording instead of using the preprocessed cache (§4.5)",
+    )
+    p.set_defaults(func=cmd_smr)
 
     p = sub.add_parser("audit", help="cue-contamination audit of a cued dataset (D-030)")
     p.add_argument("--dataset", required=True)

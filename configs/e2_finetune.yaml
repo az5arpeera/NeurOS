@@ -1,0 +1,68 @@
+# Q30, "calibration saved": E2's pooled models, then each cue-free test person's model
+# fine-tuned on their first 5 / 10 / 20 labelled trials per class (neuros.eval.finetune).
+#   - The pooled models are E2's (same seed, folds and recipe; deterministic), and the warm-up
+#     section is E2's, so E2's numbers reproduce as a check.
+#   - Calibration and test trials are the calibration curve's split (first half of each class
+#     in time order = calibration pool, the rest = test), so results pair trial by trial with
+#     `neuros calibration` (results/2026-10-10-calibration-curve.md).
+#   - Alignment uses only the stream recorded during the calibration (lead_s before the first
+#     calibration window to the end of the last).
+#   - The fine-tuning recipe below was fixed on 10 Oct before the run; never tuned on test
+#     people.
+#   - Pass bar (Q30, set before running): on Yang2025 and BNCI2014-001, fine-tuned with 10 per
+#     class at or above the half-session calibration (60.5%, 73.8%), not significantly worse.
+#
+# On AWS:
+#   uv run --no-sync neuros --config configs/data.yaml e1 --experiment configs/e2_finetune.yaml \
+#     --device cuda --workers 3 --threads 2
+name: e2_finetune
+description: >
+  E2's pooled EEGNet + EA models, fine-tuned per cue-free test person on their first 5/10/20
+  labelled trials per class (alignment from the calibration minutes only), scored on the
+  calibration curve's test trials against the same models without fine-tuning.
+train_datasets: [PhysionetMI, Dreyer2023, Stieger2021, Lee2019_MI, Cho2017, Yang2025, BNCI2014_001]
+test_only_datasets: [Shin2017A, GuttmannFlury2025, BNCI2014_004]
+labels: [left_hand, right_hand]
+channels: motor
+reference: car
+alignment: ea
+alignment_unit: session
+conditions: [pooled]
+folds: 5
+validation_fraction: 0.1
+cue_only_epoch_s: [0.0, 0.5]
+seeds: [20261005]
+signal:
+  band_hz: [8.0, 30.0]
+
+model:
+  dropout: 0.25
+
+train:
+  max_epochs: 100
+  lr: 0.001
+  weight_decay: 0.05
+  label_smoothing: 0.1
+  swa_fraction: 0.25
+  patience: 15
+  people_per_batch: 16
+  windows_per_person: 8
+  log_every: 10
+
+warmup:
+  datasets: [Yang2025, BNCI2014_001, Shin2017A]
+  budgets_s: [0, 5, 10, 20, 30, 45, 60, 120]
+  prior_s: 10.0
+  stream_window_s: 2.0
+  stream_hop_s: 0.125
+  rest_seeded: true
+
+finetune:
+  datasets: [Yang2025, BNCI2014_001, Shin2017A]
+  sizes: [5, 10, 20]
+  blocks:
+    Shin2017A: person   # 10 trials per class per session: calibrate within each person
+  lead_s: 4.0           # calibration time starts 4 s before the first calibration window
+  epochs: 50            # full batches (all the person's calibration windows each)
+  lr: 0.0005            # half the training rate, cosine to a tenth of it
+  min_lr: 0.00005
