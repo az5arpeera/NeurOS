@@ -758,6 +758,68 @@ def cmd_smr(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_bundle(args: argparse.Namespace) -> int:
+    """Train the deployable model on every development person of an E1-style experiment's
+    training datasets and write a model bundle for the engine (architecture §6.5)."""
+    from neuros.config.experiment import apply_signal_overrides, load_pooled_experiment_config
+    from neuros.data.registry import assert_may_train, get_spec
+    from neuros.engine.bundle import train_bundle
+    from neuros.errors import NeurOSConfigError
+    from neuros.provenance import config_hash, stamp
+
+    experiment = load_pooled_experiment_config(args.experiment)
+    out = Path(args.out)
+    if (out / "bundle.json").exists():
+        raise NeurOSConfigError(f"{out} already holds a bundle; choose another --out")
+    if experiment.training_windows is not None and experiment.training_windows.extra_labels:
+        raise NeurOSConfigError("bundles are trained on the experiment's labels only")
+    # Licences (D-033): a bundle is a model we may ship, so only datasets allowed to train one.
+    assert_may_train(experiment.train_datasets, f"model bundle {out}")
+    config = _config(args)
+    config = config.model_copy(
+        update={"signal": apply_signal_overrides(config.signal, experiment.signal)}
+    )
+    layout = _e1_layout(experiment.channels)
+    derived = {
+        key: get_spec(key).derived_channels
+        for key in experiment.train_datasets
+        if get_spec(key).derived_channels
+    }
+    provenance = stamp(
+        config, experiment=experiment.name, experiment_sha256=config_hash(experiment)
+    )
+    _warn_if_dirty(provenance)
+    cache = _recording_cache(config, args)
+    task_windows, _ = _e1_windows(
+        config, experiment.train_datasets, experiment.labels, args.split, None, cache
+    )
+    print(f"training the bundle on {sum(len(w.people) for w in task_windows.values())} people")
+    bundle = train_bundle(
+        task_windows,
+        layout,
+        classes=experiment.labels,
+        model_config=experiment.model,
+        train_config=experiment.train,
+        contract=config.signal,
+        reference=experiment.reference,
+        alignment=experiment.alignment,
+        unit=experiment.alignment_unit,
+        derived=derived,
+        validation_fraction=experiment.validation_fraction,
+        seed=experiment.seeds[0],
+        device=args.device,
+        provenance=_finished(provenance) | {"datasets": list(experiment.train_datasets)},
+        progress=print,
+    )
+    bundle.save(out)
+    training = bundle.provenance["training"]
+    print(
+        f"\nbundle: {out} (end epoch {training.get('end_epoch')}, input scale "
+        f"{bundle.input_scale:.4g}, {len(bundle.people_covariances)} people in the prior)"
+    )
+    return 0
+
+
 def _default_fold_workers() -> int:
     """Parallel folds for the Riemannian baselines: half the CPUs, at most 12.
 
@@ -1934,6 +1996,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="recompute every recording instead of using the preprocessed cache (§4.5)",
     )
     p.set_defaults(func=cmd_smr)
+
+    p = sub.add_parser(
+        "bundle", help="train the deployable model and write a model bundle for the engine"
+    )
+    p.add_argument("--experiment", required=True, help="an E1-style experiment YAML")
+    p.add_argument("--out", required=True, help="the bundle folder (never overwritten)")
+    p.add_argument("--device", default="cpu", help="cpu, cuda or cuda:N")
+    p.add_argument("--split", default=str(DEFAULT_SPLIT_PATH), help="locked test set file")
+    p.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="recompute every recording instead of using the preprocessed cache (§4.5)",
+    )
+    p.set_defaults(func=cmd_bundle)
 
     p = sub.add_parser("audit", help="cue-contamination audit of a cued dataset (D-030)")
     p.add_argument("--dataset", required=True)
