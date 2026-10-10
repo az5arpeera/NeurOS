@@ -49,13 +49,11 @@ from neuros.errors import NeurOSError
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    import numpy as np
-    from numpy.typing import NDArray
-
     from neuros.config.experiment import LosoExperimentConfig, PooledExperimentConfig
     from neuros.data.cache import RecordingCache
     from neuros.data.recording import Recording
     from neuros.data.registry import DatasetSpec, TaskEpoch
+    from neuros.eval.pooled import PooledWindows
     from neuros.signal.windows import WindowSet
 
 log = logging.getLogger("neuros")
@@ -1005,20 +1003,25 @@ def _e1_training_windows(
     experiment: PooledExperimentConfig,
     config: DataConfig,
     task_windows: Mapping[str, WindowSet],
+    layout: Sequence[str],
+    derived: Mapping[str, Mapping[str, Sequence[str]]],
     cache: RecordingCache | None,
-) -> tuple[dict[str, WindowSet], dict[str, NDArray[np.bool_]], dict[str, Any]]:
-    """D-039's training windows for every trainable dataset: crops and extra classes.
+) -> tuple[PooledWindows, dict[str, Any]]:
+    """D-039's training set for every trainable dataset (crops, extra classes), assembled.
 
-    The people are exactly those of ``task_windows`` (the development windows already loaded).
-    A dataset that gains neither crops nor classes reuses its task windows as they are.
+    The people are exactly those of ``task_windows`` (the development windows already loaded),
+    and each person's windows take the EA references of their own test windows. Windows are
+    cut and placed one person at a time, keeping only the placed result: holding every
+    dataset's raw training windows and their copies at once ran the 30-GB machine out of
+    memory (9 Oct). A dataset that gains neither crops nor classes is placed as tested.
 
     Returns:
-        ``(windows per dataset, primary flags per dataset, report per dataset)``.
+        ``(the assembled training windows, a report per dataset)``.
 
     Raises:
         NeurOSConfigError: if the experiment has no training_windows section, or an extra
             label isn't in the vocabulary.
-        NeurOSDataError: see ``subject_training_windows``.
+        NeurOSDataError: see ``subject_training_windows`` and ``assemble``.
     """
     import numpy as np
 
@@ -1027,7 +1030,7 @@ def _e1_training_windows(
     from neuros.data.training_windows import subject_training_windows
     from neuros.data.vocabulary import default_vocabulary
     from neuros.errors import NeurOSConfigError
-    from neuros.signal.windows import WindowSet
+    from neuros.eval.pooled import PooledWindows, assemble
 
     settings = experiment.training_windows
     if settings is None:
@@ -1036,8 +1039,12 @@ def _e1_training_windows(
     unknown = sorted(set(settings.extra_labels) - set(vocab.labels))
     if unknown:
         raise NeurOSConfigError(f"extra_labels {unknown} are not vocabulary labels")
-    per_dataset: dict[str, WindowSet] = {}
-    primary: dict[str, NDArray[np.bool_]] = {}
+    placement = {
+        "reference": experiment.reference,
+        "alignment": experiment.alignment,
+        "unit": experiment.alignment_unit,
+    }
+    parts: list[PooledWindows] = []
     report: dict[str, Any] = {}
     print("training windows (D-039):", flush=True)
     for key in experiment.train_datasets:
@@ -1052,38 +1059,63 @@ def _e1_training_windows(
         labels = [label for label in experiment.train_labels if label in own]
         extra = [label for label in labels if label not in experiment.labels]
         windows = task_windows[key]
-        if len(starts) == 1 and not extra:  # nothing to add: the task windows as they are
-            per_dataset[key] = windows
-            primary[key] = np.ones(len(windows), dtype=bool)
-            report[key] = {"crop_starts_s": list(starts), "labels": labels, "reused": True}
+        mapping = {key: derived[key]} if key in derived else None
+        if len(starts) == 1 and not extra:  # nothing to add: placed exactly as tested
+            part, _ = assemble(
+                {key: windows},
+                layout,
+                **placement,  # type: ignore[arg-type]
+                derived=mapping,
+                primary={key: np.ones(len(windows), dtype=bool)},
+            )
+            parts.append(part)
+            report[key] = {
+                "crop_starts_s": list(starts),
+                "labels": labels,
+                "reused": True,
+                "n_people": len(windows.people),
+                "n_trials": len(windows),
+                "n_windows": len(windows),
+            }
             print(f"{key}: as tested ({len(windows)} windows)", flush=True)
             continue
         dataset = loading_dataset(spec, config.data_dir)
-        sets, flags, summaries = [], [], []
+        summaries: list[dict[str, Any]] = []
         for subject in dict.fromkeys(windows.subjects.tolist()):
             cut, first, summary = subject_training_windows(
                 spec, subject, vocab, config, labels, starts, dataset=dataset, cache=cache
             )
-            sets.append(cut)
-            flags.append(first)
+            part, _ = assemble(
+                {key: cut},
+                layout,
+                **placement,  # type: ignore[arg-type]
+                derived=mapping,
+                references_from={key: windows.for_people({summary["person"]})},
+                primary={key: first},
+            )
+            parts.append(part)
             summaries.append(summary)
-        per_dataset[key] = WindowSet.concat(sets)
-        primary[key] = np.concatenate(flags)
+            del cut  # only the placed windows are kept
+        counts: dict[str, int] = {}
+        for summary in summaries:
+            for label, count in summary["label_counts"].items():
+                counts[label] = counts.get(label, 0) + count
         report[key] = {
             "crop_starts_s": list(starts),
             "labels": labels,
             "reused": False,
-            "n_trials": int(primary[key].sum()),
-            "n_windows": len(per_dataset[key]),
-            "label_counts": per_dataset[key].label_counts(),
+            "n_people": len(summaries),
+            "n_trials": sum(s["n_trials"] for s in summaries),
+            "n_windows": sum(s["n_windows"] for s in summaries),
+            "label_counts": counts,
             "per_subject": summaries,
         }
         print(
-            f"{key}: {report[key]['n_trials']} trials -> {len(per_dataset[key])} windows "
+            f"{key}: {report[key]['n_trials']} trials -> {report[key]['n_windows']} windows "
             f"(crops at {', '.join(f'{s:g}' for s in starts)} s; classes {', '.join(labels)})",
             flush=True,
         )
-    return per_dataset, primary, report
+    return PooledWindows.concat(parts), report
 
 
 def _e1_warmup_sets(
@@ -1262,6 +1294,7 @@ def cmd_e1(args: argparse.Namespace) -> int:
     )
     pooled.save(work / "task")
     people = pooled.people_by_dataset()
+    del pooled  # saved: workers map it, and the steps below need the memory (9 Oct)
     cue_free = {key: bool(loaded[key]["cue_free"]) for key in experiment.datasets}
     folders = {"task": work / "task"}
     warmup_report: dict[str, Any] | None = None
@@ -1271,25 +1304,13 @@ def cmd_e1(args: argparse.Namespace) -> int:
         )
     training_report: dict[str, Any] | None = None
     if experiment.training_windows is not None:  # D-039: aligned by the task windows' references
-        train_windows, primary, training_report = _e1_training_windows(
-            experiment, config, task_windows, cache
-        )
-        train_pooled, train_assembly = assemble(
-            train_windows,
-            layout,
-            reference=experiment.reference,
-            alignment=experiment.alignment,
-            unit=experiment.alignment_unit,
-            derived={key: m for key, m in derived.items() if key in train_windows},
-            references_from={key: task_windows[key] for key in train_windows},
-            primary=primary,
+        train_pooled, training_report = _e1_training_windows(
+            experiment, config, task_windows, layout, derived, cache
         )
         train_pooled.save(work / "train")
         folders["train"] = work / "train"
-        for key, entry in train_assembly.items():  # the references are the task windows'
-            training_report[key]["n_people"] = entry["n_people"]
-        del train_windows, train_pooled, primary
-    del task_windows, pooled  # workers map the saved arrays
+        del train_pooled
+    del task_windows  # workers map the saved arrays
     if "cue_only" in experiment.conditions:
         print("cue-only control windows:", flush=True)
         cue_windows, _ = _e1_windows(

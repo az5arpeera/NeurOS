@@ -142,6 +142,47 @@ class PooledWindows:
     def n_samples(self) -> int:
         return int(self.x.shape[2])
 
+    @classmethod
+    def concat(cls, parts: Sequence[PooledWindows]) -> PooledWindows:
+        """Stack window sets with the same layout, rate and window length, in order.
+
+        ``primary`` is kept when any part has it (a part without it counts every window).
+
+        Raises:
+            NeurOSDataError: on no parts, or parts that differ in layout, rate or length.
+        """
+        if not parts:
+            raise NeurOSDataError("no pooled window sets to concatenate")
+        first = parts[0]
+        for part in parts[1:]:
+            if (part.layout, part.sfreq, part.n_samples) != (
+                first.layout,
+                first.sfreq,
+                first.n_samples,
+            ):
+                raise NeurOSDataError(
+                    "can't concatenate pooled windows with different layouts, rates or lengths"
+                )
+        primary = None
+        if any(part.primary is not None for part in parts):
+            primary = np.concatenate(
+                [
+                    part.primary if part.primary is not None else np.ones(len(part), dtype=bool)
+                    for part in parts
+                ]
+            )
+        return cls(
+            x=np.concatenate([part.x for part in parts]),
+            present=np.concatenate([part.present for part in parts]),
+            labels=np.concatenate([part.labels for part in parts]),
+            people=np.concatenate([part.people for part in parts]),
+            datasets=np.concatenate([part.datasets for part in parts]),
+            flags=np.concatenate([part.flags for part in parts]),
+            layout=first.layout,
+            sfreq=first.sfreq,
+            primary=primary,
+        )
+
     def rows_of(self, people: Collection[str]) -> NDArray[np.int64]:
         """Indices of the windows of ``people``, in storage order."""
         return np.flatnonzero(np.isin(self.people, np.asarray(list(people), dtype=str)))

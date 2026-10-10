@@ -513,19 +513,25 @@ def build_warmup_sets(
     if not present_rows:
         raise NeurOSDataError("no warm-up windows to score")
     present = np.concatenate(present_rows)
-    sets = {
-        kind: PooledWindows(
-            x=np.concatenate(parts[kind]),
+    labels = np.array(meta["labels"], dtype=str)
+    people = np.array(meta["people"], dtype=str)
+    datasets = np.array(meta["datasets"], dtype=str)
+    flags = np.concatenate(meta["flags"]).astype(np.uint8)
+    sets: dict[str, PooledWindows] = {}
+    for kind, _, _ in kinds:
+        # Each set's parts are released as soon as it is stacked: holding every set's parts
+        # and every stacked set at once doubled the peak (≈ 20 GB for E2 on 30 GB; 9 Oct).
+        x = np.concatenate(parts.pop(kind))
+        sets[kind] = PooledWindows(
+            x=x,
             present=present,
-            labels=np.array(meta["labels"], dtype=str),
-            people=np.array(meta["people"], dtype=str),
-            datasets=np.array(meta["datasets"], dtype=str),
-            flags=np.concatenate(meta["flags"]).astype(np.uint8),
+            labels=labels,
+            people=people,
+            datasets=datasets,
+            flags=flags,
             layout=tuple(layout),
             sfreq=sfreq,
         )
-        for kind, _, _ in kinds
-    }
     return sets, report
 
 

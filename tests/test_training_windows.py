@@ -401,3 +401,43 @@ def test_extra_classes_train_but_only_left_right_is_scored(tmp_path: Path) -> No
         _settings(train_classes=("feet", *LR))
     with pytest.raises(NeurOSConfigError, match="repeats"):
         ModelTask("t", "pooled", "task", ("SynA:1",), (), ("SynA:2",), 0, "task")
+
+
+def test_assembling_person_by_person_equals_assembling_at_once() -> None:
+    # The CLI places training windows one person at a time (memory, 9 Oct): alignment groups
+    # never cross people, so the result must be exactly the all-at-once placement.
+    test = _two_sessions(seed=1)
+    crops = _two_sessions(seed=2)
+    primary = np.arange(len(crops)) % 3 == 0
+    placement = {"reference": "car", "alignment": "ea", "unit": "session"}
+    whole, _ = assemble(
+        {"SynA": crops},
+        LAYOUT,
+        **placement,  # type: ignore[arg-type]
+        references_from={"SynA": test},
+        primary={"SynA": primary},
+    )
+    person_of = np.array(crops.person_ids)
+    parts = []
+    for person in crops.people:
+        part, _ = assemble(
+            {"SynA": crops.for_people({person})},
+            LAYOUT,
+            **placement,  # type: ignore[arg-type]
+            references_from={"SynA": test.for_people({person})},
+            primary={"SynA": primary[person_of == person]},
+        )
+        parts.append(part)
+    joined = PooledWindows.concat(parts)
+    for name in ("x", "present", "labels", "people", "datasets", "flags", "primary"):
+        assert np.array_equal(getattr(joined, name), getattr(whole, name)), name
+    plain, _ = assemble({"SynA": test}, LAYOUT, **placement)  # type: ignore[arg-type]
+    mixed = PooledWindows.concat([plain, parts[0]])  # a part without primary counts all
+    assert mixed.primary is not None
+    assert mixed.primary[: len(plain)].all()
+    with pytest.raises(NeurOSDataError, match="no pooled"):
+        PooledWindows.concat([])
+    other = dataclasses.replace(plain, x=plain.x[:, :3], present=plain.present[:, :3],
+                                layout=LAYOUT[:3])  # fmt: skip
+    with pytest.raises(NeurOSDataError, match="different layouts"):
+        PooledWindows.concat([plain, other])
