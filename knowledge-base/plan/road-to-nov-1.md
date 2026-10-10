@@ -119,7 +119,11 @@ Claude Code pairs on all engineering. **Founders send all outreach;** Claude dra
     - states and events (`neuros.intent.v0`), and the simulator.
     - Live windows equal the training pipeline's bit for bit. On a new synthetic person, 92% of task-window commands are right with no calibration; latency is 0.3 ms median.
     - **Next:** model bundle + EEGNet decoder, LSL in / WebSocket out (needs the `engine` extra installed), `neuros simulate` / `neuros run`, the JS client.
-  - **Calibration curve code ready** (`9aa8b87`, `neuros calibration`). The AWS run waits for SSH: the laptop's IP changed.
+  - **Calibration curve done** ([results](../results/2026-10-10-calibration-curve.md)):
+    - zero calibration after 2 min ≈ 5–20 labelled trials per hand of conventional calibration;
+    - a full 10–15-min calibration is 4–8 points better, and still leaves most people below 70%.
+    - Next proposed: fine-tuning our model on 5–10 trials per hand (Q30).
+  - The engine extra (pylsl, websockets, brainflow) is installed on the laptop (approved 10 Oct).
 - **Next (before D-031's gate, ≈ 16 Oct; Q28):**
   - ~~Training crops and multi-class auxiliary training~~: done 10 Oct, no lift.
   - A same-session calibrated ceiling on Yang2025, BNCI2014-001 and Shin2017A (the number to quote against "just calibrate").

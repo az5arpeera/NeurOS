@@ -46,6 +46,13 @@ More public data or model variants didn't move the ceiling (D-039), so the claim
 3. **The founders' headset:** a cue-free self-test, the only consumer-hardware evidence we can get.
 4. **Interviews:** what accuracy and setup time would people pay for?
 
+**Update 10 Oct, evidence 1 done** ([calibration curve](results/2026-10-10-calibration-curve.md)):
+- After 2 minutes of unlabeled use, our model matches about 5–20 labelled trials per hand (≈ 1.5–5 min of calibration).
+- A full 10–15-minute calibration is 4–8 points better.
+- Even calibrated, most people stay below 70% on these datasets.
+
+**Next, evidence 2 (needs a go-ahead, about 1–2 GPU-hours):** our model plus 5 or 10 trials per hand of fine-tuning. **Pass bar, set before running:** on Yang2025 and BNCI2014-001, fine-tuned with 10 per hand (~3 min) at or above the half-session calibration (60.5% and 73.8%, paired, not significantly worse). If it passes, the headline is "a 15-minute calibration's accuracy in 3 minutes". If not, the claim stays "zero calibration is worth a few minutes of calibration".
+
 **Also for the founders:** whether the demo should lean on a more reliable signal: mental state (E6) or SSVEP. SSVEP needs on-screen flicker and electrodes at the back of the head; check the headset first.
 
 ### Q29. Stieger2021's sessions 3–11 (299 GB)
