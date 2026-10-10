@@ -81,6 +81,14 @@ DataKind = Literal["task", "cue_only", "train"]
 # Windows per chunk when computing an RMS over a memory-mapped array (bounded memory).
 _RMS_CHUNK = 4096
 
+# D-039's artifact rule: a newly cut training window whose RMS is more than this many times
+# its person's median window RMS is dropped (2,500x the power: not brain signal). Measured
+# 10 Oct on every D-039 training set: genuine windows reach 10.6x (a Stieger2021 rest
+# window), the test windows 7.7x; two Yang2025 subject-18 crops reached 7,200x and 7,650x
+# (an amplifier glitch after the test window) and, holding 99.8 % of the set's power, set the
+# input scale and the batch-norm statistics on their own: 4 of 5 models answered one class.
+ARTIFACT_RMS_FACTOR = 50.0
+
 # The fewest of the layout's channels a dataset must have to be placed in it: the common
 # average and EA's covariances need at least two. ``to_layout`` enforces it on the windows;
 # ``layout_shortfalls`` checks the registry's channels before anything is loaded.
@@ -186,6 +194,30 @@ class PooledWindows:
     def rows_of(self, people: Collection[str]) -> NDArray[np.int64]:
         """Indices of the windows of ``people``, in storage order."""
         return np.flatnonzero(np.isin(self.people, np.asarray(list(people), dtype=str)))
+
+    def take(self, rows: NDArray[np.int64]) -> PooledWindows:
+        """The given windows (every per-window array, ``primary`` included), in that order.
+
+        Raises:
+            NeurOSDataError: on rows that aren't a 1-D integer array within ``[0, len)``, or
+                that leave no window (or, with ``primary``, no primary window).
+        """
+        rows = np.asarray(rows)
+        if rows.ndim != 1 or not np.issubdtype(rows.dtype, np.integer):
+            raise NeurOSDataError("rows must be a 1-D integer array")
+        if rows.size and (int(np.min(rows)) < 0 or int(np.max(rows)) >= len(self)):
+            raise NeurOSDataError(f"rows must lie in [0, {len(self)})")
+        return PooledWindows(
+            x=self.x[rows],
+            present=self.present[rows],
+            labels=self.labels[rows],
+            people=self.people[rows],
+            datasets=self.datasets[rows],
+            flags=self.flags[rows],
+            layout=self.layout,
+            sfreq=self.sfreq,
+            primary=None if self.primary is None else self.primary[rows],
+        )
 
     def people_by_dataset(self) -> dict[str, tuple[str, ...]]:
         """Each dataset's people, in first-appearance order."""
@@ -523,6 +555,47 @@ def assemble(
         for dataset in per_dataset:
             reports[dataset]["n_trials"] = int(np.count_nonzero(primary[dataset]))
     return pooled, reports
+
+
+def screen_amplitude(
+    windows: PooledWindows, *, factor: float = ARTIFACT_RMS_FACTOR
+) -> tuple[PooledWindows, NDArray[np.bool_]]:
+    """Drop windows whose RMS is more than ``factor`` times their person's median window RMS.
+
+    D-039's artifact rule for newly cut training windows (see ``ARTIFACT_RMS_FACTOR``). The
+    median is each person's own, over their windows in ``windows``, so the rule holds whatever
+    the alignment or units; a non-finite window is dropped too. Windows E1/E2 already trained
+    on (the test windows) never go through it.
+
+    Returns:
+        ``(the kept windows, a [n] bool mask of the dropped ones)``.
+
+    Raises:
+        NeurOSConfigError: on a factor that isn't a finite number above 1.
+        NeurOSDataError: if a person's median RMS over their finite windows isn't positive
+            (no signal), or every window (or every primary window) would be dropped.
+    """
+    if not (math.isfinite(factor) and factor > 1):
+        raise NeurOSConfigError(f"the artifact factor must be a finite number above 1: {factor}")
+    rms = np.empty(len(windows), dtype=np.float64)
+    for start in range(0, len(windows), _RMS_CHUNK):
+        block = np.asarray(windows.x[start : start + _RMS_CHUNK], dtype=np.float64)
+        rms[start : start + block.shape[0]] = np.sqrt(np.mean(block * block, axis=(1, 2)))
+    finite = np.isfinite(rms)
+    dropped = ~finite
+    for person in dict.fromkeys(windows.people.tolist()):
+        mine = windows.people == person
+        if not (mine & finite).any():
+            continue  # every window non-finite: all already dropped
+        median = float(np.median(rms[mine & finite]))
+        if not (math.isfinite(median) and median > 0):
+            raise NeurOSDataError(f"{person}: median window RMS is {median} (no signal)")
+        dropped |= mine & finite & (rms > factor * median)
+    if dropped.all():
+        raise NeurOSDataError("the artifact rule would drop every window")
+    if not dropped.any():
+        return windows, dropped
+    return windows.take(np.flatnonzero(~dropped)), dropped
 
 
 # ---------------------------------------------------------------------- the plan

@@ -1050,7 +1050,8 @@ def _e1_training_windows(
     and each person's windows take the EA references of their own test windows. Windows are
     cut and placed one person at a time, keeping only the placed result: holding every
     dataset's raw training windows and their copies at once ran the 30-GB machine out of
-    memory (9 Oct). A dataset that gains neither crops nor classes is placed as tested.
+    memory (9 Oct). A dataset that gains neither crops nor classes is placed as tested. Newly
+    cut windows go through the artifact rule (``screen_amplitude``); the report counts drops.
 
     Returns:
         ``(the assembled training windows, a report per dataset)``.
@@ -1067,7 +1068,7 @@ def _e1_training_windows(
     from neuros.data.training_windows import subject_training_windows
     from neuros.data.vocabulary import default_vocabulary
     from neuros.errors import NeurOSConfigError
-    from neuros.eval.pooled import PooledWindows, assemble
+    from neuros.eval.pooled import PooledWindows, assemble, screen_amplitude
 
     settings = experiment.training_windows
     if settings is None:
@@ -1130,6 +1131,11 @@ def _e1_training_windows(
                 references_from={key: windows.for_people({summary["person"]})},
                 primary={key: first},
             )
+            # Newly cut signal can hold glitches the test windows never met (10 Oct: two
+            # crops at 7,000x a person's median RMS broke 4 of 5 models): drop them.
+            part, dropped = screen_amplitude(part)  # one dataset: rows in ``first``'s order
+            summary["n_artifacts_dropped"] = int(dropped.sum())
+            summary["n_primary_dropped"] = int((dropped & np.asarray(first, dtype=bool)).sum())
             parts.append(part)
             summaries.append(summary)
             del cut  # only the placed windows are kept
@@ -1137,19 +1143,25 @@ def _e1_training_windows(
         for summary in summaries:
             for label, count in summary["label_counts"].items():
                 counts[label] = counts.get(label, 0) + count
+        n_dropped = sum(s["n_artifacts_dropped"] for s in summaries)
         report[key] = {
             "crop_starts_s": list(starts),
             "labels": labels,
             "reused": False,
             "n_people": len(summaries),
             "n_trials": sum(s["n_trials"] for s in summaries),
-            "n_windows": sum(s["n_windows"] for s in summaries),
+            # Windows cut (label_counts counts these), then dropped by the artifact rule.
+            "n_windows_cut": sum(s["n_windows"] for s in summaries),
+            "n_artifacts_dropped": n_dropped,
+            "n_primary_dropped": sum(s["n_primary_dropped"] for s in summaries),
+            "n_windows": sum(s["n_windows"] for s in summaries) - n_dropped,
             "label_counts": counts,
             "per_subject": summaries,
         }
         print(
             f"{key}: {report[key]['n_trials']} trials -> {report[key]['n_windows']} windows "
-            f"(crops at {', '.join(f'{s:g}' for s in starts)} s; classes {', '.join(labels)})",
+            f"(crops at {', '.join(f'{s:g}' for s in starts)} s; classes {', '.join(labels)}; "
+            f"{n_dropped} dropped as artifacts)",
             flush=True,
         )
     return PooledWindows.concat(parts), report

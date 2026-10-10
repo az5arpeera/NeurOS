@@ -27,12 +27,14 @@ from neuros.data.training_windows import subject_training_windows
 from neuros.data.vocabulary import Vocabulary
 from neuros.errors import NeurOSConfigError, NeurOSDataError
 from neuros.eval.pooled import (
+    ARTIFACT_RMS_FACTOR,
     ModelTask,
     PooledWindows,
     TaskSettings,
     assemble,
     plan_tasks,
     run_tasks,
+    screen_amplitude,
     to_layout,
 )
 from neuros.signal.preprocess import preprocess_recording
@@ -222,6 +224,60 @@ def test_assemble_records_primary_windows_and_saves_them(tmp_path: Path) -> None
                  primary={"SynA": primary[:-1]})  # fmt: skip
     with pytest.raises(NeurOSDataError, match="primary"):
         dataclasses.replace(pooled, primary=np.zeros(len(pooled), dtype=bool))
+
+
+def test_artifact_rule_drops_only_glitches_and_keeps_everything_else_in_order() -> None:
+    # 10 Oct: two Yang2025 crops at ~7,000x their person's median RMS broke 4 of 5 models.
+    crops = _two_sessions(seed=2)
+    primary = np.arange(len(crops)) % 3 == 0
+    pooled, _ = assemble({"SynA": crops}, LAYOUT, reference="car", alignment="ea",
+                         unit="session", primary={"SynA": primary})  # fmt: skip
+
+    # Clean windows: nothing dropped, and the very same object comes back (bit-identical runs).
+    kept, dropped = screen_amplitude(pooled)
+    assert kept is pooled
+    assert not dropped.any()
+    assert ARTIFACT_RMS_FACTOR == 50.0
+
+    # A glitch in one crop and one primary window, plus a NaN window: exactly those go.
+    x = np.array(pooled.x)
+    crop_row = int(np.flatnonzero(~primary)[1])
+    primary_row = int(np.flatnonzero(primary)[2])
+    nan_row = int(np.flatnonzero(~primary)[4])
+    x[crop_row, 0, 10] = 1e6
+    x[primary_row, 1, 20] = -1e6
+    x[nan_row, 2, 5] = np.nan
+    glitchy = dataclasses.replace(pooled, x=x)
+    kept, dropped = screen_amplitude(glitchy)
+    assert sorted(np.flatnonzero(dropped).tolist()) == sorted([crop_row, primary_row, nan_row])
+    rows = np.flatnonzero(~dropped)
+    assert np.array_equal(kept.x, x[rows])
+    assert np.array_equal(kept.labels, pooled.labels[rows])
+    assert np.array_equal(kept.people, pooled.people[rows])
+    assert np.array_equal(kept.primary, primary[rows])
+    assert kept.layout == pooled.layout
+    assert kept.sfreq == pooled.sfreq
+
+    # A loose enough factor keeps the glitches (only the NaN goes); bad inputs raise.
+    _, loose = screen_amplitude(glitchy, factor=1e9)
+    assert np.flatnonzero(loose).tolist() == [nan_row]
+    for bad in (1.0, 0.5, float("inf"), float("nan")):
+        with pytest.raises(NeurOSConfigError, match="artifact factor"):
+            screen_amplitude(pooled, factor=bad)
+    with pytest.raises(NeurOSDataError, match="no signal"):
+        screen_amplitude(dataclasses.replace(pooled, x=np.zeros_like(x)))
+    with pytest.raises(NeurOSDataError, match="drop every window"):
+        screen_amplitude(dataclasses.replace(pooled, x=np.full_like(x, np.nan)))
+    spiked = x.copy()
+    spiked[primary, 0, 0] = 1e9  # every primary window glitched
+    with pytest.raises(NeurOSDataError, match="no primary window"):
+        screen_amplitude(dataclasses.replace(pooled, x=spiked))
+
+    # take() itself checks its rows.
+    with pytest.raises(NeurOSDataError, match=r"\[0, "):
+        pooled.take(np.array([len(pooled)]))
+    with pytest.raises(NeurOSDataError, match="1-D integer"):
+        pooled.take(np.array([0.5]))
 
 
 # ---------------------------------------------------------------------- loss, data, epochs
