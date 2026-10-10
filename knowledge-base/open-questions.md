@@ -32,6 +32,8 @@ Meanwhile, prepare the fallback in parallel: E6's rest vs mental-effort head (EE
 - Lever 2, the same-session calibrated ceiling, measures the reference; it can't lift the number. On the bar above, this points to the fallback. The founders decide on 16 Oct.
 
 ### Q30. Reframe the promise from "no calibration" to "calibration saved"? (added 10 Oct)
+**Answered 10 Oct: the headline is adopted ([D-040](decisions/decision-log.md)).** Still open: the optional 3-minute guided calibration in the engine (proposed below).
+
 **Why now:** the core promise is "any headset, no calibration, usable within a minute or two". After E2 and D-039 it holds only in part:
 - **No calibration:** above chance for most people, but only 1 in 7 cue-free people reach 70% after 2 minutes (57–66% means).
 - **Any headset:** three other lab systems give about 62%; no consumer headset has been tested, and nothing has run live.
@@ -143,6 +145,7 @@ Ask about a student/startup price for the Unicorn (a second headset for the hard
 
 | Date | Q | Answer | Decision |
 |---|---|---|---|
+| 2026-10-10 | Q30: "calibration saved" | **Adopted.** NeurOS works from minute zero; about 3 minutes of calibration on top of it comes within 1–3 points of a 10–13-minute conventional calibration ("approximately there"). Never "the same accuracy" | [D-040](decisions/decision-log.md) |
 | 2026-10-06 | Q27: Shin2017A's montage | **Option 1, corrected.** Averages of the recorded positions around each missing one, test-only. Checking the geometry showed that two-neighbour pairs land on C3h/C5h (about 19 mm off), so C3 and C4 are each the mean of their four surrounding half positions (2.6 and 1.9 mm off). The motor strip reads C3, Cz and C4 | [D-037](decisions/decision-log.md) |
 | 2026-10-04 | Q26: add cue-free datasets | **Approved, all three.** Yang2025 trains and tests (cue-free); Shin2017A tests only (GPL-3.0); GuttmannFlury2025 is a gaze diagnostic. The locked test set grows to v2 (+22 people, v1 unchanged). Brandl2020, HefmiIch2025 and Chang2025 stay out (non-commercial licences) | [D-033](decisions/decision-log.md) |
 | 2026-10-04 | Q25: cue-controlled evaluation windows | **Adopted.** Every motor-imagery result uses windows that start after the class has left the screen (train and test), next to a cue-only control; datasets whose cue stays up carry a flag. Prompted by E0: 75.0% with the arrow on screen, 60.6% after it | [D-030](decisions/decision-log.md) |

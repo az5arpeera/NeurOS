@@ -4,6 +4,17 @@ Newest first. Format: **ID · date · decision** — why · who. Superseded deci
 
 ## Decided
 
+- **D-040 · 2026-10-10 · The headline becomes "calibration saved": NeurOS works from minute zero, and about 3 minutes of calibration on top of it comes within 1–3 points of a 10–13-minute conventional calibration.** Amends D-009's "no calibration task": zero calibration stays the default, and a short calibration becomes the honest way to the higher number. · Founder (accepted recommendation, "approximately there")
+  - **Evidence** ([Q30 results](../results/2026-10-10-q30-finetune-q31-fit-check.md); development people, offline):
+    - Yang2025 (41 people): 59.8% vs 60.5% (−0.7, 95% CI −2.7 to +1.2).
+    - BNCI2014-001 (9 people): 71.4% vs 73.8% (−2.5, n.s.).
+    - 20 trials per hand (~5 min) matches it on Yang2025.
+    - With the same trials, it beats conventional calibration by 3–6 points.
+  - **Wording rules:** say "within 1–3 points" or "about the same as". Never "the same accuracy as a 15-minute calibration": the means are slightly below. Always pair the claim with the level (about 60–70% two-class on these datasets).
+  - **Not covered yet:**
+    - whether a calibration carries over to another day;
+    - any consumer headset;
+    - live use. The engine's guided calibration doesn't exist yet.
 - **D-039 · 2026-10-09 · "Use more of what we have": training crops later in each trial, and extra classes with a per-dataset softmax; test windows unchanged.** Implements the 6 Oct approval ("use more of what we have"). · Founders approved the idea; Claude set the rules below (founders may veto)
   - **Why:** E2 found the ceiling, not the warm-up speed, is what keeps cue-free accuracy below usable ([Q28](../open-questions.md)). Both levers add training signal without new data or new downloads.
   - **Crops** (`training_windows.crop_stride_s`; `registry.training_crop_starts`):
