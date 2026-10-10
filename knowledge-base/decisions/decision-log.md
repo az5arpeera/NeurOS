@@ -24,6 +24,12 @@ Newest first. Format: **ID · date · decision** — why · who. Superseded deci
       - Genuine windows reach 10.6× and test windows 7.7×.
       - Two glitched Yang2025 crops at 7,200–7,650× broke the first crop runs: they set the input scale and the batch-norm statistics, and 4 of 5 models answered one class.
       - Windows that E1/E2 already trained on never go through the rule. Run reports count drops per dataset and per person.
+    - **General amplitude guard (`eval.pooled.check_amplitude`):** closes the gap the incident left open. Any glitched training window, not only a new crop, could set the scale and the batch-norm statistics.
+      - Before every model trains, `run_task` checks its training windows and its validation windows with the rule's measure: window RMS ÷ the person's median, over that set.
+      - **It raises; it never drops.** A window above **50×**, a window with NaN/Inf samples, or a person with no signal raises `NeurOSDataError` naming the task, window, person, dataset and ratio, before anything trains. Data that passes is untouched, so E1/E2 runs stay bit-identical; a test trains the same task with and without the guard.
+      - **Validation is checked too:** one glitch would dominate its person's validation loss, and so the epoch early stopping keeps. **Test windows aren't:** a glitched one costs only its own prediction.
+      - **Checked on the laptop's smoke sets** (task, cue-only, D-039 training, E2 warm-up): all pass, at most 4.8×. The 10 Oct measurements didn't cover the full cue-only windows, so the next E1/E2 run on AWS is their first check.
+      - **Cost:** one more chunked read of each model's training set, about 0.1 s per 1,000 windows (≈ 5 s for E2's 55k), against about 10 minutes of training.
 
 - **D-038 · 2026-10-07 · Add Liu2024 as a test-only consumer-grade hardware dataset; locked test set v3; Stieger2021's later sessions wait for the cue test.** · Founders approved the download and chose to wait on Stieger; Claude set the dataset's role and drew v3 by the existing rule
   - **Why Liu2024:** it's the first public motor-imagery set on non-research hardware we can use commercially ([research](../research/consumer-headset-mi-datasets.md)).

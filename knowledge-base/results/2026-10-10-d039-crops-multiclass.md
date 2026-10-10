@@ -121,7 +121,9 @@ Mean balanced accuracy (%) on windows starting after 120 s of session time.
   - Windows that E1/E2 already trained on never go through the rule.
   - The run report counts drops per dataset and per person.
 - **Kept for the record:** the void results are in `results/aws/e2_crops*/void-9oct-glitched/` and the logs in `results/aws/logs/*-9oct-glitched.log`.
-- **Still open:** the same weakness exists for any training window, because a single glitch can set the scale and the batch-norm statistics. E1/E2's own windows reach at most 7.7×, so their results are unaffected. A general guard in the trainer would be cheap.
+- **Closed later on 10 Oct:** the same weakness existed for any training window, because a single glitch can set the scale and the batch-norm statistics. E1/E2's own windows reach at most 7.7×, so their results are unaffected.
+  - Now every model's training and validation windows pass a guard (`eval.pooled.check_amplitude`) before training.
+  - The guard raises on any window above 50× its person's median, and never changes data (decision log, D-039 follow-up).
 
 ## What this means
 - **More of the same data doesn't raise the cue-free ceiling.**

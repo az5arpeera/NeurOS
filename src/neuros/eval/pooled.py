@@ -29,6 +29,12 @@ early stopping come from each model's own training people. The input scale is th
 model's training windows. EA uses each session's own windows, without labels, and is the same
 in every fold.
 
+**Amplitude guard.** Before a model trains, its training and validation windows are checked
+for amplifier glitches (``check_amplitude``): one window far above its person's usual RMS would
+set the input scale and the batch-norm statistics on its own (10 Oct). The check raises with
+the window's person, dataset and ratio; it never changes data, so every run that passes is
+exactly what it was without it.
+
 **Scale.** About 350 development people and 100k windows. The assembled windows are written
 once to a work folder as ``.npy`` files, and worker processes map them read-only instead of
 receiving gigabytes through pickling. Each model is a task; tasks run in parallel in spawned
@@ -68,7 +74,7 @@ from neuros.config.experiment import (
     Reference,
     TrainConfig,
 )
-from neuros.errors import NeurOSConfigError, NeurOSDataError
+from neuros.errors import DataContext, NeurOSConfigError, NeurOSDataError
 from neuros.eval.metrics import paired_wilcoxon, score_person, summarize
 from neuros.eval.splits import Fold, make_dev_folds, seeded_rng
 from neuros.signal.reference import common_average_reference
@@ -87,6 +93,8 @@ _RMS_CHUNK = 4096
 # window), the test windows 7.7x; two Yang2025 subject-18 crops reached 7,200x and 7,650x
 # (an amplifier glitch after the test window) and, holding 99.8 % of the set's power, set the
 # input scale and the batch-norm statistics on their own: 4 of 5 models answered one class.
+# The same limit is the general guard every model's training and validation windows pass
+# before training (``check_amplitude``): there a window above it raises instead of dropping.
 ARTIFACT_RMS_FACTOR = 50.0
 
 # The fewest of the layout's channels a dataset must have to be placed in it: the common
@@ -557,6 +565,28 @@ def assemble(
     return pooled, reports
 
 
+def _check_factor(factor: float) -> None:
+    """The artifact limit must be a finite multiple above 1 (at 1, half of every person's
+    windows would sit above their own median)."""
+    if not (math.isfinite(factor) and factor > 1):
+        raise NeurOSConfigError(f"the artifact factor must be a finite number above 1: {factor}")
+
+
+def _window_rms(x: NDArray[np.float32], rows: NDArray[np.int64]) -> NDArray[np.float64]:
+    """Each given window's RMS over its whole ``[rows, samples]`` block (float64, chunked:
+    ``x`` may be a memory map, and only ``_RMS_CHUNK`` windows are held at once).
+
+    The zero-filled layout rows count too. That is harmless for a ratio to the person's
+    median: a person's windows all come from one dataset, so they share one set of present
+    rows. A NaN or Inf sample makes the window's RMS non-finite.
+    """
+    rms = np.empty(rows.size, dtype=np.float64)
+    for start in range(0, rows.size, _RMS_CHUNK):
+        block = np.asarray(x[rows[start : start + _RMS_CHUNK]], dtype=np.float64)
+        rms[start : start + block.shape[0]] = np.sqrt(np.mean(block * block, axis=(1, 2)))
+    return rms
+
+
 def screen_amplitude(
     windows: PooledWindows, *, factor: float = ARTIFACT_RMS_FACTOR
 ) -> tuple[PooledWindows, NDArray[np.bool_]]:
@@ -565,7 +595,8 @@ def screen_amplitude(
     D-039's artifact rule for newly cut training windows (see ``ARTIFACT_RMS_FACTOR``). The
     median is each person's own, over their windows in ``windows``, so the rule holds whatever
     the alignment or units; a non-finite window is dropped too. Windows E1/E2 already trained
-    on (the test windows) never go through it.
+    on (the test windows) never go through it: ``check_amplitude`` only checks them, with the
+    same measure, before every model trains.
 
     Returns:
         ``(the kept windows, a [n] bool mask of the dropped ones)``.
@@ -575,12 +606,8 @@ def screen_amplitude(
         NeurOSDataError: if a person's median RMS over their finite windows isn't positive
             (no signal), or every window (or every primary window) would be dropped.
     """
-    if not (math.isfinite(factor) and factor > 1):
-        raise NeurOSConfigError(f"the artifact factor must be a finite number above 1: {factor}")
-    rms = np.empty(len(windows), dtype=np.float64)
-    for start in range(0, len(windows), _RMS_CHUNK):
-        block = np.asarray(windows.x[start : start + _RMS_CHUNK], dtype=np.float64)
-        rms[start : start + block.shape[0]] = np.sqrt(np.mean(block * block, axis=(1, 2)))
+    _check_factor(factor)
+    rms = _window_rms(windows.x, np.arange(len(windows), dtype=np.int64))
     finite = np.isfinite(rms)
     dropped = ~finite
     for person in dict.fromkeys(windows.people.tolist()):
@@ -596,6 +623,113 @@ def screen_amplitude(
     if not dropped.any():
         return windows, dropped
     return windows.take(np.flatnonzero(~dropped)), dropped
+
+
+# How many offending windows an amplitude error lists (the count covers them all).
+_LISTED_ARTIFACTS = 5
+
+
+def check_amplitude(
+    windows: PooledWindows,
+    rows: NDArray[np.int64],
+    *,
+    role: str,
+    factor: float = ARTIFACT_RMS_FACTOR,
+) -> float:
+    """Raise if any of the given windows looks like an amplifier glitch; never change them.
+
+    The general guard behind D-039's artifact rule (the 10 Oct incident, see
+    ``ARTIFACT_RMS_FACTOR``). One window at thousands of times its person's usual RMS sets a
+    model's input scale (``_rms``) and its batch-norm statistics (the trainer's equal-weight
+    pass over every training window) on its own, and the run still finishes, with healthy
+    best-epoch validation numbers. ``run_task`` therefore calls this on every model's training
+    and validation windows before anything is computed from them.
+
+    The measure is ``screen_amplitude``'s: a window's RMS over its whole ``[rows, samples]``
+    block, divided by the median window RMS of its person *among the given windows* (so the
+    limit holds whatever the units, alignment or input scale). Unlike the screen it raises
+    instead of dropping: a set that passes trains exactly as it did before the guard existed,
+    and a set that fails is fixed where it's built (``screen_amplitude`` for newly cut windows,
+    the registry's ``excluded_subjects`` for a person). Measured 10 Oct: E1/E2's task windows
+    reach 7.7x, D-039's screened training windows 10.6x.
+
+    What a per-person median can't see: a person most of whose windows are glitched (the median
+    is then the glitch's own), or a whole person or dataset at the wrong scale (the units checks
+    catch that upstream, D-035/D-036).
+
+    Args:
+        windows: the window set (``x`` may be a read-only memory map; it's read in chunks).
+        rows: indices into ``windows`` of the windows to check, e.g. one model's training
+            people. Each person's median is taken over their windows among these.
+        role: what the windows are, for the message (e.g. ``"pooled/fold2: training windows"``).
+        factor: the limit, as a multiple of the person's median (``ARTIFACT_RMS_FACTOR``).
+
+    Returns:
+        The largest window-to-median ratio among the given windows (at most ``factor``).
+
+    Raises:
+        NeurOSConfigError: on a factor that isn't a finite number above 1.
+        NeurOSDataError: on rows that aren't a non-empty 1-D integer array within
+            ``[0, len(windows))``; or, naming the window, its person, dataset and ratio, on a
+            window with NaN/Inf samples, a person whose median window RMS is 0 (no signal), or
+            any window above ``factor`` times its person's median.
+    """
+    _check_factor(factor)
+    rows = np.asarray(rows)
+    if rows.ndim != 1 or rows.size == 0 or not np.issubdtype(rows.dtype, np.integer):
+        raise NeurOSDataError(f"{role}: rows must be a non-empty 1-D integer array")
+    if int(np.min(rows)) < 0 or int(np.max(rows)) >= len(windows):
+        raise NeurOSDataError(f"{role}: rows must lie in [0, {len(windows)})")
+    rms = _window_rms(windows.x, rows)
+    people = windows.people[rows]
+    datasets = windows.datasets[rows]
+
+    def where(i: int) -> str:
+        """The i-th checked window, as people read it (its row in ``windows``)."""
+        return f"window {int(rows[i])} of {people[i]} ({datasets[i]})"
+
+    def context(i: int) -> DataContext:
+        """The data context of the i-th checked window (people are ``dataset:subject``)."""
+        return DataContext(dataset=str(datasets[i]), subject=str(people[i]).split(":", 1)[-1])
+
+    broken = np.flatnonzero(~np.isfinite(rms))
+    if broken.size:
+        first = int(broken[0])
+        raise NeurOSDataError(
+            f"{role}: {broken.size} window(s) hold NaN/Inf samples, the first {where(first)}",
+            context(first),
+        )
+
+    # Each person's median over their checked windows: group by person once (sorting), rather
+    # than one pass over every window per person.
+    names, inverse = np.unique(people, return_inverse=True)
+    inverse = inverse.reshape(-1)  # numpy 2 keeps the input's shape; it's 1-D here anyway
+    order = np.argsort(inverse, kind="stable")
+    bounds = np.cumsum(np.bincount(inverse, minlength=names.size))[:-1]
+    medians = np.array([float(np.median(group)) for group in np.split(rms[order], bounds)])
+    silent = np.flatnonzero(~(medians > 0))
+    if silent.size:
+        first = int(np.flatnonzero(inverse == silent[0])[0])  # one of that person's windows
+        raise NeurOSDataError(
+            f"{role}: {names[silent[0]]}'s median window RMS is {medians[silent[0]]} (no signal)",
+            context(first),
+        )
+
+    ratio = rms / medians[inverse]
+    worst = int(np.argmax(ratio))
+    if ratio[worst] > factor:
+        over = np.flatnonzero(ratio > factor)
+        listed = over[np.argsort(ratio[over], kind="stable")[::-1][:_LISTED_ARTIFACTS]]
+        examples = "; ".join(f"{where(int(i))}: {ratio[i]:,.1f}x" for i in listed)
+        raise NeurOSDataError(
+            f"{role}: {over.size} window(s) of {np.unique(people[over]).size} person(s) have "
+            f"an RMS above {factor:g}x their person's median window RMS ({examples}). Probably "
+            "amplifier glitches: one such window can set the input scale and the batch-norm "
+            "statistics on its own (10 Oct incident). Nothing was trained; drop them where the "
+            "set is built (screen_amplitude) or exclude the person.",
+            context(worst),
+        )
+    return float(ratio[worst])
 
 
 # ---------------------------------------------------------------------- the plan
@@ -866,10 +1000,16 @@ def run_task(
     windows always come from ``data``. With extra classes, each training window's softmax runs
     over its own dataset's classes, and validation and test over ``settings.classes``.
 
+    Before anything is computed from them, the training and validation windows pass the
+    amplitude guard (``check_amplitude``): a window above ``ARTIFACT_RMS_FACTOR`` times its
+    person's median RMS stops the task before it trains.
+
     Raises:
         NeurOSConfigError: if ``train_data`` is given without ``task.train_data``, or the other
             way round.
-        NeurOSDataError: if a person in the task has no windows, or a label isn't a class.
+        NeurOSDataError: if a person in the task has no windows, a label isn't a class, or a
+            training or validation window fails the amplitude guard (the message names the
+            task, window, person, dataset and ratio).
     """
     import torch
 
@@ -941,7 +1081,17 @@ def run_task(
             primary=primary,
         )
 
-    scale = _rms(source.x, rows(source, task.train))
+    # The amplitude guard (10 Oct incident): one glitched training window can set the input
+    # scale and the batch-norm statistics on its own, so check before either is computed. The
+    # validation windows too: one glitch would dominate its person's validation loss, and so
+    # the epoch early stopping keeps. Read-only: a set that passes trains exactly as before.
+    # Test windows aren't checked: a glitched one costs only its own prediction.
+    train_rows = rows(source, task.train)
+    check_amplitude(source, train_rows, role=f"{task.name}: training windows")
+    if task.validation:
+        validation_rows = rows(data, task.validation)
+        check_amplitude(data, validation_rows, role=f"{task.name}: validation windows")
+    scale = _rms(source.x, train_rows)
     train = tensors(source, task.train, scale, training=True)
     validation = tensors(data, task.validation, scale, training=False) if task.validation else None
     torch.manual_seed(task.seed)  # weight initialisation

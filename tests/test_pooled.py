@@ -1,23 +1,30 @@
-"""E1's pooled runner: layout mapping, the task plan, isolation, saving, a tiny end-to-end run."""
+"""E1's pooled runner: layout mapping, the task plan, isolation, saving, the amplitude guard,
+a tiny end-to-end run."""
 
 from __future__ import annotations
 
 import dataclasses
+import re
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
 
 from neuros.errors import NeurOSConfigError, NeurOSDataError, NeurOSSplitError
+from neuros.eval import pooled as pooled_module
 from neuros.eval.pooled import (
+    ARTIFACT_RMS_FACTOR,
     ModelTask,
     PooledWindows,
     TaskSettings,
     assemble,
+    check_amplitude,
     derive_channels,
     layout_shortfalls,
     plan_tasks,
     report,
+    run_task,
     run_tasks,
     split_validation,
     to_layout,
@@ -309,3 +316,192 @@ def test_pooled_models_also_score_extra_sets(
     assert set(scored) == set(people["SynA"])  # every SynA person, once
     with pytest.raises(NeurOSConfigError, match="weren't assembled"):
         run_tasks(tasks, {"task": tmp_path / "task"}, settings)
+
+
+# ---------------------------------------------------------------------- the amplitude guard
+# 10 Oct: two glitched crops at ~7,000x their person's median RMS set a model's input scale and
+# batch-norm statistics on their own. check_amplitude stops any such window before training.
+def _pooled(three_datasets: dict[str, WindowSet]) -> PooledWindows:
+    pooled, _ = assemble(three_datasets, LAYOUT, reference="car", alignment="ea", unit="session")
+    return pooled
+
+
+def _glitched(windows: PooledWindows, row: int, value: float = 1e4) -> PooledWindows:
+    """A copy with one C3 sample of window ``row`` set to ``value``. Aligned windows have an
+    RMS near 1 over 4 x 64 samples, so 1e4 puts the window at several hundred times its median.
+    """
+    x = np.array(windows.x)
+    x[row, 0, 7] = value  # row 0 (C3): every synthetic dataset has it
+    return dataclasses.replace(windows, x=x)
+
+
+def test_amplitude_guard_passes_a_clean_set_untouched(
+    tmp_path: Path, three_datasets: dict[str, WindowSet], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pooled = _pooled(three_datasets)
+    pooled.save(tmp_path / "task")
+    mapped = PooledWindows.load(tmp_path / "task")  # a read-only memory map, as workers see it
+    every = np.arange(len(mapped))
+    before = np.array(mapped.x)
+    peak = check_amplitude(mapped, every, role="clean")
+    assert 1.0 < peak < ARTIFACT_RMS_FACTOR
+    assert np.array_equal(np.asarray(mapped.x), before)  # read, never written
+
+    # The measure is screen_amplitude's: a window's RMS over its person's median window RMS.
+    rms = np.sqrt(np.mean(before.astype(np.float64) ** 2, axis=(1, 2)))
+    expected = max(
+        float(np.max(rms[mapped.people == p] / np.median(rms[mapped.people == p])))
+        for p in set(mapped.people.tolist())
+    )
+    assert peak == pytest.approx(expected, rel=1e-12)
+
+    # Reading in chunks changes nothing, even chunks smaller than one person's windows.
+    monkeypatch.setattr(pooled_module, "_RMS_CHUNK", 7)
+    assert check_amplitude(mapped, every, role="clean") == pytest.approx(peak, rel=1e-12)
+
+    # Each person is measured against their own median: a person 1,000x louder throughout
+    # passes (whole-person units are the registry's and the validator's job).
+    loud = before.copy()
+    loud[mapped.people == "SynA:1"] *= 1000
+    louder = dataclasses.replace(pooled, x=loud)
+    assert check_amplitude(louder, every, role="loud") == pytest.approx(peak, rel=1e-6)
+
+
+def test_amplitude_guard_names_a_glitched_window(three_datasets: dict[str, WindowSet]) -> None:
+    pooled = _pooled(three_datasets)
+    every = np.arange(len(pooled))
+    row = int(pooled.rows_of(["SynB:3"])[4])
+    glitchy = _glitched(pooled, row)
+    with pytest.raises(NeurOSDataError) as caught:
+        check_amplitude(glitchy, every, role="pooled/fold0: training windows")
+    message = str(caught.value)
+    assert message.startswith("pooled/fold0: training windows: 1 window(s) of 1 person(s)")
+    assert f"window {row} of SynB:3 (SynB)" in message
+    assert message.endswith("[dataset=SynB subject=3]")  # the data context
+    found = re.search(r"\(SynB\): ([\d,.]+)x", message)
+    assert found is not None
+    ratio = float(found.group(1).replace(",", ""))
+    rms = np.sqrt(np.mean(np.asarray(glitchy.x, dtype=np.float64) ** 2, axis=(1, 2)))
+    mine = glitchy.people == "SynB:3"
+    assert ratio == pytest.approx(rms[row] / np.median(rms[mine]), abs=0.05)
+    assert ratio > 5 * ARTIFACT_RMS_FACTOR
+
+    # A looser limit lets the same window through and reports it as the largest ratio.
+    assert check_amplitude(glitchy, every, role="r", factor=1e6) == pytest.approx(ratio, abs=0.05)
+    # Only the given windows are checked: without the glitched one the set passes.
+    assert check_amplitude(glitchy, every[every != row], role="r") < ARTIFACT_RMS_FACTOR
+
+    # Many glitches: all are counted, the worst five listed, worst first (spikes 10x apart, so
+    # the order doesn't hang on the two people's medians).
+    rows = [*pooled.rows_of(["SynA:2"])[:4].tolist(), *pooled.rows_of(["SynC:1"])[:3].tolist()]
+    x = np.array(pooled.x)
+    for k, r in enumerate(rows):
+        x[r, 0, 7] = 10.0 ** (k + 4)
+    with pytest.raises(NeurOSDataError, match=r"7 window\(s\) of 2 person\(s\)") as caught:
+        check_amplitude(dataclasses.replace(pooled, x=x), every, role="r")
+    listed = [int(n) for n in re.findall(r"window (\d+) of ", str(caught.value))]
+    assert listed == rows[::-1][:5]
+
+    # Non-finite samples and silent people raise too, naming the window or person.
+    for bad in (np.nan, np.inf, -np.inf):
+        with pytest.raises(NeurOSDataError, match=rf"1 window\(s\) hold NaN/Inf.*window {row} "):
+            check_amplitude(_glitched(pooled, row, bad), every, role="r")
+    silent = np.array(pooled.x)
+    silent[pooled.people == "SynA:1"] = 0.0
+    with pytest.raises(NeurOSDataError, match=r"SynA:1's median window RMS is 0\.0 \(no signal\)"):
+        check_amplitude(dataclasses.replace(pooled, x=silent), every, role="r")
+
+    # Bad limits and bad rows.
+    for factor in (1.0, 0.5, float("inf"), float("nan")):
+        with pytest.raises(NeurOSConfigError, match="artifact factor"):
+            check_amplitude(pooled, every, role="r", factor=factor)
+    for rows_given in (
+        np.array([], dtype=np.int64),
+        every[None, :],
+        every.astype(np.float64),
+        np.array([len(pooled)]),
+        np.array([-1]),
+    ):
+        with pytest.raises(NeurOSDataError, match="rows must"):
+            check_amplitude(pooled, rows_given, role="r")
+
+
+def test_run_task_guards_training_and_validation_windows_and_changes_nothing(
+    three_datasets: dict[str, WindowSet], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pooled = _pooled(three_datasets)
+    plan: dict[str, Any] = {
+        "conditions": ("pooled",),
+        "folds": 3,
+        "validation_fraction": 0.2,
+        "seed": 3,
+    }
+    task = plan_tasks(pooled.people_by_dataset(), ["SynA", "SynB"], **plan)[0]
+    assert task.validation  # both sets are guarded
+    settings = TaskSettings(
+        classes=("left_hand", "right_hand"),
+        model=TINY_MODEL,
+        train=FAST_TRAIN,
+        device="cpu",
+        deterministic=True,
+        threads=1,
+    )
+
+    def quiet(_: str) -> None:
+        return None
+
+    # run_task checks exactly the training people's windows, then the validation people's.
+    checked: list[tuple[str, set[str]]] = []
+    real = pooled_module.check_amplitude
+
+    def spy(
+        windows: PooledWindows, rows: Any, *, role: str, factor: float = ARTIFACT_RMS_FACTOR
+    ) -> float:
+        checked.append((role, set(windows.people[rows].tolist())))
+        return real(windows, rows, role=role, factor=factor)
+
+    monkeypatch.setattr(pooled_module, "check_amplitude", spy)
+    guarded = run_task(task, pooled, settings, quiet)
+    assert checked == [
+        (f"{task.name}: training windows", set(task.train)),
+        (f"{task.name}: validation windows", set(task.validation)),
+    ]
+    # A clean set trains exactly as it does without the guard: same scale, losses and scores.
+    monkeypatch.setattr(pooled_module, "check_amplitude", lambda *args, **kwargs: 0.0)
+    unguarded = run_task(task, pooled, settings, quiet)
+    monkeypatch.undo()
+    for key in ("input_scale", "n_train_windows", "scores"):
+        assert guarded[key] == unguarded[key], key
+    untimed = [
+        [{k: v for k, v in e.items() if k != "seconds"} for e in o["train"]["history"]]
+        for o in (guarded, unguarded)
+    ]
+    assert untimed[0] == untimed[1]  # identical losses, epoch by epoch
+
+    # A glitched training or validation window stops the task before anything trains.
+    def never_train(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("trained despite a glitched window")
+
+    monkeypatch.setattr("neuros.train.trainer.train_classifier", never_train)
+    for people, role in ((task.train, "training"), (task.validation, "validation")):
+        person = people[0]
+        glitchy = _glitched(pooled, int(pooled.rows_of([person])[0]))
+        pattern = (
+            rf"^{re.escape(task.name)}: {role} windows: 1 window\(s\).*"
+            rf"window \d+ of {re.escape(person)} \("
+        )
+        with pytest.raises(NeurOSDataError, match=pattern):
+            run_task(task, glitchy, settings, quiet)
+    # D-039: a task that trains on another window set is guarded on that set.
+    via_train = plan_tasks(
+        pooled.people_by_dataset(), ["SynA", "SynB"], **plan, train_data="train"
+    )[0]
+    glitchy = _glitched(pooled, int(pooled.rows_of([via_train.train[0]])[0]))
+    with pytest.raises(NeurOSDataError, match=rf"^{re.escape(via_train.name)}: training windows"):
+        run_task(via_train, pooled, settings, quiet, train_data=glitchy)
+    monkeypatch.undo()
+
+    # Test windows aren't the guard's business: a glitched one costs only its own prediction.
+    glitchy = _glitched(pooled, int(pooled.rows_of([task.test[0]])[0]))
+    outcome = run_task(task, glitchy, settings, quiet)
+    assert [score["person"] for score in outcome["scores"]] == list(task.test)
