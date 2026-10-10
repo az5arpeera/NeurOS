@@ -31,6 +31,23 @@ Meanwhile, prepare the fallback in parallel: E6's rest vs mental-effort head (EE
 - 12–13 of 73 cue-free people reach 70% (E2 10).
 - Lever 2, the same-session calibrated ceiling, measures the reference; it can't lift the number. On the bar above, this points to the fallback. The founders decide on 16 Oct.
 
+### Q30. Reframe the promise from "no calibration" to "calibration saved"? (added 10 Oct)
+**Why now:** the core promise is "any headset, no calibration, usable within a minute or two". After E2 and D-039 it holds only in part:
+- **No calibration:** above chance for most people, but only 1 in 7 cue-free people reach 70% after 2 minutes (57–66% means).
+- **Any headset:** three other lab systems give about 62%; no consumer headset has been tested, and nothing has run live.
+
+More public data or model variants didn't move the ceiling (D-039), so the claim has to change, not the tuning.
+
+**Proposal (Claude):** measure and claim *calibration saved*: "minute zero with NeurOS equals N minutes of calibration elsewhere", plus how well a short calibration on top of our model does. One result already points this way: a standard model calibrated on the person's earlier day scored *below* our zero-calibration model on Lee2019_MI and Stieger2021 ([follow-ups](results/2026-10-06-e1-followups-cue-test-seeds-ceilings.md)).
+
+**Evidence needed, cheapest first:**
+1. **Calibration curve:** a person's own calibrated decoder after 5/10/20/40 trials per class and half a session (`neuros calibration`, CPU, about 1 hour on AWS; code ready 10 Oct).
+2. **Short calibration on top of our model:** fine-tune with 1–2 minutes of labelled data (GPU, about 1–2 hours).
+3. **The founders' headset:** a cue-free self-test, the only consumer-hardware evidence we can get.
+4. **Interviews:** what accuracy and setup time would people pay for?
+
+**Also for the founders:** whether the demo should lean on a more reliable signal: mental state (E6) or SSVEP. SSVEP needs on-screen flicker and electrodes at the back of the head; check the headset first.
+
 ### Q29. Stieger2021's sessions 3–11 (299 GB)
 **Recommendation: don't download them** ([cue test](results/2026-10-06-e1-followups-cue-test-seeds-ceilings.md)).
 - Stieger2021's data mostly helps its own people. Their task window doesn't beat the cue alone (68.4% vs 66.1%, p = 0.13).

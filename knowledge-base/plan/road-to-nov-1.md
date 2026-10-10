@@ -112,7 +112,14 @@ Claude Code pairs on all engineering. **Founders send all outreach;** Claude dra
     - Shin2017A 62.3% (unseen hardware, cue-only at chance).
 - **10 Oct: D-039 done** ([results](../results/2026-10-10-d039-crops-multiclass.md)):
   - Crops, extra classes or both: +0.3 to +0.4 overall (within seed noise). The cue-free numbers at 120 s are unchanged (Yang2025 56.8% in every variant). Q28's bar isn't met; E2's recipe stays.
-  - The first crop runs were void: two glitched Yang2025 crops broke 4 of 5 models. An artifact rule now drops them (`8605be4`).
+  - The first crop runs were void: two glitched Yang2025 crops broke 4 of 5 models. An artifact rule now drops them (`8605be4`). A general guard now refuses any glitched training window (`32f22ad`).
+- **10 Oct, evening:** the critical path moves to the product ([Q30](../open-questions.md): reframe to "calibration saved").
+  - **Engine core done** (`9c7e00d`, `src/neuros/engine/`):
+    - the chain: preprocessing → quality gate → online alignment (E2's) → layout → decoder → policy;
+    - states and events (`neuros.intent.v0`), and the simulator.
+    - Live windows equal the training pipeline's bit for bit. On a new synthetic person, 92% of task-window commands are right with no calibration; latency is 0.3 ms median.
+    - **Next:** model bundle + EEGNet decoder, LSL in / WebSocket out (needs the `engine` extra installed), `neuros simulate` / `neuros run`, the JS client.
+  - **Calibration curve code ready** (`9aa8b87`, `neuros calibration`). The AWS run waits for SSH: the laptop's IP changed.
 - **Next (before D-031's gate, ≈ 16 Oct; Q28):**
   - ~~Training crops and multi-class auxiliary training~~: done 10 Oct, no lift.
   - A same-session calibrated ceiling on Yang2025, BNCI2014-001 and Shin2017A (the number to quote against "just calibrate").
