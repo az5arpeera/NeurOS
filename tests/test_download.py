@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -235,3 +236,20 @@ def test_loading_an_ungated_dataset_needs_no_acceptance(tmp_path: Path) -> None:
     from neuros.data.download import loading_kwargs
 
     assert loading_kwargs(make_spec(key="Open", moabb_class="BNCI2014_001"), tmp_path) == {}
+
+
+def test_loading_points_mne_at_our_raw_folder_first(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 10 Oct: a command that skipped prepare_mne_environment let MOABB look in ~/mne_data and
+    # start re-downloading Yang2025 (65.6 GB). Loading now sets the location itself.
+    from neuros.data.download import loading_dataset
+
+    spec = make_spec(key="Open", moabb_class="BNCI2014_001")
+    _patch_moabb(monkeypatch, tmp_path / "raw")
+    download(spec, [1], tmp_path)
+    monkeypatch.delenv("MNE_DATA", raising=False)
+    monkeypatch.setenv("MOABB_DOWNLOAD_PROVIDER", "mirror")
+    loading_dataset(spec, tmp_path)
+    assert os.environ["MNE_DATA"] == str((tmp_path / "raw").resolve())
+    assert os.environ["MOABB_DOWNLOAD_PROVIDER"] == "upstream"

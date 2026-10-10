@@ -378,7 +378,15 @@ def loading_kwargs(spec: DatasetSpec, data_dir: Path) -> dict[str, Any]:
 
 
 def loading_dataset(spec: DatasetSpec, data_dir: Path) -> Any:
-    """The MOABB dataset object for loading downloaded data (see ``loading_kwargs``)."""
+    """The MOABB dataset object for loading downloaded data (see ``loading_kwargs``).
+
+    It points MNE/MOABB at our raw-data folder first (``prepare_mne_environment``). Without
+    that, MOABB looks in ``~/mne_data``, finds nothing and silently starts downloading the
+    whole dataset again: on 10 Oct a new command that skipped this step started a 65.6-GB
+    Yang2025 download on the AWS machine's system disk (stopped at 3 GB). Every loader goes
+    through here, so no command can forget it.
+    """
+    prepare_mne_environment(data_dir)
     return moabb_dataset(spec, **loading_kwargs(spec, data_dir))
 
 
