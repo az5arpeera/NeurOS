@@ -694,6 +694,21 @@ def _rms(x: NDArray[np.float32], rows: NDArray[np.int64]) -> float:
     return rms
 
 
+def _gather(x: NDArray[np.float32], rows: NDArray[np.int64]) -> NDArray[np.float32]:
+    """The given rows of ``x`` (often a read-only memory map) as one private, writable float32
+    array, read in chunks.
+
+    ``np.array(x[rows])`` holds the rows twice at its peak (the fancy-indexed copy, then the
+    array's own): with four workers each copying a 3-GB training set at once, that doubling
+    ran the 30-GB machine out of memory (9 Oct). The values are identical either way.
+    """
+    out = np.empty((rows.size, *x.shape[1:]), dtype=np.float32)
+    for start in range(0, rows.size, _RMS_CHUNK):
+        chunk = rows[start : start + _RMS_CHUNK]
+        out[start : start + chunk.size] = x[chunk]
+    return out
+
+
 def _predict(
     model: Any,
     x: Any,
@@ -729,7 +744,7 @@ def _score_people(
     if rows.size == 0:
         return []
     # The model checks the window shape itself (check_window_batch).
-    x = np.array(windows.x[rows], dtype=np.float32)
+    x = _gather(windows.x, rows)
     x /= np.float32(scale)
     truth = windows.labels[rows]
     unknown = sorted(set(truth.tolist()) - set(settings.classes))
@@ -822,7 +837,7 @@ def run_task(
         windows: PooledWindows, people: Sequence[str], scale: float, *, training: bool
     ) -> TensorData:
         picked = rows(windows, people)
-        x = np.array(windows.x[picked], dtype=np.float32)  # a private, writable copy
+        x = _gather(windows.x, picked)  # a private, writable copy
         x /= np.float32(scale)
         labels = windows.labels[picked].tolist()
         allowed_names = set(head) if training else set(settings.classes)

@@ -999,6 +999,43 @@ def _e1_windows(
     return per_dataset, loaded
 
 
+def _memory_note(stage: str) -> None:
+    """Print this process's resident memory at a stage of a long run (Linux; silent elsewhere).
+
+    E1/E2 runs share a 30-GB machine between the main process and its training workers; on
+    9 Oct the D-039 runs ran it out of memory twice. These lines show where memory goes.
+    """
+    try:
+        status = Path("/proc/self/status").read_text(encoding="ascii")
+    except OSError:
+        return
+    for line in status.splitlines():
+        if line.startswith("VmRSS:"):
+            gigabytes = int(line.split()[1]) / 1048576  # the kernel reports kB
+            print(f"memory: {gigabytes:.1f} GB resident ({stage})", flush=True)
+            return
+
+
+def _release_freed_memory() -> None:
+    """Hand memory the process has freed back to the operating system (glibc's ``malloc_trim``).
+
+    Data preparation frees gigabytes of arrays, but glibc may keep freed heap memory for reuse,
+    so the main process can still hold it when the training workers start (9 Oct: 10.7 GB,
+    then the kernel's out-of-memory killer). A no-op off Linux or without glibc.
+    """
+    import ctypes
+    import gc
+    import platform
+
+    gc.collect()
+    if platform.system() != "Linux":  # (not sys.platform: type checkers fold that per OS)
+        return
+    try:
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except (OSError, AttributeError):  # another C library: nothing to trim
+        return
+
+
 def _e1_training_windows(
     experiment: PooledExperimentConfig,
     config: DataConfig,
@@ -1295,6 +1332,7 @@ def cmd_e1(args: argparse.Namespace) -> int:
     pooled.save(work / "task")
     people = pooled.people_by_dataset()
     del pooled  # saved: workers map it, and the steps below need the memory (9 Oct)
+    _memory_note("task windows assembled")
     cue_free = {key: bool(loaded[key]["cue_free"]) for key in experiment.datasets}
     folders = {"task": work / "task"}
     warmup_report: dict[str, Any] | None = None
@@ -1302,6 +1340,7 @@ def cmd_e1(args: argparse.Namespace) -> int:
         warmup_report = _e1_warmup_sets(
             experiment, config, task_windows, layout, people, cache, work, folders
         )
+        _memory_note("warm-up sets saved")
     training_report: dict[str, Any] | None = None
     if experiment.training_windows is not None:  # D-039: aligned by the task windows' references
         train_pooled, training_report = _e1_training_windows(
@@ -1310,6 +1349,7 @@ def cmd_e1(args: argparse.Namespace) -> int:
         train_pooled.save(work / "train")
         folders["train"] = work / "train"
         del train_pooled
+        _memory_note("training windows saved")
     del task_windows  # workers map the saved arrays
     if "cue_only" in experiment.conditions:
         print("cue-only control windows:", flush=True)
@@ -1327,6 +1367,9 @@ def cmd_e1(args: argparse.Namespace) -> int:
         cue_pooled.save(work / "cue_only")
         folders["cue_only"] = work / "cue_only"
         del cue_windows, cue_pooled
+    # The workers need the memory the data preparation used: hand freed memory back first.
+    _release_freed_memory()
+    _memory_note("before training")
 
     out = Path(args.out) if args.out else config.results_dir / experiment.name / f"{run_id}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
