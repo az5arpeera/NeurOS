@@ -1,6 +1,6 @@
 # A5: does lining up each person's brain-rhythm frequency help zero-calibration decoding?
 
-**Written:** Sun 11 Oct 2026, before any code or run. **Status:** bar set; approved by the founders 11 Oct ("good for the run both tests").
+**Written:** Sun 11 Oct 2026, before any code or run. **Status:** run 11 Oct: **FAIL** ([results](../results/2026-10-11-a5-frequency-alignment.md)). Approved by the founders 11 Oct ("good for the run both tests").
 
 **From:** the [post-YC agenda](post-yc-research-agenda.md), experiment 5, pulled forward because it's cheap and could still reach the 24 Oct freeze.
 
