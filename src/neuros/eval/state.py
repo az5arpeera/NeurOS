@@ -265,7 +265,7 @@ def arm_windows(windows: PersonWindows, channels: Sequence[str]) -> NDArray[np.f
         raise NeurOSConfigError(f"channels {missing} aren't in {windows.person}'s recording")
     index = [windows.ch_names.index(c) for c in channels]
     x = windows.data[:, index, :].astype(np.float64)
-    return x - x.mean(axis=1, keepdims=True)
+    return np.asarray(x - x.mean(axis=1, keepdims=True), dtype=np.float64)
 
 
 def log_band_power(

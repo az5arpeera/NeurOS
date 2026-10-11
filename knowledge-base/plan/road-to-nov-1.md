@@ -244,8 +244,8 @@ Claude Code pairs on all engineering. **Founders send all outreach;** Claude dra
 **11 Oct ([D-041](../decisions/decision-log.md)):**
 - E3, E4 (with E4-zs), S1–S4, the text-anchored head and SSVEP insurance are cut from the sprint and parked as experiments in the post-YC agenda.
 - **Remaining sprint, in order:**
-  1. **E6:** [bar set 11 Oct](e6-state-channel.md); waiting for approval to run.
-  2. **The application:** [draft v1](../yc/application-draft-v1.md).
+  1. ~~**E6**~~ done 11 Oct: **FAIL** ([results](../results/2026-10-11-e6-state-channel.md)). 70.9% on a full cap, but only 18/29 people at ≥ 60%; 56.1% on the Ganglion. No state ships; the demo shows commands only. The EEGMAT loader and download (`neuros.data.eegmat`) stay.
+  2. **The application:** [responses v1](../yc/application-responses-v1.md), in the live W27 portal's order, plus the founders' [writing guide](../yc/writing-guide.md).
   3. **The demo stage view.**
   4. **E7 and E5.**
   5. **Pilot sessions.**

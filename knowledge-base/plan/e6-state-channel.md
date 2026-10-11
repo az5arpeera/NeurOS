@@ -2,7 +2,7 @@
 
 **Written:** Sun 11 Oct 2026, before any EEGMAT data is loaded (the rule: every run answers a decision, with its bar set first).
 
-**Status:** bar set; approved by the founders 11 Oct ("yes run E6").
+**Status:** run 11 Oct: **FAIL** on both arms ([results](../results/2026-10-11-e6-state-channel.md)). Approved by the founders 11 Oct ("yes run E6").
 
 > **Amendment, 11 Oct, after inspecting the files and before any model ran:**
 > - **Rest recordings are longer than the page says:** 80–188 s (median 182 s). The task is 62 s, and the rate is 500 Hz.

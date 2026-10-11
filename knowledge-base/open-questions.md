@@ -51,6 +51,10 @@ Meanwhile, prepare the fallback in parallel: E6's rest vs mental-effort head (EE
 - 12–13 of 73 cue-free people reach 70% (E2 10).
 - Lever 2, the same-session calibrated ceiling, measures the reference; it can't lift the number. On the bar above, this points to the fallback. The founders decide on 16 Oct.
 
+**Update 11 Oct: the fallback's state channel failed E6** ([results](results/2026-10-11-e6-state-channel.md)).
+- 70.9% on a full cap, but only 18/29 people at ≥ 60%; 56.1% on the Ganglion's channels.
+- What's left to lead with: "calibration saved" (D-040) plus the rigour story (the cue finding, bars set before every run). Mental states become the stated next step, not a claim.
+
 ### Q30. Reframe the promise from "no calibration" to "calibration saved"? (added 10 Oct)
 **Answered 10 Oct: the headline is adopted ([D-040](decisions/decision-log.md)).** Still open: the optional 3-minute guided calibration in the engine (proposed below).
 
