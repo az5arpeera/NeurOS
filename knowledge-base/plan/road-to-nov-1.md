@@ -246,7 +246,7 @@ Claude Code pairs on all engineering. **Founders send all outreach;** Claude dra
 - **Remaining sprint, in order:**
   1. ~~**E6**~~ done 11 Oct: **FAIL** ([results](../results/2026-10-11-e6-state-channel.md)). 70.9% on a full cap, but only 18/29 people at ≥ 60%; 56.1% on the Ganglion. No state ships; the demo shows commands only. The EEGMAT loader and download (`neuros.data.eegmat`) stay.
   2. **The application:** [responses v1](../yc/application-responses-v1.md), in the live W27 portal's order, plus the founders' [writing guide](../yc/writing-guide.md).
-  3. **The demo stage view.**
+  3. **The demo stage view:** built 11 Oct (`clients/js/stage.html`, served at `/stage`; the engine's opt-in `--telemetry` sends each channel's cleaned signal and quality). Tested live on a real-time replay of a never-seen person; ready for the Ganglion (`neuros run ... --telemetry`). **D-042:** the application leads with "calibration saved" plus rigour. **A5 and A4:** [bars set](../experiments.md), code ready, waiting for the AWS machine.
   4. **E7 and E5.**
   5. **Pilot sessions.**
   6. **The freeze scripts.**

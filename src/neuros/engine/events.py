@@ -1,6 +1,6 @@
 """The engine's output: schema ``neuros.intent.v0`` (architecture §7.3).
 
-Three event types, all JSON objects with ``"schema": "neuros.intent.v0"``:
+Four event types, all JSON objects with ``"schema": "neuros.intent.v0"``:
 
 - **intent**, one per decision (every hop, 8 per second at the contract's 0.125 s): the
   command, or ``"HOLD"`` with a reason; the smoothed probabilities of the enabled commands
@@ -10,6 +10,10 @@ Three event types, all JSON objects with ``"schema": "neuros.intent.v0"``:
 - **status**, on every engine state change (§7.2).
 - **calibration**, the guided calibration's progress: each trial's phases (``ready``, ``cue``,
   ``imagine``, ``rest``) for the app to draw, then ``training`` and ``done`` or ``failed``.
+- **telemetry**, opt-in (``neuros run --telemetry``), for displays such as the demo's stage
+  view: with each decision, the newest samples of every channel the model reads (cleaned:
+  band-passed and common-averaged, decimated for drawing) and each channel's RMS. Apps that
+  only act on commands never need it.
 
 Validation happens at construction, so an event that reaches an app is always well-formed
 (principle 4: the engine never emits garbage).
@@ -268,4 +272,79 @@ class CalibrationEvent:
         return json.dumps(self.to_dict(), allow_nan=False, separators=(",", ":"))
 
 
-Event = IntentEvent | StatusEvent | CalibrationEvent
+@dataclass(frozen=True)
+class TelemetryEvent:
+    """What the engine just saw, for drawing (opt-in; never needed to act on commands).
+
+    Attributes:
+        seq: the engine's shared counter.
+        t: the stream clock at the window's last sample.
+        channels: the channels the model reads on this headset (the profile), in order.
+        sfreq: the rate of ``samples`` (Hz), after decimation.
+        samples: per channel, the newest samples since the previous decision (µV, cleaned:
+            band-passed and common-averaged), oldest first.
+        rms_uv: per channel, the RMS of the whole decision window (µV).
+        bad_channels: channels the quality gate blamed for this window.
+        in_transient: the filters are still settling (the engine holds with "warmup").
+        state: the engine state (§7.2).
+        seconds_of_data: good data in the alignment reference so far (the warm-up's progress).
+    """
+
+    seq: int
+    t: float
+    channels: tuple[str, ...]
+    sfreq: float
+    samples: tuple[tuple[float, ...], ...]
+    rms_uv: tuple[float, ...]
+    bad_channels: tuple[str, ...]
+    in_transient: bool
+    state: EngineState
+    seconds_of_data: float
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.seq, int) or self.seq < 0:
+            raise NeurOSDataError(f"seq must be a non-negative int, got {self.seq!r}")
+        for name in ("t", "sfreq", "seconds_of_data"):
+            _finite(name, getattr(self, name))
+        if self.sfreq <= 0 or self.seconds_of_data < 0:
+            raise NeurOSDataError("sfreq must be > 0 and seconds_of_data >= 0")
+        if not self.channels or len(set(self.channels)) != len(self.channels):
+            raise NeurOSDataError(f"channels must be non-empty and unique: {self.channels}")
+        if len(self.samples) != len(self.channels) or len(self.rms_uv) != len(self.channels):
+            raise NeurOSDataError("samples and rms_uv need one entry per channel")
+        if len({len(row) for row in self.samples}) > 1:
+            raise NeurOSDataError("every channel needs the same number of samples")
+        for row in self.samples:
+            for value in row:
+                _finite("sample", value)
+        for value in self.rms_uv:
+            _finite("rms_uv", value)
+            if value < 0:
+                raise NeurOSDataError(f"rms_uv must be >= 0, got {value}")
+        unknown = [c for c in self.bad_channels if c not in self.channels]
+        if unknown:
+            raise NeurOSDataError(f"bad channels {unknown} aren't among {list(self.channels)}")
+        if self.state not in ENGINE_STATES:
+            raise NeurOSDataError(f"unknown engine state {self.state!r} {ENGINE_STATES}")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "type": "telemetry",
+            "schema": SCHEMA,
+            "seq": self.seq,
+            "t": self.t,
+            "channels": list(self.channels),
+            "sfreq": self.sfreq,
+            "samples": [[round(v, 2) for v in row] for row in self.samples],
+            "rms_uv": [round(v, 2) for v in self.rms_uv],
+            "bad_channels": list(self.bad_channels),
+            "in_transient": self.in_transient,
+            "state": self.state,
+            "seconds_of_data": round(self.seconds_of_data, 3),
+        }
+
+    def to_json(self) -> str:
+        return json.dumps(self.to_dict(), allow_nan=False, separators=(",", ":"))
+
+
+Event = IntentEvent | StatusEvent | CalibrationEvent | TelemetryEvent

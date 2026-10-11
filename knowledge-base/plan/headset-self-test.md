@@ -39,10 +39,10 @@ Each founder plays 40 doors after the quick calibration. Example: 21 right of 30
 **Steps:**
 1. **Start the engine and record the session** (one new folder per session; it is never overwritten):
    ```bash
-   uv run --no-sync neuros --config configs/data.yaml run --bundle bundles/mvp-v0 --brainflow GANGLION_BOARD --serial-port COM3 --headset ganglion --record sessions/2026-10-XX-founder-a
+   uv run --no-sync neuros --config configs/data.yaml run --bundle bundles/mvp-v0 --brainflow GANGLION_BOARD --serial-port COM3 --headset ganglion --telemetry --record sessions/2026-10-XX-founder-a
    ```
    Replace `COM3` with the dongle's port.
-2. **Open the demo page** at `http://127.0.0.1:8765/` and wait 3 minutes, still, eyes open. The engine settles and adapts; the state goes settling → adapting → steady.
+2. **Open the stage view** at `http://127.0.0.1:8765/stage` (the demo screen, added 11 Oct: live signal per electrode, the decoder, the warm-up bar, the door game; `http://127.0.0.1:8765/` still serves the simpler demo page). Check that every electrode's dot is green, then wait 3 minutes, still, eyes open. The engine settles and adapts; the state goes settling → adapting → steady (the Adapt bar fills).
 3. **Play 40 doors with zero calibration:** press **Start** in "Practice: open the door". Each door is on screen for 1 s; when it disappears, imagine squeezing that hand until "Relax". That's about 6 minutes; press **Stop** after 40 doors (right + wrong + held = 40).
 4. **Run the quick calibration:** press **Quick calibration · 3 min** and follow the arrows (20 trials). If it says it failed, fix the electrodes and run it again. Don't count a failed attempt as a result.
 5. **Play 40 more doors** with the quick calibration (the pill says "quick calibration").

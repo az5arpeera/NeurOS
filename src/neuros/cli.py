@@ -829,6 +829,15 @@ def cmd_bundle(args: argparse.Namespace) -> int:
     return 0
 
 
+def _bundle_people(bundle: Any) -> int | None:
+    """How many people a bundle learned from: its training people plus the validation people
+    that chose its stopping epoch (mvp-v0: 306 + 33 = 339)."""
+    people = len(bundle.provenance.get("train_people", [])) + len(
+        bundle.provenance.get("validation_people", [])
+    )
+    return people or None
+
+
 def cmd_simulate(args: argparse.Namespace) -> int:
     """Replay a dataset person's raw session through the real engine (§7.4): a virtual
     headset. With ``--serve``, apps receive the events live on ws://127.0.0.1:PORT."""
@@ -948,11 +957,28 @@ def cmd_simulate(args: argparse.Namespace) -> int:
     ) -> list[Any]:
         hub = None
         server = None
+        telemetry = None
         if serve:
-            hub = EventHub(list(policy.commands.values()), requests=REQUESTS if calibrator else ())
+            info = None
+            if args.telemetry:  # the stage view: what the engine sees, alongside its decisions
+                from neuros.engine.telemetry import Telemetry, stage_info
+
+                telemetry = Telemetry(target)
+                info = stage_info(
+                    target,
+                    source=f"replay of {person} (dataset recording)",
+                    model=Path(args.bundle).name,
+                    train_people=_bundle_people(bundle),
+                )
+            hub = EventHub(
+                list(policy.commands.values()),
+                requests=REQUESTS if calibrator else (),
+                info=info,
+            )
             server = await start_server(hub, port=args.port)
             print(
                 f"serving intents on ws://127.0.0.1:{args.port}; demo page: http://127.0.0.1:{args.port}/"
+                + (f"; stage view: http://127.0.0.1:{args.port}/stage" if telemetry else "")
             )
             if args.wait_for_app:
                 print("waiting for an app to connect ...", flush=True)
@@ -967,6 +993,7 @@ def cmd_simulate(args: argparse.Namespace) -> int:
                 on_event=show,
                 calibrator=calibrator,
                 calibrate_at_start=bool(args.calibrate),
+                telemetry=telemetry,
             )
         finally:
             if server is not None:
@@ -1181,11 +1208,27 @@ def cmd_run(args: argparse.Namespace) -> int:
         )
         print(f"recording the session to {args.record}", flush=True)
 
+    telemetry = None
+    info = None
+    if args.telemetry:  # the stage view: what the engine sees, alongside its decisions
+        from neuros.engine.telemetry import Telemetry, stage_info
+
+        telemetry = Telemetry(engine)
+        info = stage_info(
+            engine,
+            source=describe_source(source) + (f" ({args.headset})" if args.headset else ""),
+            model=Path(args.bundle).name,
+            train_people=_bundle_people(bundle),
+        )
+
     async def main() -> None:
         requests = (*REQUESTS, "mark") if recorder is not None else REQUESTS
-        hub = EventHub(list(engine.config.policy.commands.values()), requests=requests)
+        hub = EventHub(list(engine.config.policy.commands.values()), requests=requests, info=info)
         server = await start_server(hub, port=args.port)
-        print(f"intents on ws://127.0.0.1:{args.port}; demo page: http://127.0.0.1:{args.port}/")
+        print(
+            f"intents on ws://127.0.0.1:{args.port}; demo page: http://127.0.0.1:{args.port}/"
+            + (f"; stage view: http://127.0.0.1:{args.port}/stage" if telemetry else "")
+        )
         try:
             await run_live(
                 source,
@@ -1195,6 +1238,7 @@ def cmd_run(args: argparse.Namespace) -> int:
                 on_event=show,
                 calibrator=calibrator,
                 recorder=recorder,
+                telemetry=telemetry,
             )
         finally:
             server.close()
@@ -2455,6 +2499,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--threshold", type=float, default=0.6, help="the policy's θ (0.5-1)")
     p.add_argument("--noise-uv", type=float, default=0.0, help="added white noise (µV)")
     p.add_argument("--serve", action="store_true", help="broadcast events on a local WebSocket")
+    p.add_argument(
+        "--telemetry",
+        action="store_true",
+        help="with --serve: also send what the engine sees (for the stage view, /stage)",
+    )
     p.add_argument("--port", type=int, default=8765)
     p.add_argument(
         "--wait-for-app", action="store_true", help="with --serve: start once an app connects"
@@ -2526,6 +2575,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--recipe",
         default="configs/e2_finetune.yaml",
         help="the fine-tuning recipe: an experiment YAML with a finetune section (Q30's)",
+    )
+    p.add_argument(
+        "--telemetry",
+        action="store_true",
+        help="also send what the engine sees, for the stage view (http://127.0.0.1:PORT/stage)",
     )
     p.set_defaults(func=cmd_run)
 

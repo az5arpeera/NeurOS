@@ -1,0 +1,388 @@
+<!doctype html>
+<!--
+  NeurOS stage view: the demo screen. What the headset picks up, what the decoder thinks, what
+  the engine does behind the scenes, and an honest door-game score, all live.
+  Start the engine with telemetry, e.g. a rehearsal on a person the model never saw:
+    uv run --no-sync neuros --config configs/data.yaml simulate --bundle bundles/mvp-v0 \
+      --dataset GuttmannFlury2025 --subject 3 --speed 1 --serve --telemetry --wait-for-app
+  or the headset:
+    uv run --no-sync neuros --config configs/data.yaml run --bundle bundles/mvp-v0 \
+      --brainflow GANGLION_BOARD --serial-port COM3 --headset ganglion --telemetry
+  then open http://127.0.0.1:8765/stage. Everything stays on this computer.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NeurOS stage view</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --fg: #1d1d1b; --muted: #6b6b66; --card: #ffffff; --line: #e3e2dc;
+    --left: #2f6fdf; --right: #d4572a; --hold: #9a9a93; --ok: #2e8b57; --warn: #c08a17; --bad: #c0392b;
+    --trace: #3d3d3a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #151514; --fg: #ecebe6; --muted: #9a9993; --card: #1f1f1d; --line: #33322f; --trace: #d8d7d1; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1180px; margin: 0 auto; padding: 18px 16px 28px; }
+  header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  h1 { font-size: 20px; margin: 0 8px 0 0; }
+  h2 { font-size: 13px; margin: 0 0 10px; font-weight: 500; color: var(--muted); }
+  .pill { font-size: 13px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; background: var(--hold); vertical-align: 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .top { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 14px; margin-top: 14px; }
+  @media (max-width: 860px) { .top { grid-template-columns: 1fr; } }
+  canvas { display: block; width: 100%; }
+  #signal-note { color: var(--muted); font-size: 13px; margin: 6px 0 0; min-height: 1.3em; }
+  .bars { display: grid; gap: 12px; }
+  .bar { display: grid; grid-template-columns: 64px 1fr 44px; gap: 10px; align-items: center; font-variant-numeric: tabular-nums; }
+  .track { position: relative; height: 16px; background: var(--line); border-radius: 8px; overflow: visible; }
+  .fill { height: 100%; width: 0%; border-radius: 8px; transition: width 0.12s linear; }
+  .theta { position: absolute; top: -4px; height: 24px; border-left: 2px dashed var(--muted); }
+  #output { margin-top: 14px; text-align: center; padding: 14px 8px; border-radius: 10px; background: var(--line);
+            font-size: clamp(34px, 6vw, 56px); font-weight: 700; letter-spacing: 0.02em; transition: background 0.15s, color 0.15s; }
+  #reason { text-align: center; color: var(--muted); min-height: 1.4em; margin-top: 6px; }
+  .pipeline { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+  @media (max-width: 760px) { .pipeline { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .step { border: 1px solid var(--line); border-radius: 10px; padding: 10px; min-height: 92px; transition: border-color 0.2s; }
+  .step .name { font-weight: 600; }
+  .step .what { color: var(--muted); font-size: 13px; }
+  .step .now { font-size: 13px; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .step.ok { border-color: color-mix(in srgb, var(--ok) 55%, var(--line)); }
+  .step.warn { border-color: color-mix(in srgb, var(--warn) 70%, var(--line)); }
+  .step.bad { border-color: var(--bad); }
+  .progress { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: 6px; }
+  .progress > div { height: 100%; width: 0%; background: var(--left); transition: width 0.3s; }
+  .row2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; margin-top: 14px; }
+  @media (max-width: 860px) { .row2 { grid-template-columns: 1fr; } }
+  .legend { display: flex; gap: 14px; color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; background: var(--c); }
+  .doors { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 10px 0; }
+  .door { border: 2px solid var(--line); border-radius: 10px; padding: 16px 0; text-align: center; font-size: 17px; transition: border-color 0.15s, background 0.15s; }
+  .door.target { border-color: var(--fg); }
+  .door.right-answer { border-color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+  .door.wrong-answer { border-color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); }
+  .score { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; text-align: center; }
+  .score .label { color: var(--muted); font-size: 12px; }
+  .score .value { font-size: 20px; font-variant-numeric: tabular-nums; }
+  button { font: inherit; font-size: 14px; padding: 7px 14px; border-radius: 8px; border: 1px solid var(--line);
+           background: var(--card); color: var(--fg); cursor: pointer; }
+  button:hover { border-color: var(--muted); }
+  .note { color: var(--muted); font-size: 13px; }
+  footer { color: var(--muted); font-size: 13px; margin-top: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>NeurOS live</h1>
+    <span class="pill" id="connection"><span class="dot" id="dot"></span>connecting…</span>
+    <span class="pill" id="source">—</span>
+    <span class="pill" id="level">zero calibration</span>
+    <span class="pill" id="state">—</span>
+    <span class="pill" id="latency">— ms per decision</span>
+  </header>
+
+  <div class="top">
+    <section class="card">
+      <h2>Brain signal, cleaned (µV, last 8 s) · dot = signal quality</h2>
+      <canvas id="eeg" height="240" aria-label="Live EEG traces"></canvas>
+      <p id="signal-note"></p>
+    </section>
+    <section class="card">
+      <h2>What the decoder thinks</h2>
+      <div class="bars" id="bars"></div>
+      <p class="note" id="theta-note" style="margin: 8px 0 0;"></p>
+      <div id="output">—</div>
+      <div id="reason"></div>
+    </section>
+  </div>
+
+  <section class="card" style="margin-top: 14px;">
+    <h2>Behind the scenes, every decision</h2>
+    <div class="pipeline">
+      <div class="step" id="step-clean"><div class="name">1. Clean</div><div class="what">Keep the brain's rhythm band, drop mains hum and drift</div><div class="now" id="now-clean">—</div></div>
+      <div class="step" id="step-check"><div class="name">2. Check</div><div class="what">Is every electrode touching and quiet?</div><div class="now" id="now-check">—</div></div>
+      <div class="step" id="step-adapt"><div class="name">3. Adapt</div><div class="what">Learn this brain from normal use, no labels</div><div class="now" id="now-adapt">—</div><div class="progress"><div id="adapt-bar"></div></div></div>
+      <div class="step" id="step-decode"><div class="name">4. Decode</div><div class="what">One model, trained on many other people</div><div class="now" id="now-decode">—</div></div>
+      <div class="step" id="step-decide"><div class="name">5. Decide</div><div class="what">Act only when sure; otherwise hold</div><div class="now" id="now-decide">—</div></div>
+    </div>
+  </section>
+
+  <div class="row2">
+    <section class="card">
+      <h2>Decisions, last 30 s</h2>
+      <canvas id="timeline" height="56" aria-label="Recent decisions"></canvas>
+      <div class="legend"><span style="--c: var(--left)">LEFT</span><span style="--c: var(--right)">RIGHT</span><span style="--c: var(--hold)">HOLD</span><span style="--c: var(--bad)">bad signal</span></div>
+    </section>
+    <section class="card">
+      <h2>Door game: open the door you're shown</h2>
+      <div class="note" id="prompt">Press start, then imagine squeezing the hand on the door's side.</div>
+      <div class="doors"><div class="door" id="door-LEFT">Left door</div><div class="door" id="door-RIGHT">Right door</div></div>
+      <div class="score">
+        <div><div class="label">Right</div><div class="value" id="score-right">0</div></div>
+        <div><div class="label">Wrong</div><div class="value" id="score-wrong">0</div></div>
+        <div><div class="label">Held back</div><div class="value" id="score-held">0</div></div>
+        <div><div class="label">Right of answered</div><div class="value" id="score-rate">—</div></div>
+      </div>
+      <div style="margin-top: 10px;"><button id="practice-toggle">Start</button>
+        <span class="note">A door every 9 s, shown for 1 s only; the first command 3.5–7 s later counts.</span></div>
+    </section>
+  </div>
+
+  <footer>Everything runs on this computer. Nothing is sent anywhere. The engine never guesses: when it isn't sure, or the signal is bad, it says HOLD and why.</footer>
+</main>
+
+<script type="module">
+  import { NeurOSClient } from "./neuros-client.js";
+
+  const port = new URLSearchParams(location.search).get("port") || "8765";
+  const url = location.protocol.startsWith("http") ? `ws://${location.host}` : `ws://127.0.0.1:${port}`;
+  const client = new NeurOSClient(url);
+  const $ = (id) => document.getElementById(id);
+  const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const colors = { LEFT: "--left", RIGHT: "--right" };
+  const reasons = {
+    low_confidence: "not sure enough yet", unrecognized: "not a command this app uses",
+    motion: "movement in the signal", muscle: "muscle tension in the signal", flat: "an electrode is off",
+    saturated: "amplifier overloaded", signal_gap: "signal interrupted", warmup: "warming up the filters",
+    adaptation_reset: "re-adapting",
+  };
+  const states = {
+    settling: "settling in", adapting: "adapting to you", steady: "adapted",
+    degraded: "signal problem", disconnected: "no headset",
+  };
+  let info = {};
+  let threshold = 0.6;
+  let steadyS = 120;
+
+  // ------------------------------------------------------------ signal traces
+  const WINDOW_S = 8;
+  let channels = [], buffers = [], rateHz = 64, rms = [], bad = new Set(), lastTelemetry = 0;
+
+  function resetTraces(names, sfreq) {
+    channels = names;
+    rateHz = sfreq;
+    const n = Math.round(WINDOW_S * sfreq);
+    buffers = names.map(() => new Float32Array(n));
+    rms = names.map(() => 0);
+    const canvas = $("eeg");
+    canvas.height = Math.max(160, 46 * names.length + 10);
+  }
+
+  function onTelemetry(e) {
+    if (e.channels.join() !== channels.join() || e.sfreq !== rateHz) resetTraces(e.channels, e.sfreq);
+    e.samples.forEach((row, i) => {
+      const buffer = buffers[i];
+      if (row.length >= buffer.length) { buffer.set(row.slice(-buffer.length)); return; }
+      buffer.copyWithin(0, row.length);
+      buffer.set(row, buffer.length - row.length);
+    });
+    rms = e.rms_uv;
+    bad = new Set(e.bad_channels);
+    lastTelemetry = performance.now();
+    $("now-check").textContent = bad.size ? `check ${[...bad].join(", ")}` : `all ${channels.length} good`;
+    $("step-check").className = "step " + (bad.size ? "bad" : "ok");
+    $("now-clean").textContent = `${(info.band_hz || [8, 30]).join("–")} Hz, ${channels.length} channels`;
+    $("step-clean").className = "step " + (e.in_transient ? "warn" : "ok");
+  }
+
+  function qualityColor(i) {
+    if (bad.has(channels[i])) return css("--bad");
+    if (rms[i] > 60 || rms[i] < 0.5) return css("--warn");
+    return css("--ok");
+  }
+
+  function drawTraces() {
+    const canvas = $("eeg");
+    const ctx = canvas.getContext("2d");
+    const width = canvas.clientWidth;
+    if (canvas.width !== width) canvas.width = width;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const stale = performance.now() - lastTelemetry > 2000;
+    $("signal-note").textContent = channels.length === 0
+      ? "Waiting for the signal. Start the engine with --telemetry to see it here."
+      : stale ? "No new signal for 2 s: is the headset connected?" : "";
+    if (channels.length === 0) return;
+    const rowH = (canvas.height - 10) / channels.length;
+    const left = 58;
+    ctx.font = "12px system-ui, sans-serif";
+    channels.forEach((name, i) => {
+      const mid = 5 + rowH * (i + 0.5);
+      const buffer = buffers[i];
+      let scale = 0;
+      for (const v of buffer) scale = Math.max(scale, Math.abs(v));
+      scale = Math.max(scale, 10);  // µV: don't blow up a quiet channel's noise
+      ctx.fillStyle = css("--muted");
+      ctx.fillText(name, 18, mid + 4);
+      ctx.fillStyle = qualityColor(i);
+      ctx.beginPath(); ctx.arc(8, mid, 4.5, 0, 2 * Math.PI); ctx.fill();
+      ctx.fillStyle = css("--muted");
+      ctx.fillText(`${Math.round(rms[i] || 0)} µV`, canvas.width - 46, mid - rowH * 0.32);
+      ctx.strokeStyle = bad.has(name) ? css("--bad") : css("--trace");
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      const span = canvas.width - left - 52;
+      for (let k = 0; k < buffer.length; k++) {
+        const x = left + (k / (buffer.length - 1)) * span;
+        const y = mid - (buffer[k] / scale) * rowH * 0.42;
+        if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    });
+  }
+
+  // ------------------------------------------------------------ decisions
+  let commandNames = [];
+  const history = [];  // [{t, kind}] for the last 30 s
+  const HISTORY_S = 30;
+
+  function drawBars(names) {
+    commandNames = names;
+    $("bars").innerHTML = "";
+    for (const name of names) {
+      const row = document.createElement("div");
+      row.className = "bar";
+      row.innerHTML = `<span>${name}</span><div class="track"><div class="fill" id="fill-${name}"></div><div class="theta" style="left: ${threshold * 100}%"></div></div><span id="pct-${name}">—</span>`;
+      row.querySelector(".fill").style.background = `var(${colors[name] || "--hold"})`;
+      $("bars").appendChild(row);
+    }
+    $("theta-note").textContent = `Dashed line: how sure it must be to act (${Math.round(threshold * 100)}%).`;
+  }
+
+  function drawTimeline() {
+    const canvas = $("timeline");
+    const ctx = canvas.getContext("2d");
+    const width = canvas.clientWidth;
+    if (canvas.width !== width) canvas.width = width;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (history.length === 0) return;
+    const now = history[history.length - 1].t;
+    while (history.length && now - history[0].t > HISTORY_S) history.shift();
+    const perDecision = canvas.width / (HISTORY_S * (info.decisions_per_s || 8));
+    for (const item of history) {
+      const x = canvas.width - ((now - item.t) / HISTORY_S) * canvas.width;
+      const name = item.kind === "BAD" ? "--bad" : colors[item.kind] || "--hold";
+      ctx.fillStyle = css(name);
+      const tall = item.kind === "LEFT" || item.kind === "RIGHT";
+      const h = tall ? canvas.height - 8 : (canvas.height - 8) * 0.35;
+      ctx.fillRect(x - perDecision, (canvas.height - h) / 2, Math.max(1.5, perDecision), h);
+    }
+  }
+
+  function onIntent(e) {
+    const command = e.command;
+    const out = $("output");
+    out.textContent = command;
+    out.style.background = command === "HOLD" ? css("--line") : `color-mix(in srgb, ${css(colors[command] || "--hold")} 18%, transparent)`;
+    out.style.color = command === "HOLD" ? css("--muted") : css(colors[command] || "--fg");
+    $("reason").textContent = command === "HOLD"
+      ? (reasons[e.hold_reason] || e.hold_reason)
+      : `${Math.round(e.confidence * 100)}% sure`;
+    for (const [name, p] of Object.entries(e.probs)) {
+      const fill = $(`fill-${name}`);
+      if (fill) { fill.style.width = `${(p * 100).toFixed(0)}%`; $(`pct-${name}`).textContent = `${Math.round(p * 100)}%`; }
+    }
+    const level = e.calibration.level;
+    $("level").textContent = level === "quick" ? "quick calibration" : "zero calibration";
+    $("state").textContent = states[e.calibration.state] || e.calibration.state;
+    $("latency").textContent = `${e.latency_ms.toFixed(1)} ms per decision`;
+    // Adapt: the warm-up toward a fully adapted reference (steady after steady_s of good data).
+    const seconds = e.calibration.seconds_of_data;
+    const share = Math.min(1, seconds / steadyS);
+    $("adapt-bar").style.width = `${Math.round(share * 100)}%`;
+    $("now-adapt").textContent = share >= 1 ? `adapted (${Math.round(seconds)} s of signal)` : `${Math.round(seconds)} of ${steadyS} s`;
+    $("step-adapt").className = "step " + (share >= 1 ? "ok" : "warn");
+    $("now-decode").textContent = info.model
+      ? `${info.model}${info.train_people ? `, ${info.train_people} people` : ""}`
+      : "the model bundle";
+    $("step-decode").className = "step " + (e.quality.ok && e.hold_reason !== "warmup" ? "ok" : "");
+    $("now-decide").textContent = command === "HOLD" ? `hold: ${reasons[e.hold_reason] || e.hold_reason}` : `act: ${command}`;
+    $("step-decide").className = "step " + (command === "HOLD" ? "" : "ok");
+    const kind = !e.quality.ok ? "BAD" : command;
+    history.push({ t: e.t, kind });
+    if (command !== "HOLD") scoreCommand(command);
+  }
+
+  // ------------------------------------------------------------ door game (as demo.html)
+  // Cue-free (D-030): the door shows for 1 s, then hides while the person imagines. The first
+  // committed command 3.5-7 s after the cue counts; none is "held back". Doors come in shuffled
+  // blocks of 10 (5 each). Each door is sent as a marker (saved by `neuros run --record`).
+  const TRIAL_MS = 9000, CUE_MS = 1000, REST_FROM_MS = 7000, SCORE_FROM_MS = 3500, SCORE_UNTIL_MS = 7000;
+  const score = { right: 0, wrong: 0, held: 0 };
+  let practiceTimer = null, phaseTimers = [], target = null, promptedAt = 0, answered = true, bag = [];
+
+  function drawScore() {
+    for (const key of Object.keys(score)) $(`score-${key}`).textContent = score[key];
+    const answeredCount = score.right + score.wrong;
+    $("score-rate").textContent = answeredCount ? `${Math.round((score.right / answeredCount) * 100)}%` : "—";
+  }
+  function clearDoors() { for (const name of ["LEFT", "RIGHT"]) $(`door-${name}`).className = "door"; }
+  function nextTarget() {
+    if (bag.length === 0) {
+      bag = [..."LLLLLRRRRR"].map((c) => (c === "L" ? "LEFT" : "RIGHT"));
+      for (let i = bag.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [bag[i], bag[j]] = [bag[j], bag[i]]; }
+    }
+    return bag.pop();
+  }
+  function nextPrompt() {
+    if (!answered) score.held += 1;
+    drawScore(); clearDoors(); phaseTimers.forEach(clearTimeout);
+    target = nextTarget(); promptedAt = performance.now(); answered = false;
+    $(`door-${target}`).classList.add("target");
+    $("prompt").textContent = `Open the ${target.toLowerCase()} door`;
+    client.mark(target);
+    phaseTimers = [
+      setTimeout(() => { clearDoors(); $("prompt").textContent = "+ Imagine it now"; }, CUE_MS),
+      setTimeout(() => { $("prompt").textContent = "Relax."; }, REST_FROM_MS),
+    ];
+  }
+  function stopPractice() {
+    if (practiceTimer === null) return;
+    clearInterval(practiceTimer); phaseTimers.forEach(clearTimeout); practiceTimer = null;
+    $("practice-toggle").textContent = "Start"; $("prompt").textContent = "Paused."; clearDoors();
+  }
+  $("practice-toggle").addEventListener("click", () => {
+    if (practiceTimer !== null) { stopPractice(); return; }
+    score.right = score.wrong = score.held = 0; answered = true;
+    nextPrompt(); practiceTimer = setInterval(nextPrompt, TRIAL_MS);
+    $("practice-toggle").textContent = "Stop";
+  });
+  function scoreCommand(command) {
+    if (practiceTimer === null || answered || !(command in colors)) return;
+    const elapsed = performance.now() - promptedAt;
+    if (elapsed < SCORE_FROM_MS || elapsed > SCORE_UNTIL_MS) return;
+    answered = true;
+    const right = command === target;
+    score[right ? "right" : "wrong"] += 1;
+    $(`door-${command}`).classList.add(right ? "right-answer" : "wrong-answer");
+    drawScore();
+  }
+
+  // ------------------------------------------------------------ the stream
+  client
+    .on("open", () => { $("connection").lastChild.textContent = "connected"; $("dot").style.background = css("--ok"); })
+    .on("close", () => { $("connection").lastChild.textContent = "reconnecting…"; $("dot").style.background = css("--hold"); })
+    .on("hello", (e) => {
+      info = e.info || {};
+      threshold = typeof info.threshold === "number" ? info.threshold : 0.6;
+      steadyS = typeof info.steady_s === "number" ? info.steady_s : 120;
+      $("source").textContent = info.source || "engine";
+      $("state").textContent = states[e.state] || e.state;
+      drawBars(e.commands);
+      if (Array.isArray(info.channels)) resetTraces(info.channels, rateHz);
+    })
+    .on("status", (e) => { $("state").textContent = states[e.state] || e.state; })
+    .on("telemetry", onTelemetry)
+    .on("intent", onIntent)
+    .connect();
+
+  function frame() { drawTraces(); drawTimeline(); requestAnimationFrame(frame); }
+  requestAnimationFrame(frame);
+</script>
+</body>
+</html>

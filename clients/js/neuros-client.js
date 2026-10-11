@@ -14,6 +14,10 @@
 //   calibration - the optional guided calibration (D-040): "started", then per trial "ready",
 //                 "cue" (show the arrow for e.command), "imagine", "rest"; then "training" and
 //                 "done" or "failed" (e.message says why); also "cancelled" and "reset"
+//   telemetry   - opt-in (neuros run --telemetry), for displays: with each decision, the newest
+//                 cleaned samples of every channel (e.samples, at e.sfreq), each channel's RMS,
+//                 the gate's bad channels and the warm-up's seconds_of_data. hello.info then
+//                 carries labels for a display (source, channels, threshold, steady_s, ...).
 //
 // Requests (only those the engine listed in hello.requests):
 //   client.calibrate()          start the ~3-minute guided calibration
@@ -41,7 +45,8 @@ export class NeurOSClient {
     this.reconnect = options.reconnect ?? true;
     this.maxDelayMs = options.maxDelayMs ?? 5000;
     this.listeners = {
-      hello: [], intent: [], status: [], calibration: [], open: [], close: [], error: [],
+      hello: [], intent: [], status: [], calibration: [], telemetry: [],
+      open: [], close: [], error: [],
     };
     this.socket = null;
     this.delayMs = 250;
@@ -51,7 +56,10 @@ export class NeurOSClient {
     this.state = "disconnected";
   }
 
-  /** Register a listener for "hello", "intent", "status", "calibration", "open", "close" or "error". */
+  /**
+   * Register a listener for "hello", "intent", "status", "calibration", "telemetry", "open",
+   * "close" or "error".
+   */
   on(type, listener) {
     if (!(type in this.listeners)) throw new TypeError(`unknown event type ${type}`);
     if (typeof listener !== "function") throw new TypeError("listener must be a function");

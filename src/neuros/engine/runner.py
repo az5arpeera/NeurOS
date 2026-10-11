@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from neuros.engine.events import HOLD, Event, IntentEvent, StatusEvent
+from neuros.engine.events import HOLD, Event, IntentEvent, StatusEvent, TelemetryEvent
 from neuros.engine.pipeline import Engine
 from neuros.engine.server import EventHub
 from neuros.engine.simulator import Marker, Simulator
@@ -29,9 +29,18 @@ from neuros.errors import NeurOSConfigError
 if TYPE_CHECKING:
     from neuros.engine.calibration import Calibrator
     from neuros.engine.recorder import SessionRecorder
+    from neuros.engine.telemetry import Telemetry
 
 # HOLD reasons whose probabilities still say where the model leans (the window was decoded).
 _DECODED_HOLDS = ("low_confidence", "unrecognized")
+
+
+def _with_telemetry(events: list[Event], telemetry: Telemetry | None) -> list[Event]:
+    """The engine's events plus any queued telemetry, in sequence order (a telemetry event
+    is numbered when its window is processed, just before that window's decision)."""
+    if telemetry is None:
+        return events
+    return sorted([*events, *telemetry.drain()], key=lambda e: e.seq)
 
 
 def _calibration_events(
@@ -69,6 +78,7 @@ async def replay(
     on_event: Callable[[Event], None] | None = None,
     calibrator: Calibrator | None = None,
     calibrate_at_start: bool = False,
+    telemetry: Telemetry | None = None,
 ) -> list[Event]:
     """Feed every simulator's chunks to ``engine`` in order; return all events.
 
@@ -78,6 +88,7 @@ async def replay(
         speed: None = as fast as possible; 1.0 = real time (demo rehearsal).
         calibrator: steps after every chunk and takes the hub's requests.
         calibrate_at_start: start a calibration at the first sample (replay evaluation).
+        telemetry: also send what the engine saw, for displays (``neuros.engine.telemetry``).
 
     Raises:
         NeurOSConfigError: on no simulators or a non-positive speed.
@@ -108,7 +119,7 @@ async def replay(
                 delay = due - (loop.time() - started)
                 if delay > 0:
                     await asyncio.sleep(delay)
-            await emit(engine.push(samples, stamps))
+            await emit(_with_telemetry(engine.push(samples, stamps), telemetry))
             await emit(_calibration_events(calibrator, hub, engine))
             if speed is None:
                 await asyncio.sleep(0)  # let apps receive while replaying fast
@@ -125,6 +136,7 @@ async def run_live(
     on_event: Callable[[Event], None] | None = None,
     calibrator: Calibrator | None = None,
     recorder: SessionRecorder | None = None,
+    telemetry: Telemetry | None = None,
 ) -> list[Event]:
     """Feed a live source (``sources.LslSource`` / ``BrainFlowSource``) to ``engine`` until
     ``seconds`` have passed (None: until cancelled, e.g. Ctrl+C); return the events.
@@ -132,7 +144,8 @@ async def run_live(
     The source's blocking pulls run in a worker thread, so the WebSocket keeps serving apps.
     The source is closed and the engine told the stream ended, whatever stops the loop. With a
     ``recorder``, every chunk (before the engine sees it), every event and every app marker
-    is saved; it is flushed about once a second and closed at the end.
+    is saved; it is flushed about once a second and closed at the end. Telemetry events go to
+    apps only: the recorder already holds the raw samples they're drawn from.
 
     Raises:
         NeurOSConfigError: on a non-positive ``seconds``.
@@ -147,7 +160,7 @@ async def run_live(
     async def emit(batch: list[Event]) -> None:
         for event in batch:
             events.append(event)
-            if recorder is not None:
+            if recorder is not None and not isinstance(event, TelemetryEvent):
                 recorder.write_event(event)
             if on_event is not None:
                 on_event(event)
@@ -163,7 +176,7 @@ async def run_live(
                 if loop.time() - flushed >= 1.0:
                     recorder.flush()
                     flushed = loop.time()
-            await emit(engine.push(samples, stamps))
+            await emit(_with_telemetry(engine.push(samples, stamps), telemetry))
             await emit(_calibration_events(calibrator, hub, engine, recorder))
     finally:
         await emit(engine.close())

@@ -32,7 +32,7 @@ import contextlib
 import ipaddress
 import json
 import logging
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -51,6 +51,8 @@ STATIC_FILES: dict[str, tuple[str, str]] = {
     "/": ("demo.html", "text/html; charset=utf-8"),
     "/demo.html": ("demo.html", "text/html; charset=utf-8"),
     "/neuros-client.js": ("neuros-client.js", "text/javascript; charset=utf-8"),
+    "/stage": ("stage.html", "text/html; charset=utf-8"),
+    "/stage.html": ("stage.html", "text/html; charset=utf-8"),
 }
 DEFAULT_STATIC_DIR = Path(__file__).resolve().parents[3] / "clients" / "js"
 # Requests are tiny; anything longer isn't one.
@@ -91,13 +93,29 @@ def check_host(host: str, *, allow_remote: bool) -> None:
 class EventHub:
     """Tracks connected apps and broadcasts events to them (one asyncio loop)."""
 
-    def __init__(self, commands: Sequence[str], *, requests: Sequence[str] = ()) -> None:
+    def __init__(
+        self,
+        commands: Sequence[str],
+        *,
+        requests: Sequence[str] = (),
+        info: Mapping[str, Any] | None = None,
+    ) -> None:
         """
         Args:
             requests: the requests apps may send (advertised in ``hello``); none by default.
+            info: labels for displays, sent in ``hello.info`` (``telemetry.stage_info``);
+                must be JSON-serialisable.
+
+        Raises:
+            NeurOSConfigError: if ``info`` can't be sent as JSON.
         """
         self.commands = tuple(commands)
         self.requests = tuple(requests)
+        self.info = dict(info or {})
+        try:
+            json.dumps(self.info, allow_nan=False)
+        except (TypeError, ValueError) as error:
+            raise NeurOSConfigError(f"hello info must be plain JSON: {error}") from error
         self._pending: list[Request] = []
         self._clients: set[Any] = set()
         self._state: str = "disconnected"
@@ -109,16 +127,18 @@ class EventHub:
         return len(self._clients)
 
     def hello(self) -> str:
-        return json.dumps(
-            {
-                "type": "hello",
-                "schema": SCHEMA,
-                "commands": list(self.commands),
-                "state": self._state,
-                "requests": list(self.requests),
-            },
-            separators=(",", ":"),
-        )
+        """The first message an app gets. ``info`` (labels for displays) appears only when
+        set, so apps that never asked for telemetry see the same hello as before."""
+        body: dict[str, Any] = {
+            "type": "hello",
+            "schema": SCHEMA,
+            "commands": list(self.commands),
+            "state": self._state,
+            "requests": list(self.requests),
+        }
+        if self.info:
+            body["info"] = self.info
+        return json.dumps(body, separators=(",", ":"))
 
     async def handler(self, connection: Any) -> None:
         """One app's connection: hello, then events until it goes away."""
