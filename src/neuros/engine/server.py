@@ -10,6 +10,13 @@ intents derived from it never leave the machine by accident.
 
 The server never blocks the engine: a slow or vanished app is dropped, not waited for.
 
+**Requests from apps.** An app may send ``{"type": "request", "request": NAME}`` (optionally
+with ``"schema": "neuros.intent.v0"``), where NAME is one the hub advertised in ``hello``
+(``requests``): with the guided calibration (D-040), ``calibrate``, ``cancel_calibration``
+and ``reset_calibration``. Requests are queued for the engine's loop (``take_requests``);
+anything else (not JSON, too long, unknown, more than ``MAX_PENDING_REQUESTS`` waiting) is
+logged and ignored, never answered with an error that could stall the app.
+
 **The demo page.** Plain HTTP requests to the same port get the JavaScript client's demo page
 (``clients/js``): open ``http://127.0.0.1:8765/`` in a browser. Browsers block JavaScript
 modules on pages opened from disk, so the engine serves them; only the files listed in
@@ -43,6 +50,9 @@ STATIC_FILES: dict[str, tuple[str, str]] = {
     "/neuros-client.js": ("neuros-client.js", "text/javascript; charset=utf-8"),
 }
 DEFAULT_STATIC_DIR = Path(__file__).resolve().parents[3] / "clients" / "js"
+# Requests are tiny; anything longer isn't one.
+MAX_REQUEST_CHARS = 1024
+MAX_PENDING_REQUESTS = 16
 NOT_FOUND = b"not found\n"
 
 
@@ -70,8 +80,14 @@ def check_host(host: str, *, allow_remote: bool) -> None:
 class EventHub:
     """Tracks connected apps and broadcasts events to them (one asyncio loop)."""
 
-    def __init__(self, commands: Sequence[str]) -> None:
+    def __init__(self, commands: Sequence[str], *, requests: Sequence[str] = ()) -> None:
+        """
+        Args:
+            requests: the requests apps may send (advertised in ``hello``); none by default.
+        """
         self.commands = tuple(commands)
+        self.requests = tuple(requests)
+        self._pending: list[str] = []
         self._clients: set[Any] = set()
         self._state: str = "disconnected"
         self.sent = 0
@@ -88,6 +104,7 @@ class EventHub:
                 "schema": SCHEMA,
                 "commands": list(self.commands),
                 "state": self._state,
+                "requests": list(self.requests),
             },
             separators=(",", ":"),
         )
@@ -98,10 +115,46 @@ class EventHub:
         log.info("app connected (%d now)", len(self._clients))
         try:
             await connection.send(self.hello())
-            await connection.wait_closed()
+            try:
+                async for message in connection:  # ends when the app closes
+                    self.receive(message)
+            except Exception as error:  # an abrupt close is an app going away, nothing more
+                log.info("app connection ended: %s", error)
         finally:
             self._clients.discard(connection)
             log.info("app disconnected (%d left)", len(self._clients))
+
+    def receive(self, message: str | bytes) -> bool:
+        """Queue an app's request if it is valid and advertised; True if queued."""
+        if isinstance(message, bytes) or len(message) > MAX_REQUEST_CHARS:
+            log.info("ignoring a binary or oversized message from an app")
+            return False
+        try:
+            request = json.loads(message)
+        except ValueError:
+            log.info("ignoring a message that isn't JSON")
+            return False
+        if (
+            not isinstance(request, dict)
+            or request.get("type") != "request"
+            or request.get("schema", SCHEMA) != SCHEMA
+        ):
+            log.info("ignoring an app message that isn't a request: %r", request)
+            return False
+        name = request.get("request")
+        if name not in self.requests:
+            log.info("ignoring request %r (this engine accepts %s)", name, list(self.requests))
+            return False
+        if len(self._pending) >= MAX_PENDING_REQUESTS:
+            log.warning("ignoring request %r: %d already waiting", name, len(self._pending))
+            return False
+        self._pending.append(str(name))
+        return True
+
+    def take_requests(self) -> list[str]:
+        """The queued requests, oldest first (the queue is emptied)."""
+        taken, self._pending = self._pending, []
+        return taken
 
     async def broadcast(self, event: Event) -> None:
         """Send ``event`` to every app; drop any that fail or are too slow."""

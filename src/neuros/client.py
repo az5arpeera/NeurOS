@@ -11,7 +11,9 @@
     asyncio.run(main())
 
 Messages follow schema ``neuros.intent.v0`` (architecture §7.3): one ``hello`` on connect, an
-``intent`` per decision (8 per second) and a ``status`` per engine state change. The client
+``intent`` per decision (8 per second), a ``status`` per engine state change, and the optional
+guided calibration's ``calibration`` steps (D-040; start one with ``send_request("calibrate")``,
+or ``"cancel_calibration"`` / ``"reset_calibration"``). The client
 reconnects by itself (with a growing pause) when the engine restarts, and skips messages that
 aren't valid ``neuros.intent.v0`` JSON instead of raising (logged).
 
@@ -26,13 +28,13 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
-from neuros.engine.events import SCHEMA
+from neuros.engine.events import CALIBRATION_REQUESTS, SCHEMA
 from neuros.errors import NeurOSConfigError
 
 log = logging.getLogger(__name__)
 
 DEFAULT_URL = "ws://127.0.0.1:8765"
-MESSAGE_TYPES = ("hello", "intent", "status")
+MESSAGE_TYPES = ("hello", "intent", "status", "calibration")
 
 
 def parse(message: str | bytes) -> dict[str, Any] | None:
@@ -84,3 +86,23 @@ async def intents(
             return
         await asyncio.sleep(delay)
         delay = min(delay * 2, max_delay_s)
+
+
+async def send_request(name: str, url: str = DEFAULT_URL) -> None:
+    """Send one request (``calibrate``, ``cancel_calibration`` or ``reset_calibration``) to the
+    engine on a short connection of its own. The engine ignores requests it doesn't offer
+    (``hello``'s ``requests``); progress arrives as ``calibration`` messages on ``intents()``.
+
+    Raises:
+        NeurOSConfigError: on an unknown request or a URL that isn't ws:// or wss://.
+        OSError: if the engine can't be reached.
+    """
+    from websockets.asyncio.client import connect
+
+    if name not in CALIBRATION_REQUESTS:
+        raise NeurOSConfigError(f"unknown request {name!r}; expected one of {CALIBRATION_REQUESTS}")
+    if not url.startswith(("ws://", "wss://")):
+        raise NeurOSConfigError(f"the engine's URL must be ws:// or wss://, got {url!r}")
+    async with connect(url) as connection:
+        await connection.recv()  # the hello: the engine is listening
+        await connection.send(json.dumps({"type": "request", "schema": SCHEMA, "request": name}))

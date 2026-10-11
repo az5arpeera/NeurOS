@@ -4,6 +4,10 @@
 them a real headset session would have) through an engine, as fast as possible or paced in
 real time, and broadcasts every event when a hub is given. ``score_replay`` compares the
 decisions with the ground-truth markers the engine never saw.
+
+With a ``Calibrator`` (the optional guided calibration, D-040), both loops step it after every
+chunk and pass it the apps' requests (``EventHub.take_requests``), so its cue events and the
+switch to the fine-tuned model happen on the engine's clock, between decisions.
 """
 
 from __future__ import annotations
@@ -12,7 +16,7 @@ import asyncio
 import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -22,6 +26,29 @@ from neuros.engine.server import EventHub
 from neuros.engine.simulator import Marker, Simulator
 from neuros.errors import NeurOSConfigError
 
+if TYPE_CHECKING:
+    from neuros.engine.calibration import Calibrator
+
+# HOLD reasons whose probabilities still say where the model leans (the window was decoded).
+_DECODED_HOLDS = ("low_confidence", "unrecognized")
+
+
+def _calibration_events(
+    calibrator: Calibrator | None, hub: EventHub | None, engine: Engine
+) -> list[Event]:
+    """The calibrator's due events, after handling any app requests (in arrival order)."""
+    if calibrator is None:
+        if hub is not None:
+            hub.take_requests()  # nothing can act on them (the hub didn't advertise any)
+        return []
+    t = engine.last_t
+    events: list[Event] = []
+    if hub is not None and t is not None:
+        for request in hub.take_requests():
+            events.extend(calibrator.handle(request, t))
+    events.extend(calibrator.step(t))
+    return events
+
 
 async def replay(
     simulators: Sequence[Simulator],
@@ -30,6 +57,8 @@ async def replay(
     hub: EventHub | None = None,
     speed: float | None = None,
     on_event: Callable[[Event], None] | None = None,
+    calibrator: Calibrator | None = None,
+    calibrate_at_start: bool = False,
 ) -> list[Event]:
     """Feed every simulator's chunks to ``engine`` in order; return all events.
 
@@ -37,6 +66,8 @@ async def replay(
         simulators: runs in time order (each with its own ``t0``; a jump in timestamps between
             runs is a gap the engine handles).
         speed: None = as fast as possible; 1.0 = real time (demo rehearsal).
+        calibrator: steps after every chunk and takes the hub's requests.
+        calibrate_at_start: start a calibration at the first sample (replay evaluation).
 
     Raises:
         NeurOSConfigError: on no simulators or a non-positive speed.
@@ -58,6 +89,8 @@ async def replay(
             if hub is not None:
                 await hub.broadcast(event)
 
+    if calibrator is not None and calibrate_at_start:
+        await emit(list(calibrator.start(first_t)))
     for simulator in simulators:
         for samples, stamps in simulator.chunks():
             if speed is not None:
@@ -66,6 +99,7 @@ async def replay(
                 if delay > 0:
                     await asyncio.sleep(delay)
             await emit(engine.push(samples, stamps))
+            await emit(_calibration_events(calibrator, hub, engine))
             if speed is None:
                 await asyncio.sleep(0)  # let apps receive while replaying fast
     await emit(engine.close())
@@ -79,6 +113,7 @@ async def run_live(
     hub: EventHub | None = None,
     seconds: float | None = None,
     on_event: Callable[[Event], None] | None = None,
+    calibrator: Calibrator | None = None,
 ) -> list[Event]:
     """Feed a live source (``sources.LslSource`` / ``BrainFlowSource``) to ``engine`` until
     ``seconds`` have passed (None: until cancelled, e.g. Ctrl+C); return the events.
@@ -108,6 +143,7 @@ async def run_live(
         while seconds is None or loop.time() - started < seconds:
             samples, stamps = await loop.run_in_executor(None, next, iterator)
             await emit(engine.push(samples, stamps))
+            await emit(_calibration_events(calibrator, hub, engine))
     finally:
         await emit(engine.close())
         source.close()
@@ -125,6 +161,10 @@ class ReplayScore:
     task_commands: int  # commands whose window lies in a task period
     task_correct: int
     per_class: Mapping[str, tuple[int, int]]  # class -> (correct, commands)
+    # Where the model leaned (the argmax of the smoothed probabilities) on every decoded
+    # task-period decision, committed or held for low confidence: the window-level accuracy
+    # the offline evaluation measures, without the policy's threshold.
+    argmax_per_class: Mapping[str, tuple[int, int]]  # class -> (correct, decisions)
     latency_median_ms: float
     latency_p99_ms: float
     states: tuple[tuple[float, str], ...]  # (t, state) at each change
@@ -143,6 +183,11 @@ class ReplayScore:
         rates = [c / n for c, n in self.per_class.values() if n]
         return float(np.mean(rates)) if rates else math.nan
 
+    @property
+    def balanced_argmax_accuracy(self) -> float:
+        rates = [c / n for c, n in self.argmax_per_class.values() if n]
+        return float(np.mean(rates)) if rates else math.nan
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "n_decisions": self.n_decisions,
@@ -154,6 +199,8 @@ class ReplayScore:
             "task_accuracy": self.task_accuracy,
             "balanced_task_accuracy": self.balanced_task_accuracy,
             "per_class": {k: list(v) for k, v in self.per_class.items()},
+            "balanced_argmax_accuracy": self.balanced_argmax_accuracy,
+            "argmax_per_class": {k: list(v) for k, v in self.argmax_per_class.items()},
             "latency_median_ms": self.latency_median_ms,
             "latency_p99_ms": self.latency_p99_ms,
             "states": [list(s) for s in self.states],
@@ -197,6 +244,7 @@ def score_replay(
     intents = [e for e in events if isinstance(e, IntentEvent)]
     holds: dict[str, int] = {}
     per_class: dict[str, list[int]] = {label: [0, 0] for label in commands}
+    argmax: dict[str, list[int]] = {label: [0, 0] for label in commands}
     task_decisions = task_commands = task_correct = 0
     cues = np.array([m.t for m in markers])
     labels = [m.label for m in markers]
@@ -215,6 +263,10 @@ def score_replay(
         if label not in commands:
             continue  # a class this app didn't enable
         task_decisions += 1
+        if event.command != HOLD or event.hold_reason in _DECODED_HOLDS:
+            leaning = max(commands.values(), key=lambda c: event.probs.get(c, -1.0))
+            argmax[label][0] += leaning == commands[label]
+            argmax[label][1] += 1
         if event.command == HOLD:
             continue
         task_commands += 1
@@ -232,6 +284,7 @@ def score_replay(
         task_commands=task_commands,
         task_correct=task_correct,
         per_class={k: (v[0], v[1]) for k, v in per_class.items()},
+        argmax_per_class={k: (v[0], v[1]) for k, v in argmax.items()},
         latency_median_ms=float(np.median(latencies)),
         latency_p99_ms=float(np.percentile(latencies, 99)),
         states=states,

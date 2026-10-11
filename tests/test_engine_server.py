@@ -46,8 +46,8 @@ def test_only_loopback_unless_explicitly_allowed() -> None:
 def test_apps_get_hello_then_every_event_and_the_demo_page() -> None:
     from websockets.asyncio.client import connect
 
-    async def scenario() -> tuple[list[dict], str, str]:
-        hub = EventHub(["LEFT", "RIGHT"])
+    async def scenario() -> tuple[list[dict], str, str, list[str]]:
+        hub = EventHub(["LEFT", "RIGHT"], requests=["calibrate", "reset_calibration"])
         server = await start_server(hub, port=0)
         port = server.sockets[0].getsockname()[1]
         try:
@@ -58,6 +58,17 @@ def test_apps_get_hello_then_every_event_and_the_demo_page() -> None:
                 )
                 await hub.broadcast(_intent(1, 2.5))
                 received = [hello] + [json.loads(await app.recv()) for _ in range(2)]
+                # Requests: one valid, then ones the engine must ignore without failing.
+                await app.send(json.dumps({"type": "request", "request": "calibrate"}))
+                await app.send(json.dumps({"type": "request", "request": "self_destruct"}))
+                await app.send(json.dumps({"type": "request", "request": "x" * 2000}))
+                await app.send("not json")
+                await app.send(json.dumps({"type": "request", "request": "reset_calibration"}))
+                for _ in range(50):  # the server reads them asynchronously
+                    if len(hub._pending) == 2:
+                        break
+                    await asyncio.sleep(0.01)
+                requests = hub.take_requests()
             page = await asyncio.to_thread(
                 lambda: urllib.request.urlopen(f"http://127.0.0.1:{port}/").read().decode()
             )
@@ -70,18 +81,20 @@ def test_apps_get_hello_then_every_event_and_the_demo_page() -> None:
             )
             await asyncio.sleep(0.05)
             await hub.broadcast(_intent(2, 2.625))  # the app has gone: nothing breaks
-            return received, page, client
+            return received, page, client, requests
         finally:
             server.close()
             await server.wait_closed()
 
-    received, page, client = asyncio.run(scenario())
+    received, page, client, requests = asyncio.run(scenario())
     assert received[0] == {
         "type": "hello",
         "schema": "neuros.intent.v0",
         "commands": ["LEFT", "RIGHT"],
         "state": "disconnected",
+        "requests": ["calibrate", "reset_calibration"],
     }
+    assert requests == ["calibrate", "reset_calibration"]
     assert received[1]["type"] == "status"
     assert received[1]["state"] == "settling"
     assert received[2]["type"] == "intent"
@@ -190,6 +203,10 @@ def test_score_counts_only_commands_inside_task_periods() -> None:
     assert score.n_commands == 5
     assert score.task_decisions == 4  # 3 scored commands + the HOLD at 13.5 ([11.5, 13.5])
     assert score.commit_rate == pytest.approx(0.75)
+    # Where the model leaned (every _intent's probs favour LEFT): the 2 commands and the
+    # low-confidence HOLD in the left trial, and the RIGHT command in the right trial.
+    assert score.argmax_per_class == {"left_hand": (3, 3), "right_hand": (0, 1)}
+    assert score.balanced_argmax_accuracy == pytest.approx(0.5)
     with pytest.raises(NeurOSConfigError, match="shorter"):
         score_replay(events, markers, {}, window_s=2.0, task_start_s=1.0, task_end_s=2.0)
     with pytest.raises(NeurOSConfigError, match="tolerance"):

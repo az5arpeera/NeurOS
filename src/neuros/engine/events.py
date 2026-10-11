@@ -1,15 +1,18 @@
 """The engine's output: schema ``neuros.intent.v0`` (architecture §7.3).
 
-Two event types, both JSON objects with ``"schema": "neuros.intent.v0"``:
+Three event types, all JSON objects with ``"schema": "neuros.intent.v0"``:
 
 - **intent**, one per decision (every hop, 8 per second at the contract's 0.125 s): the
   command, or ``"HOLD"`` with a reason; the smoothed probabilities of the enabled commands
   (the rest summed under ``"other"``); the alignment state; the window's quality; latency.
+  ``calibration.level`` is null with zero calibration and ``"quick"`` once the optional
+  guided calibration (D-040, ``neuros.engine.calibration``) has fine-tuned the model.
 - **status**, on every engine state change (§7.2).
+- **calibration**, the guided calibration's progress: each trial's phases (``ready``, ``cue``,
+  ``imagine``, ``rest``) for the app to draw, then ``training`` and ``done`` or ``failed``.
 
 Validation happens at construction, so an event that reaches an app is always well-formed
-(principle 4: the engine never emits garbage). ``calibration.level`` from the §7.3 sketch is
-reserved and sent as null until calibration levels are defined.
+(principle 4: the engine never emits garbage).
 """
 
 from __future__ import annotations
@@ -43,6 +46,26 @@ HOLD_REASONS: tuple[str, ...] = get_args(HoldReason)
 EngineState = Literal["disconnected", "settling", "adapting", "steady", "degraded"]
 ENGINE_STATES: tuple[str, ...] = get_args(EngineState)
 
+# The levels of ``calibration.level``: None (zero calibration) or one of these.
+CalibrationLevel = Literal["quick"]
+CALIBRATION_LEVELS: tuple[str, ...] = get_args(CalibrationLevel)
+
+CalibrationPhase = Literal[
+    "started",  # a calibration began (details: trials, expected seconds)
+    "ready",  # fixation cross: get ready, don't move
+    "cue",  # the arrow for ``command`` is on screen
+    "imagine",  # cross only: imagine the movement
+    "rest",  # blank: relax
+    "training",  # all trials collected; fine-tuning (about a second)
+    "done",  # the fine-tuned model is live (level "quick")
+    "failed",  # not enough usable trials (or another reason): zero calibration stays
+    "cancelled",  # the app cancelled it: the model in use stays
+    "reset",  # back to zero calibration
+]
+CALIBRATION_PHASES: tuple[str, ...] = get_args(CalibrationPhase)
+# What an app may ask an engine that offers the guided calibration (``EventHub`` requests).
+CALIBRATION_REQUESTS = ("calibrate", "cancel_calibration", "reset_calibration")
+
 # Slack for probabilities that should sum to 1 after float32 arithmetic.
 _PROB_TOL = 1e-4
 
@@ -68,6 +91,7 @@ class IntentEvent:
         quality_ok: whether this window passed the quality gate.
         bad_channels: channels the gate blamed, in stream order.
         latency_ms: compute time from the window's arrival to this event.
+        calibration_level: None (zero calibration) or the guided calibration's level.
     """
 
     seq: int
@@ -81,11 +105,14 @@ class IntentEvent:
     quality_ok: bool
     bad_channels: tuple[str, ...] = ()
     latency_ms: float = 0.0
+    calibration_level: CalibrationLevel | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.seq, int) or self.seq < 0:
             raise NeurOSDataError(f"seq must be a non-negative int, got {self.seq!r}")
         _finite("t", self.t)
+        if self.calibration_level is not None and self.calibration_level not in CALIBRATION_LEVELS:
+            raise NeurOSDataError(f"unknown calibration level {self.calibration_level!r}")
         if not self.command:
             raise NeurOSDataError("command must be a non-empty string")
         if (self.command == HOLD) != (self.hold_reason is not None):
@@ -129,7 +156,7 @@ class IntentEvent:
             "calibration": {
                 "state": self.state,
                 "seconds_of_data": round(self.seconds_of_data, 3),
-                "level": None,
+                "level": self.calibration_level,
             },
             "quality": {"ok": self.quality_ok, "bad_channels": list(self.bad_channels)},
             "latency_ms": round(self.latency_ms, 3),
@@ -175,4 +202,70 @@ class StatusEvent:
         return json.dumps(self.to_dict(), allow_nan=False, separators=(",", ":"))
 
 
-Event = IntentEvent | StatusEvent
+@dataclass(frozen=True)
+class CalibrationEvent:
+    """A step of the guided calibration (``neuros.engine.calibration``).
+
+    Attributes:
+        seq: the engine's shared counter.
+        t: the stream clock at which the phase starts (the engine emits it once its data has
+            reached that time, so an app receives it within about a chunk).
+        phase: see ``CalibrationPhase``.
+        trial: 1-based trial number for the trial phases, else None.
+        n_trials: trials in this calibration.
+        label: the class of this trial (``cue``, ``imagine``), else None.
+        command: the app's command for ``label`` (e.g. ``"LEFT"``): what the cue shows.
+        duration_s: how long the phase lasts (for countdowns), if known.
+        message: plain words for a person (``failed``: why).
+        details: numbers (``done``: usable trials per class, seconds, the fit on the trials).
+    """
+
+    seq: int
+    t: float
+    phase: CalibrationPhase
+    n_trials: int
+    trial: int | None = None
+    label: str | None = None
+    command: str | None = None
+    duration_s: float | None = None
+    message: str = ""
+    details: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.seq, int) or self.seq < 0:
+            raise NeurOSDataError(f"seq must be a non-negative int, got {self.seq!r}")
+        _finite("t", self.t)
+        if self.phase not in CALIBRATION_PHASES:
+            raise NeurOSDataError(f"unknown calibration phase {self.phase!r}")
+        if not isinstance(self.n_trials, int) or self.n_trials < 0:
+            raise NeurOSDataError(f"n_trials must be a non-negative int, got {self.n_trials!r}")
+        if self.trial is not None and not 1 <= self.trial <= self.n_trials:
+            raise NeurOSDataError(f"trial {self.trial} is outside 1..{self.n_trials}")
+        if self.phase in ("cue", "imagine") and (self.label is None or self.command is None):
+            raise NeurOSDataError(f"a {self.phase!r} event needs its label and command")
+        if self.duration_s is not None:
+            _finite("duration_s", self.duration_s)
+            if self.duration_s < 0:
+                raise NeurOSDataError(f"duration_s must be >= 0, got {self.duration_s}")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "type": "calibration",
+            "schema": SCHEMA,
+            "seq": self.seq,
+            "t": self.t,
+            "phase": self.phase,
+            "trial": self.trial,
+            "n_trials": self.n_trials,
+            "label": self.label,
+            "command": self.command,
+            "duration_s": None if self.duration_s is None else round(self.duration_s, 3),
+            "message": self.message,
+            "details": dict(self.details),
+        }
+
+    def to_json(self) -> str:
+        return json.dumps(self.to_dict(), allow_nan=False, separators=(",", ":"))
+
+
+Event = IntentEvent | StatusEvent | CalibrationEvent

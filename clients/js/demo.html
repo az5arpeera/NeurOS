@@ -1,9 +1,13 @@
 <!doctype html>
 <!--
-  NeurOS live demo page: shows the engine's decisions as they arrive.
-  Start the engine with a local WebSocket, e.g.
+  NeurOS live demo page: the engine's decisions as they arrive, the optional ~3-minute guided
+  calibration (D-040), and a door game that keeps an honest score.
+  Start the engine with a local WebSocket, e.g. a replay of a person the model never saw:
     uv run --no-sync neuros --config configs/data.yaml simulate --bundle bundles/mvp-v0 \
       --dataset GuttmannFlury2025 --subject 3 --speed 1 --serve --wait-for-app
+  or a headset:
+    uv run --no-sync neuros --config configs/data.yaml run --bundle bundles/mvp-v0 \
+      --brainflow GANGLION_BOARD --serial-port COM3 --headset ganglion
   then open http://127.0.0.1:8765/ in a browser: the engine serves this page and the page
   connects back to it. Everything stays on this computer.
 -->
@@ -26,6 +30,8 @@
   main { max-width: 760px; margin: 0 auto; padding: 24px 16px; }
   header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
   h1 { font-size: 20px; margin: 0; }
+  h2 { font-size: 16px; margin: 0 0 12px; font-weight: 600; }
+  .pills { display: flex; gap: 8px; flex-wrap: wrap; }
   .pill { font-size: 13px; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-top: 16px; }
   #command { font-size: clamp(56px, 16vw, 120px); font-weight: 700; text-align: center; letter-spacing: 0.02em; transition: color 0.15s; }
@@ -38,6 +44,24 @@
   .stat .label { color: var(--muted); font-size: 13px; }
   .stat .value { font-size: 20px; font-variant-numeric: tabular-nums; }
   .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; background: var(--hold); }
+  button { font: inherit; font-size: 14px; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line);
+           background: var(--card); color: var(--fg); cursor: pointer; }
+  button:hover { border-color: var(--muted); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .hidden { display: none !important; }
+  #stage { height: 150px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+  #stage-symbol { font-size: 72px; line-height: 1; font-weight: 300; min-height: 72px; }
+  #stage-text { color: var(--muted); margin-top: 8px; min-height: 1.4em; }
+  .progress { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin: 8px 0 12px; }
+  .progress > div { height: 100%; width: 0%; background: var(--ok); transition: width 0.3s; }
+  .note { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+  .doors { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0; }
+  .door { border: 2px solid var(--line); border-radius: 10px; padding: 22px 0; text-align: center; font-size: 18px; transition: border-color 0.15s, background 0.15s; }
+  .door.target { border-color: var(--fg); }
+  .door.right-answer { border-color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+  .door.wrong-answer { border-color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); }
+  .score { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center; }
+  .score .value { font-size: 22px; font-variant-numeric: tabular-nums; }
   footer { color: var(--muted); font-size: 13px; margin-top: 16px; }
 </style>
 </head>
@@ -45,13 +69,50 @@
 <main>
   <header>
     <h1>NeurOS live</h1>
-    <span class="pill" id="connection"><span class="dot" id="dot"></span>connecting…</span>
+    <div class="pills">
+      <span class="pill" id="level">zero calibration</span>
+      <span class="pill" id="connection"><span class="dot" id="dot"></span>connecting…</span>
+    </div>
   </header>
 
   <section class="card">
     <div id="command">—</div>
     <div id="reason">waiting for the engine</div>
     <div class="bars" id="bars"></div>
+  </section>
+
+  <section class="card hidden" id="calibration">
+    <h2>Quick calibration</h2>
+    <div id="stage">
+      <div id="stage-symbol"></div>
+      <div id="stage-text">Works without it. About 3 minutes of guided trials make it fit you.</div>
+    </div>
+    <div class="progress"><div id="progress"></div></div>
+    <div class="row">
+      <button id="calibrate">Quick calibration · 3 min</button>
+      <button id="cancel" class="hidden">Cancel</button>
+      <button id="reset" class="hidden">Back to zero calibration</button>
+      <span class="note" id="trial"></span>
+    </div>
+    <p class="note" id="calibration-message"></p>
+  </section>
+
+  <section class="card" id="practice">
+    <h2>Practice: open the door</h2>
+    <div class="row"><span id="prompt" class="note">Press start, then imagine squeezing the hand on the side of the door you're asked for.</span></div>
+    <div class="doors">
+      <div class="door" id="door-LEFT">Left door</div>
+      <div class="door" id="door-RIGHT">Right door</div>
+    </div>
+    <div class="score">
+      <div><div class="label note">Right</div><div class="value" id="score-right">0</div></div>
+      <div><div class="label note">Wrong</div><div class="value" id="score-wrong">0</div></div>
+      <div><div class="label note">Held back</div><div class="value" id="score-held">0</div></div>
+    </div>
+    <div class="row" style="margin-top: 12px;">
+      <button id="practice-toggle">Start</button>
+      <span class="note">A new door every 7 s; the first command 1–6 s after it counts. For a live headset: a replayed person can't see these prompts.</span>
+    </div>
   </section>
 
   <section class="card grid">
@@ -74,7 +135,10 @@
   const url = location.protocol.startsWith("http") ? `ws://${location.host}` : `ws://127.0.0.1:${port}`;
   const client = new NeurOSClient(url);
   const $ = (id) => document.getElementById(id);
+  const show = (id, visible) => $(id).classList.toggle("hidden", !visible);
   const colors = { LEFT: "var(--left)", RIGHT: "var(--right)" };
+  const arrows = { LEFT: "←", RIGHT: "→" };
+  const hands = { LEFT: "left hand", RIGHT: "right hand" };
   const reasons = {
     low_confidence: "not confident yet", unrecognized: "not a command this app uses",
     motion: "movement artifact", muscle: "muscle artifact", flat: "an electrode is off",
@@ -93,11 +157,151 @@
     }
   }
 
+  // ------------------------------------------------------------ guided calibration
+  let calibrating = false;
+  let arrowTimer = null;
+
+  function stage(symbol, text, color = "var(--fg)") {
+    $("stage-symbol").textContent = symbol;
+    $("stage-symbol").style.color = color;
+    $("stage-text").textContent = text;
+  }
+
+  function setCalibrating(on) {
+    calibrating = on;
+    show("calibrate", !on);
+    show("cancel", on);
+    if (on) stopPractice();
+  }
+
+  function onCalibration(e) {
+    clearTimeout(arrowTimer);
+    if (e.trial) {
+      $("trial").textContent = `Trial ${e.trial} of ${e.n_trials}`;
+      $("progress").style.width = `${Math.round(((e.trial - 1) / e.n_trials) * 100)}%`;
+    }
+    switch (e.phase) {
+      case "started":
+        setCalibrating(true);
+        $("calibration-message").textContent = e.message;
+        stage("", "Get comfortable. Keep still; follow the arrows.");
+        break;
+      case "ready":
+        stage("+", "Get ready. Look at the cross.");
+        break;
+      case "cue":
+        // The arrow stays up for its duration only; the engine labels the EEG after it's gone.
+        stage(arrows[e.command] || e.command, `Imagine squeezing your ${hands[e.command] || e.command}`, colors[e.command]);
+        if (e.duration_s != null) {
+          arrowTimer = setTimeout(() => stage("+", `Keep imagining your ${hands[e.command] || e.command}`), e.duration_s * 1000);
+        }
+        break;
+      case "imagine":
+        stage("+", `Keep imagining your ${hands[e.command] || e.command}`);
+        break;
+      case "rest":
+        stage("", "Relax.");
+        break;
+      case "training":
+        stage("…", "Fitting the model to you (about a second)");
+        $("progress").style.width = "100%";
+        break;
+      case "done":
+        setCalibrating(false);
+        stage("✓", "Calibrated. Your model is live.", "var(--ok)");
+        $("calibration-message").textContent =
+          `${e.details.seconds} s; usable trials ${Object.entries(e.details.usable).map(([k, v]) => `${k} ${v}`).join(", ")}.`;
+        $("trial").textContent = "";
+        break;
+      case "failed":
+        setCalibrating(false);
+        stage("!", "Calibration didn't finish.", "var(--bad)");
+        $("calibration-message").textContent = e.message;
+        $("trial").textContent = "";
+        break;
+      case "cancelled":
+      case "reset":
+        setCalibrating(false);
+        stage("", e.message);
+        $("calibration-message").textContent = "";
+        $("trial").textContent = "";
+        $("progress").style.width = "0%";
+        break;
+    }
+  }
+
+  $("calibrate").addEventListener("click", () => {
+    if (!client.calibrate()) $("calibration-message").textContent = "The engine isn't connected.";
+  });
+  $("cancel").addEventListener("click", () => client.cancelCalibration());
+  $("reset").addEventListener("click", () => client.resetCalibration());
+
+  // ------------------------------------------------------------ door game
+  // A target every 7 s; the first committed command 1-6 s after it is scored; none is "held".
+  const PROMPT_EVERY_MS = 7000, SCORE_FROM_MS = 1000, SCORE_UNTIL_MS = 6000;
+  const score = { right: 0, wrong: 0, held: 0 };
+  let practiceTimer = null, target = null, promptedAt = 0, answered = true;
+
+  function drawScore() {
+    for (const key of Object.keys(score)) $(`score-${key}`).textContent = score[key];
+  }
+
+  function clearDoors() {
+    for (const name of ["LEFT", "RIGHT"]) $(`door-${name}`).className = "door";
+  }
+
+  function nextPrompt() {
+    if (!answered) score.held += 1;
+    drawScore();
+    clearDoors();
+    target = Math.random() < 0.5 ? "LEFT" : "RIGHT";
+    promptedAt = performance.now();
+    answered = false;
+    $(`door-${target}`).classList.add("target");
+    $("prompt").textContent = `Open the ${target.toLowerCase()} door`;
+  }
+
+  function stopPractice() {
+    if (practiceTimer === null) return;
+    clearInterval(practiceTimer);
+    practiceTimer = null;
+    $("practice-toggle").textContent = "Start";
+    $("prompt").textContent = "Paused.";
+    clearDoors();
+  }
+
+  $("practice-toggle").addEventListener("click", () => {
+    if (practiceTimer !== null) { stopPractice(); return; }
+    if (calibrating) return;
+    score.right = score.wrong = score.held = 0;
+    answered = true;
+    nextPrompt();
+    practiceTimer = setInterval(nextPrompt, PROMPT_EVERY_MS);
+    $("practice-toggle").textContent = "Stop";
+  });
+
+  function scoreCommand(command) {
+    if (practiceTimer === null || answered || !(command in colors)) return;
+    const elapsed = performance.now() - promptedAt;
+    if (elapsed < SCORE_FROM_MS || elapsed > SCORE_UNTIL_MS) return;
+    answered = true;
+    const right = command === target;
+    score[right ? "right" : "wrong"] += 1;
+    $(`door-${command}`).classList.add(right ? "right-answer" : "wrong-answer");
+    drawScore();
+  }
+
+  // ------------------------------------------------------------ the stream
   client
     .on("open", () => { $("connection").lastChild.textContent = "connected"; $("dot").style.background = "var(--ok)"; })
     .on("close", () => { $("connection").lastChild.textContent = "reconnecting…"; $("dot").style.background = "var(--hold)"; })
-    .on("hello", (e) => { drawBars(e.commands); $("state").textContent = e.state; })
+    .on("hello", (e) => {
+      drawBars(e.commands);
+      $("state").textContent = e.state;
+      show("calibration", client.requests.includes("calibrate"));
+    })
     .on("status", (e) => { $("state").textContent = e.state; })
+    .on("calibration", onCalibration)
     .on("intent", (e) => {
       const command = e.command;
       $("command").textContent = command;
@@ -108,11 +312,16 @@
         const fill = $(`fill-${name}`);
         if (fill) { fill.style.width = `${(p * 100).toFixed(0)}%`; $(`pct-${name}`).textContent = `${Math.round(p * 100)}%`; }
       }
+      const level = e.calibration.level;
+      $("level").textContent = level === "quick" ? "quick calibration" : "zero calibration";
+      $("level").style.color = level === "quick" ? "var(--ok)" : "var(--muted)";
+      show("reset", level === "quick" && !calibrating);
       $("state").textContent = e.calibration.state;
       $("data").textContent = `${e.calibration.seconds_of_data.toFixed(0)} s`;
       $("quality").textContent = e.quality.ok ? "good" : `bad: ${e.quality.bad_channels.join(", ") || e.hold_reason}`;
       $("quality").style.color = e.quality.ok ? "var(--ok)" : "var(--bad)";
       $("latency").textContent = `${e.latency_ms.toFixed(1)} ms`;
+      if (command !== "HOLD") scoreCommand(command);
     })
     .connect();
 </script>

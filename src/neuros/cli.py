@@ -36,6 +36,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
 import sys
 import warnings
 from collections.abc import Sequence
@@ -831,6 +832,15 @@ def cmd_simulate(args: argparse.Namespace) -> int:
     from neuros.data.registry import get_spec, task_epoch
     from neuros.data.vocabulary import default_vocabulary
     from neuros.engine.bundle import ModelBundle
+    from neuros.engine.calibration import (
+        DEFAULT_PER_CLASS,
+        REQUESTS,
+        TRIAL_PHASES,
+        CalibrationProtocol,
+        CalibrationRecipe,
+        Calibrator,
+    )
+    from neuros.engine.events import CalibrationEvent, StatusEvent
     from neuros.engine.pipeline import Engine
     from neuros.engine.policy import PolicySettings
     from neuros.engine.runner import replay, score_replay
@@ -861,17 +871,19 @@ def cmd_simulate(args: argparse.Namespace) -> int:
     if not runs:
         raise NeurOSConfigError(f"{person} has no session {session!r} (sessions: {sessions})")
     commands = {"left_hand": "LEFT", "right_hand": "RIGHT"}
-    engine = Engine(
-        bundle.decoder(),
-        bundle.engine_config(
-            runs[0].ch_names,
-            runs[0].sfreq,
-            policy=PolicySettings(
-                commands={c: commands.get(c, c.upper()) for c in bundle.classes},
-                threshold=args.threshold,
-            ),
-        ),
+    policy = PolicySettings(
+        commands={c: commands.get(c, c.upper()) for c in bundle.classes},
+        threshold=args.threshold,
     )
+    epoch = task_epoch(spec, bundle.contract)
+
+    def new_engine() -> Engine:
+        return Engine(
+            bundle.decoder(),
+            bundle.engine_config(runs[0].ch_names, runs[0].sfreq, policy=policy),
+        )
+
+    engine = new_engine()
     simulators = []
     t0 = 0.0
     for recording in runs:  # a 5-s pause between runs, as between a real session's blocks
@@ -894,16 +906,42 @@ def cmd_simulate(args: argparse.Namespace) -> int:
             print("stopped")
         return 0
 
-    def show(event: Any) -> None:
-        from neuros.engine.events import StatusEvent
+    markers = [m for s in simulators for m in s.markers]
+    # The guided calibration (D-040): on a replay it uses the recording's own trials (the person
+    # followed the dataset's cues, not ours), from the request on, with the dataset's window.
+    recipe = (
+        CalibrationRecipe.from_experiment(args.recipe) if args.calibrate or args.serve else None
+    )
 
+    def calibrator_for(target: Engine) -> Calibrator | None:
+        if recipe is None:
+            return None
+        return Calibrator(
+            target,
+            bundle.model,
+            recipe=recipe,
+            commands=policy.commands,
+            protocol=CalibrationProtocol(per_class=args.calibrate or DEFAULT_PER_CLASS),
+            markers=markers,
+            recorded_window_offset_s=epoch.start_s,
+            recorded_task_s=spec.task_s,
+            seed=args.subject,
+        )
+
+    def show(event: Any) -> None:
         if isinstance(event, StatusEvent):
             print(f"[{event.t:8.1f} s] state {event.previous} -> {event.state} ({event.reason})")
+        elif isinstance(event, CalibrationEvent) and event.phase not in TRIAL_PHASES:
+            details = f" {dict(event.details)}" if event.details else ""
+            print(f"[{event.t:8.1f} s] calibration {event.phase}: {event.message}{details}")
 
-    async def main() -> list[Any]:
-        hub = EventHub(list(engine.config.policy.commands.values())) if args.serve else None
+    async def run_arm(
+        target: Engine, calibrator: Calibrator | None, *, serve: bool, speed: float | None
+    ) -> list[Any]:
+        hub = None
         server = None
-        if hub is not None:
+        if serve:
+            hub = EventHub(list(policy.commands.values()), requests=REQUESTS if calibrator else ())
             server = await start_server(hub, port=args.port)
             print(
                 f"serving intents on ws://127.0.0.1:{args.port}; demo page: http://127.0.0.1:{args.port}/"
@@ -913,32 +951,82 @@ def cmd_simulate(args: argparse.Namespace) -> int:
                 while hub.n_clients == 0:
                     await asyncio.sleep(0.2)
         try:
-            return await replay(simulators, engine, hub=hub, speed=args.speed, on_event=show)
+            return await replay(
+                simulators,
+                target,
+                hub=hub,
+                speed=speed,
+                on_event=show,
+                calibrator=calibrator,
+                calibrate_at_start=bool(args.calibrate),
+            )
         finally:
             if server is not None:
                 server.close()
                 await server.wait_closed()
 
-    events = asyncio.run(main())
-    epoch = task_epoch(spec, bundle.contract)
-    markers = [m for s in simulators for m in s.markers]
-    score = score_replay(
-        events,
-        markers,
-        engine.config.policy.commands,
-        window_s=bundle.contract.window_s,
-        task_start_s=epoch.start_s,
-        task_end_s=spec.task_s,
-        tolerance_s=bundle.contract.hop_s / 2,  # the decision nearest a one-window epoch counts
-    )
+    def score_of(events: list[Any], scored: list[Any]) -> Any:
+        return score_replay(
+            events,
+            scored,
+            policy.commands,
+            window_s=bundle.contract.window_s,
+            task_start_s=epoch.start_s,
+            task_end_s=spec.task_s,
+            tolerance_s=bundle.contract.hop_s / 2,  # the decision nearest a one-window epoch
+        )
+
     where = "cue-free task windows" if epoch.cue_free else "task windows (class on screen)"
-    print(
-        f"\n{score.n_decisions} decisions, {score.n_commands} commands; holds {dict(score.holds)}"
-        f"\n{where}: {score.task_decisions} decisions, {score.task_commands} commands "
-        f"({score.commit_rate * 100:.0f}% committed), correct "
-        f"{score.task_accuracy * 100:.1f}% (balanced {score.balanced_task_accuracy * 100:.1f}%)"
-        f"\nlatency: median {score.latency_median_ms:.2f} ms, p99 {score.latency_p99_ms:.2f} ms"
-    )
+
+    def report(label: str, score: Any) -> None:
+        print(
+            f"\n{label}: {score.n_decisions} decisions, {score.n_commands} commands; holds "
+            f"{dict(score.holds)}"
+            f"\n  {where}: {score.task_decisions} decisions, {score.task_commands} commands "
+            f"({score.commit_rate * 100:.0f}% committed), correct "
+            f"{score.task_accuracy * 100:.1f}% (balanced {score.balanced_task_accuracy * 100:.1f}%)"
+            f"; leaning {score.balanced_argmax_accuracy * 100:.1f}% (balanced)"
+            f"\n  latency: median {score.latency_median_ms:.2f} ms, "
+            f"p99 {score.latency_p99_ms:.2f} ms"
+        )
+
+    extra: dict[str, Any] = {}
+    if args.calibrate:
+        # Two arms on the same recording: zero calibration, then quick calibration from the
+        # session's first trials. Both are scored on the trials after the calibration ended.
+        print("zero-calibration arm (as fast as possible) ...", flush=True)
+        zero_events = asyncio.run(run_arm(engine, None, serve=False, speed=None))
+        engine = new_engine()
+        calibrator = calibrator_for(engine)
+        print("quick-calibration arm ...", flush=True)
+        events = asyncio.run(run_arm(engine, calibrator, serve=args.serve, speed=args.speed))
+        result = calibrator.result if calibrator is not None else None
+        scored_from = result.ended_t if result is not None else math.inf
+        scored = [m for m in markers if m.t >= scored_from]
+        score = score_of(events, scored)
+        zero = score_of(zero_events, scored)
+        report("zero calibration", zero)
+        report("quick calibration", score)
+        extra = {
+            "zero_calibration": zero.to_dict(),
+            "calibration": {
+                "ok": bool(result is not None and result.ok),
+                "message": result.message if result is not None else "never finished",
+                "usable": result.usable if result is not None else {},
+                "fit_on_trials": result.fit_on_trials if result is not None else None,
+                "started_t": result.started_t if result is not None else None,
+                "ended_t": result.ended_t if result is not None else None,
+                "per_class": args.calibrate,
+                "n_scored_trials": len(scored),
+                "recipe": str(args.recipe),
+            },
+        }
+    else:
+        events = asyncio.run(
+            run_arm(engine, calibrator_for(engine), serve=args.serve, speed=args.speed)
+        )
+        score = score_of(events, markers)
+        report("replay", score)
     if args.out:
         out = Path(args.out)
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -956,7 +1044,8 @@ def cmd_simulate(args: argparse.Namespace) -> int:
                     "threshold": args.threshold,
                     "noise_uv": args.noise_uv,
                     "score": score.to_dict(),
-                },
+                }
+                | extra,
                 indent=1,
             ),
             encoding="utf-8",
@@ -996,7 +1085,14 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     from neuros.data.montage import load_profile
     from neuros.engine.bundle import ModelBundle
-    from neuros.engine.events import StatusEvent
+    from neuros.engine.calibration import (
+        REQUESTS,
+        TRIAL_PHASES,
+        CalibrationProtocol,
+        CalibrationRecipe,
+        Calibrator,
+    )
+    from neuros.engine.events import CalibrationEvent, StatusEvent
     from neuros.engine.pipeline import Engine
     from neuros.engine.policy import PolicySettings
     from neuros.engine.runner import run_live
@@ -1038,17 +1134,31 @@ def cmd_run(args: argparse.Namespace) -> int:
         ),
     )
     print(f"model channels on this headset: {list(engine.profile)}", flush=True)
+    # The optional guided calibration (D-040): an app's "calibrate" request starts it; the
+    # engine schedules the cued trials on the headset's clock.
+    calibrator = Calibrator(
+        engine,
+        bundle.model,
+        recipe=CalibrationRecipe.from_experiment(args.recipe),
+        commands=engine.config.policy.commands,
+        protocol=CalibrationProtocol(per_class=args.calibration_trials),
+    )
 
     def show(event: Any) -> None:
         if isinstance(event, StatusEvent):
             print(f"[{event.t:10.1f}] state {event.previous} -> {event.state} ({event.reason})")
+        elif isinstance(event, CalibrationEvent) and event.phase not in TRIAL_PHASES:
+            details = f" {dict(event.details)}" if event.details else ""
+            print(f"[{event.t:10.1f}] calibration {event.phase}: {event.message}{details}")
 
     async def main() -> None:
-        hub = EventHub(list(engine.config.policy.commands.values()))
+        hub = EventHub(list(engine.config.policy.commands.values()), requests=REQUESTS)
         server = await start_server(hub, port=args.port)
         print(f"intents on ws://127.0.0.1:{args.port}; demo page: http://127.0.0.1:{args.port}/")
         try:
-            await run_live(source, engine, hub=hub, seconds=args.seconds, on_event=show)
+            await run_live(
+                source, engine, hub=hub, seconds=args.seconds, on_event=show, calibrator=calibrator
+            )
         finally:
             server.close()
             await server.wait_closed()
@@ -2278,6 +2388,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--out", default=None, help="write the replay's score as JSON")
     p.add_argument(
+        "--calibrate",
+        type=int,
+        nargs="?",
+        const=10,
+        default=None,
+        metavar="N",
+        help="test the guided calibration (D-040): a zero-calibration arm, then quick "
+        "calibration on the session's first N trials per class (default 10), both scored on "
+        "the trials after it",
+    )
+    p.add_argument(
+        "--recipe",
+        default="configs/e2_finetune.yaml",
+        help="the fine-tuning recipe: an experiment YAML with a finetune section (Q30's)",
+    )
+    p.add_argument(
         "--lsl-out",
         default=None,
         metavar="NAME",
@@ -2305,6 +2431,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--threshold", type=float, default=0.6, help="the policy's θ (0.5-1)")
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--seconds", type=float, default=None, help="stop after this long")
+    p.add_argument(
+        "--calibration-trials",
+        type=int,
+        default=10,
+        help="trials per class of the optional guided calibration (D-040; an app starts it)",
+    )
+    p.add_argument(
+        "--recipe",
+        default="configs/e2_finetune.yaml",
+        help="the fine-tuning recipe: an experiment YAML with a finetune section (Q30's)",
+    )
     p.set_defaults(func=cmd_run)
 
     p = sub.add_parser("audit", help="cue-contamination audit of a cued dataset (D-030)")

@@ -48,6 +48,7 @@ from neuros.config.schemas import SignalContract
 from neuros.engine.alignment import OnlineReference
 from neuros.engine.events import (
     HOLD,
+    CalibrationLevel,
     EngineState,
     Event,
     HoldReason,
@@ -190,7 +191,7 @@ class Engine:
         """
         Args:
             observer: called with every window the engine processes (replay evaluation,
-                parity tests); never needed in production.
+                parity tests); more can be added with ``add_observer``.
 
         Raises:
             NeurOSConfigError: if the headset shares fewer than 2 channels with the model, or
@@ -198,7 +199,10 @@ class Engine:
         """
         self.decoder = decoder
         self.config = config
-        self.observer = observer
+        self._observers: list[Callable[[EngineWindow], None]] = []
+        if observer is not None:
+            self._observers.append(observer)
+        self.calibration_level: CalibrationLevel | None = None
         self.context = context or DataContext()
         layout = tuple(decoder.layout)
         profile = [ch for ch in layout if ch in config.stream_channels]
@@ -248,6 +252,46 @@ class Engine:
     def seconds_of_data(self) -> float:
         """Good data in the alignment reference, in seconds (one window per hop)."""
         return self.reference.n_windows * self.hop_s
+
+    @property
+    def last_t(self) -> float | None:
+        """The stream clock at the newest processed sample (None before any data)."""
+        return self._last_t
+
+    def add_observer(self, observer: Callable[[EngineWindow], None]) -> None:
+        """Also call ``observer`` with every window processed (the guided calibration's
+        recorder, replay evaluation, parity tests)."""
+        self._observers.append(observer)
+
+    def next_seq(self) -> int:
+        """The next event number (shared by every event this engine emits, calibration
+        events included, so an app can spot lost messages)."""
+        seq = self.seq
+        self.seq += 1
+        return seq
+
+    def set_decoder(self, decoder: Decoder, *, level: CalibrationLevel | None) -> None:
+        """Switch the model, e.g. to one fine-tuned by the guided calibration (``level``
+        "quick") or back to the bundle's (None). The policy's smoothing restarts, so no
+        probability of the old model leaks into the new one's decisions; the alignment
+        reference is kept (same person, same headset).
+
+        Raises:
+            NeurOSConfigError: if the new decoder's layout or classes differ (the engine's
+                placement and policy were built for them).
+        """
+        if tuple(decoder.layout) != self.layout:
+            raise NeurOSConfigError(
+                f"the new decoder's layout {list(decoder.layout)} isn't {list(self.layout)}"
+            )
+        if tuple(decoder.classes) != tuple(self.decoder.classes):
+            raise NeurOSConfigError(
+                f"the new decoder's classes {list(decoder.classes)} aren't "
+                f"{list(self.decoder.classes)}"
+            )
+        self.decoder = decoder
+        self.calibration_level = level
+        self.policy.reset()
 
     def push(self, chunk: NDArray[np.floating], timestamps: NDArray[np.floating]) -> list[Event]:
         """Feed one chunk ``[stream channels, n]`` with its stream-clock timestamps ``[n]``.
@@ -317,17 +361,12 @@ class Engine:
         t = self._last_t if self._last_t is not None else (self._started_t or 0.0)
         events.append(self._hold_event(t, "signal_gap", quality=None, latency_ms=0.0))
 
-    def _next_seq(self) -> int:
-        seq = self.seq
-        self.seq += 1
-        return seq
-
     def _set_state(self, state: EngineState, t: float, reason: str, events: list[Event]) -> None:
         if state == self.state:
             return
         events.append(
             StatusEvent(
-                seq=self._next_seq(),
+                seq=self.next_seq(),
                 t=t,
                 state=state,
                 previous=self.state,
@@ -355,7 +394,7 @@ class Engine:
     ) -> IntentEvent:
         confidence, probs = self.policy.snapshot()
         return IntentEvent(
-            seq=self._next_seq(),
+            seq=self.next_seq(),
             t=t,
             command=HOLD,
             confidence=confidence,
@@ -366,6 +405,7 @@ class Engine:
             quality_ok=quality.ok if quality is not None else False,
             bad_channels=quality.bad_channels if quality is not None else (),
             latency_ms=latency_ms,
+            calibration_level=self.calibration_level,
         )
 
     def _process(self, window: NDArray[np.float32], start: int, t: float) -> list[Event]:
@@ -390,8 +430,10 @@ class Engine:
             len(self.layout),
             self.config.input_scale,
         )
-        if self.observer is not None:
-            self.observer(EngineWindow(t, start, referenced, placed, quality, in_transient))
+        if self._observers:
+            seen = EngineWindow(t, start, referenced, placed, quality, in_transient)
+            for observer in self._observers:
+                observer(seen)
 
         # State first, so the event carries the state the decision was made in.
         bad_for = 0.0 if self._bad_since is None else t - self._bad_since
@@ -421,7 +463,7 @@ class Engine:
                 )
             decision = self.policy.decide(probs[0])
             event = IntentEvent(
-                seq=self._next_seq(),
+                seq=self.next_seq(),
                 t=t,
                 command=decision.command,
                 confidence=decision.confidence,
@@ -432,6 +474,7 @@ class Engine:
                 quality_ok=True,
                 bad_channels=(),
                 latency_ms=0.0,
+                calibration_level=self.calibration_level,
             )
         latency_ms = (time.perf_counter() - clock) * 1000.0
         events.append(_with_latency(event, latency_ms))

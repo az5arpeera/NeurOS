@@ -67,6 +67,7 @@ async for event in intents():            # inside an async function
     print(event["type"], event.get("command"))
 ```
 
+- **Quick calibration (optional, D-040):** the demo page's button (or `client.calibrate()`) starts about 3 minutes of guided trials (10 per hand). The engine then fine-tunes a copy of the model to the person with Q30's recipe, which takes about a second, and switches to it; intents then carry `calibration.level: "quick"`. With too few usable trials it says so and stays on zero calibration. On a replay it uses the recording's own trials; `neuros simulate --calibrate` scores both arms.
 - Decisions arrive 8 times a second. `HOLD` comes with a reason (`warmup`, `low_confidence`, `unrecognized`, `flat`, `saturated`, `motion`, `signal_gap`); the engine never guesses.
 - `neuros simulate` refuses locked-test people, and people who trained the bundle (their accuracy would be inflated) unless `--allow-seen`. `--out FILE` writes the replay's score against the ground truth.
 - `neuros simulate --lsl-out NAME` publishes a session as an LSL stream for rehearsing `neuros run --lsl NAME`. LSL opens network sockets (Windows may ask for firewall permission); the LSL test runs only with `NEUROS_LSL_TESTS=1`.

@@ -140,6 +140,33 @@ Claude Code pairs on all engineering. **Founders send all outreach;** Claude dra
       4. Engine latency p99 < 50 ms per decision.
     - **Fail:** no live demo or headset test with this bundle until the gap is found.
     - **Cost:** about 15 GPU-minutes plus about 30 CPU-minutes.
+    - **First run (10 Oct, 23:25Z):**
+      - The bundle trained fine: 339 people. It stopped at its best validation epoch (9), as E2's models do.
+      - All 34 replays ran without error, at about 1 ms latency.
+      - **The scoring was broken:** every replay scored 0 commands. Both datasets' task epochs are exactly one window long, and the scorer needed a decision ending at one exact instant.
+      - Fixed in `c8764e1`: the nearest decision counts, within half a hop. A regression test covers it.
+      - The replays were rerun with the same bar, unchanged.
+    - **Result: PASS** ([results](../results/2026-10-10-mvp-v0-replay.md)):
+      - committed commands right 61.4% (bar 57.2%; E2 offline 62.2%);
+      - left/right 49/51%; 32.5% of task decisions committed; p99 1.6 ms.
+      - `mvp-v0` is the demo and headset-test bundle.
+  - **The guided calibration in the engine (founder go-ahead 10 Oct, "build it once the replay passes")**, code `neuros.engine.calibration`:
+    - an app's request starts it;
+    - the engine schedules 20 cued trials (~3 min), then fine-tunes a copy of the model with Q30's recipe (~1 s on the laptop CPU) and switches to it;
+    - it refuses and stays on zero calibration if fewer than 8 of 10 trials per hand are usable;
+    - a replay uses the recording's own trials.
+  - **Its replay test (bar set 10 Oct, before running):**
+    - **Decision:** does the engine's quick calibration deliver Q30's gain end to end, so the demo and the founders' test can offer it?
+    - **Run:** `neuros simulate --calibrate 10` on the same 34 never-seen people, first session.
+      - The calibration uses the session's first 10 trials per hand (the recording's cues).
+      - Two arms per person, zero calibration and quick calibration: the same engine, scored on the same remaining trials. That is 10 per hand on GuttmannFlury2025 and 50–70 on BNCI2014_004.
+    - **Primary measure:** the engine's leaning accuracy (the argmax of its smoothed probabilities on every decoded task decision, balanced, per person). This is the engine's version of Q30's window accuracy, before the threshold.
+    - **Pass (both):**
+      1. Quick minus zero ≥ +2 points, mean over people, with paired Wilcoxon p < 0.05. Q30's offline gains were +2.2 to +6.1.
+      2. At least 30 of 34 calibrations complete (enough usable trials).
+    - **Report, not bar:** committed accuracy and commit rate in both arms.
+    - **Fail:** the button stays out of the demo until the gap is understood.
+    - **Cost:** about 20 CPU-minutes on AWS.
   - The engine extra (pylsl, websockets, brainflow) is installed on the laptop (approved 10 Oct).
 - **Next (before D-031's gate, ≈ 16 Oct; Q28):**
   - ~~Training crops and multi-class auxiliary training~~: done 10 Oct, no lift.

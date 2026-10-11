@@ -7,9 +7,18 @@
 //   client.connect();
 //
 // Messages follow schema "neuros.intent.v0" (architecture §7.3):
-//   hello  - on connect: the enabled commands and the engine's current state
-//   intent - one per decision (8 per second): command or "HOLD" + hold_reason, probs, quality
-//   status - engine state changes: settling, adapting, steady, degraded, disconnected
+//   hello       - on connect: the enabled commands, the engine's state, the requests it accepts
+//   intent      - one per decision (8 per second): command or "HOLD" + hold_reason, probs,
+//                 quality; calibration.level is null (zero calibration) or "quick"
+//   status      - engine state changes: settling, adapting, steady, degraded, disconnected
+//   calibration - the optional guided calibration (D-040): "started", then per trial "ready",
+//                 "cue" (show the arrow for e.command), "imagine", "rest"; then "training" and
+//                 "done" or "failed" (e.message says why); also "cancelled" and "reset"
+//
+// Requests (only those the engine listed in hello.requests):
+//   client.calibrate()          start the ~3-minute guided calibration
+//   client.cancelCalibration()  stop it; the model in use stays
+//   client.resetCalibration()   back to zero calibration
 //
 // The client reconnects by itself (with a growing pause, capped) when the engine restarts, and
 // never throws on a malformed message: it reports it through the "error" listeners instead.
@@ -29,15 +38,18 @@ export class NeurOSClient {
     this.url = url;
     this.reconnect = options.reconnect ?? true;
     this.maxDelayMs = options.maxDelayMs ?? 5000;
-    this.listeners = { hello: [], intent: [], status: [], open: [], close: [], error: [] };
+    this.listeners = {
+      hello: [], intent: [], status: [], calibration: [], open: [], close: [], error: [],
+    };
     this.socket = null;
     this.delayMs = 250;
     this.closedByUser = false;
     this.commands = [];
+    this.requests = [];
     this.state = "disconnected";
   }
 
-  /** Register a listener for "hello", "intent", "status", "open", "close" or "error". */
+  /** Register a listener for "hello", "intent", "status", "calibration", "open", "close" or "error". */
   on(type, listener) {
     if (!(type in this.listeners)) throw new TypeError(`unknown event type ${type}`);
     if (typeof listener !== "function") throw new TypeError("listener must be a function");
@@ -71,6 +83,21 @@ export class NeurOSClient {
     if (this.socket) this.socket.close();
   }
 
+  /**
+   * Send a request the engine accepts (listed in hello.requests). Returns false, without
+   * sending, when the engine isn't connected or doesn't accept it.
+   */
+  request(name) {
+    if (!this.requests.includes(name)) return false;
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return false;
+    this.socket.send(JSON.stringify({ type: "request", schema: SCHEMA, request: name }));
+    return true;
+  }
+
+  calibrate() { return this.request("calibrate"); }
+  cancelCalibration() { return this.request("cancel_calibration"); }
+  resetCalibration() { return this.request("reset_calibration"); }
+
   receive(text) {
     let event;
     try {
@@ -85,6 +112,7 @@ export class NeurOSClient {
     }
     if (event.type === "hello") {
       this.commands = Array.isArray(event.commands) ? event.commands : [];
+      this.requests = Array.isArray(event.requests) ? event.requests : [];
       this.state = event.state;
     } else if (event.type === "status") {
       this.state = event.state;
