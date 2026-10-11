@@ -29,8 +29,11 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
+      # The engine extra (websockets, pylsl, brainflow) is needed for the type check of the
+      # WebSocket server and client, and for the server tests, which skip without it. pylsl's
+      # manylinux wheel bundles liblsl; brainflow's wheel bundles its native libraries.
       - name: Install (locked)
-        run: uv sync --extra dev --extra ml --locked
+        run: uv sync --extra dev --extra ml --extra engine --locked
       - name: Format
         run: uv run ruff format --check src tests infra
       - name: Lint
