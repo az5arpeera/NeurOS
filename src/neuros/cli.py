@@ -62,6 +62,8 @@ log = logging.getLogger("neuros")
 # The current locked test set: v3 (D-038) = v2 (D-033: v1 of D-026 plus the cue-free datasets)
 # plus Liu2024. tests/test_splits.py checks this is the current version's file.
 DEFAULT_SPLIT_PATH = Path("configs/splits/locked_test_v3.yaml")
+# A5's datasets: the trainable cue-free ones (knowledge-base/plan/a5-frequency-alignment.md).
+A5_DATASETS = ("Yang2025", "BNCI2014_001")
 
 
 # ---------------------------------------------------------------------- helpers
@@ -2644,6 +2646,35 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-people", type=int, default=None, help="only the first N people (smoke tests)"
     )
     p.set_defaults(func=cmd_e6)
+
+    for name, func, text in (
+        ("freq-align", cmd_freq_align, "A5: per-person frequency alignment vs fixed bands"),
+        (
+            "four-electrodes",
+            cmd_four_electrodes,
+            "A4: the best four electrodes (commands + states)",
+        ),
+    ):
+        p = sub.add_parser(name, help=text)
+        p.add_argument("--split", default=str(DEFAULT_SPLIT_PATH), help="locked test set file")
+        p.add_argument("--out", default=None, help="result file (default: results/<id>/...)")
+        p.add_argument(
+            "--max-people", type=int, default=None, help="only the first N people (smoke tests)"
+        )
+        p.add_argument(
+            "--no-cache",
+            action="store_true",
+            help="recompute every recording instead of using the preprocessed cache (§4.5)",
+        )
+        if func is cmd_freq_align:
+            p.add_argument(
+                "--datasets", nargs="+", default=list(A5_DATASETS), help="the plan's two by default"
+            )
+        if func is cmd_four_electrodes:
+            p.add_argument(
+                "--state-experiment", default="configs/e6.yaml", help="E6's settings for states"
+            )
+        p.set_defaults(func=func)
     return parser
 
 
@@ -2711,6 +2742,209 @@ def cmd_e6(args: argparse.Namespace) -> int:
     for name, judged in body["verdict"].items():
         print(f"VERDICT {name}: {judged['outcome']} {judged['checks']}")
     print(f"result: {out}{'' if complete else ' (smoke run: incomplete)'}")
+    return 0
+
+
+def _people_for(
+    spec: DatasetSpec, split: str, purpose: str, max_people: int | None
+) -> list[int] | None:
+    """The first ``max_people`` development subjects (smoke runs), or None for all of them."""
+    if max_people is None:
+        return None
+    return _dev_subjects(spec, None, split, purpose)[:max_people]
+
+
+def _timestamped(config: DataConfig, name: str, out: str | None) -> Path:
+    """``--out`` if given, else ``results/<name>/<name>-<UTC time>.json``."""
+    import datetime as dt
+
+    if out:
+        return Path(out)
+    run = dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%SZ")
+    return config.results_dir / name / f"{name}-{run}.json"
+
+
+def cmd_freq_align(args: argparse.Namespace) -> int:
+    """A5: per-person frequency alignment vs fixed bands (knowledge-base/plan/a5-...)."""
+    import numpy as np
+    from scipy.stats import spearmanr
+
+    from neuros.data.download import loading_dataset
+    from neuros.data.prepare import prepare_subject
+    from neuros.data.recording import person_id
+    from neuros.data.registry import get_spec
+    from neuros.data.vocabulary import default_vocabulary
+    from neuros.eval import frequency
+    from neuros.eval.smr import first_session_rows, welch_psd
+    from neuros.eval.warmup import profile_channels
+    from neuros.provenance import stamp
+
+    config = _config(args)
+    provenance = stamp(config, experiment="a5")  # at the start: the code that runs
+    _warn_if_dirty(provenance)
+    cache = _recording_cache(config, args)
+    vocab = default_vocabulary()
+    layout = _e1_layout("motor")
+    labels = ["left_hand", "right_hand"]
+    per_dataset: dict[str, dict[str, dict[str, float]]] = {}
+    peaks: dict[str, dict[str, Any]] = {}
+    for key in args.datasets:
+        spec = get_spec(key)
+        profile = profile_channels(layout, spec)
+        subjects_arg = _people_for(spec, args.split, "A5", args.max_people)
+        windows, _, subjects, _ = _dev_windows(
+            config, key, subjects_arg, labels, "motor", args.split, "A5 (frequency)", cache
+        )
+        dataset = loading_dataset(spec, config.data_dir)
+        for subject in subjects:
+            if cache is None:
+                recordings = prepare_subject(spec, subject, vocab, config, dataset=dataset)
+            else:
+                recordings, _ = cache.load_or_prepare(
+                    spec, subject, vocab, config, prepare=prepare_subject, dataset=dataset
+                )
+            rows, sfreq, _ = first_session_rows(recordings, spec, profile, seconds=60.0)
+            freqs, power = welch_psd(rows, sfreq)
+            peaks[person_id(key, subject)] = frequency.person_frequency(freqs, power)
+        used = {p: float(v["used_hz"]) for p, v in peaks.items() if p.startswith(key + ":")}
+        per_dataset[key] = frequency.compare(
+            windows.data, windows.sfreq, windows.labels, windows.person_ids, used
+        )
+        for condition, scores in per_dataset[key].items():
+            print(f"{key} {condition}: {np.mean(list(scores.values())) * 100:.1f}%", flush=True)
+    verdict = frequency.verdict(per_dataset)
+    gains = {
+        p: per_dataset[p.split(":")[0]]["aligned"][p] - per_dataset[p.split(":")[0]]["fixed"][p]
+        for p in peaks
+    }
+    distance = [abs(float(peaks[p]["used_hz"]) - frequency.REFERENCE_HZ) for p in gains]
+    result = spearmanr(distance, list(gains.values()))
+    body = {
+        "provenance": _finished(provenance),
+        "complete": args.max_people is None and list(args.datasets) == list(A5_DATASETS),
+        "plan": "knowledge-base/plan/a5-frequency-alignment.md",
+        "protocol": {
+            "band_edges_x_peak": list(frequency.BAND_EDGES),
+            "peak_search_hz": list(frequency.PEAK_SEARCH_HZ),
+            "peak_clip_hz": list(frequency.PEAK_CLIP_HZ),
+            "min_peak_db": frequency.MIN_PEAK_DB,
+            "peak_data": "first 60 s of the first session, C3/C4 (Q31's data)",
+            "band_hz": list(config.signal.band_hz),
+        },
+        "peaks": peaks,
+        "accuracy": per_dataset,
+        "gain_vs_peak_distance_spearman": {
+            "rho": float(result.statistic),
+            "p_value": float(result.pvalue),
+        },
+        "verdict": verdict,
+    }
+    out = _timestamped(config, "a5", args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(body, indent=1), encoding="utf-8", newline="\n")
+    clear = sum(bool(v["clear"]) for v in peaks.values())
+    used_all = np.array([float(v["used_hz"]) for v in peaks.values()])
+    print(
+        f"peaks: {clear}/{len(peaks)} clear; used {used_all.min():.1f}-{used_all.max():.1f} Hz "
+        f"(median {np.median(used_all):.1f})"
+    )
+    print(
+        f"VERDICT: {verdict['outcome']} gain {verdict['mean_gain_points']:+.2f} points "
+        f"(p = {verdict['wilcoxon_p']:.2g}; by dataset {verdict['gain_by_dataset_points']}) "
+        f"{verdict['checks']}"
+    )
+    print(f"result: {out}{'' if body['complete'] else ' (smoke run: incomplete)'}")
+    return 0
+
+
+def cmd_four_electrodes(args: argparse.Namespace) -> int:
+    """A4: the best four electrodes for commands and states (knowledge-base/plan/a4-...)."""
+    from neuros.data.registry import get_spec
+    from neuros.eval import four_electrodes as a4
+    from neuros.eval.state import load_state_config, load_state_people
+    from neuros.provenance import stamp
+
+    config = _config(args)
+    provenance = stamp(config, experiment="a4")  # at the start: the code that runs
+    _warn_if_dirty(provenance)
+    cache = _recording_cache(config, args)
+    state_config = load_state_config(Path(args.state_experiment))
+    people, _, _ = load_state_people(
+        config, state_config, split_path=Path(args.split), max_people=args.max_people
+    )
+    yang = get_spec("Yang2025")
+    windows, _, _, _ = _dev_windows(
+        config,
+        yang.key,
+        _people_for(yang, args.split, "A4", args.max_people),
+        ["left_hand", "right_hand"],
+        "all",
+        args.split,
+        "A4 (four electrodes)",
+        cache,
+    )
+    states_sel, states_conf = a4.split_halves([p.person for p in people], "EEGMAT")
+    commands_sel, commands_conf = a4.split_halves(sorted(set(windows.person_ids)), "Yang2025")
+    by_name = {p.person: p for p in people}
+    montages = a4.candidate_montages()
+    selection: dict[tuple[str, ...], dict[str, float]] = {}
+    for index, montage in enumerate(montages, start=1):
+        states = a4.states_scores([by_name[p] for p in states_sel], montage, state_config)
+        commands = a4.commands_scores(windows, commands_sel, montage)
+        selection[montage] = {"states": a4.mean(states), "commands": a4.mean(commands)}
+        if index % 10 == 0 or index == len(montages):
+            print(f"selection half: {index}/{len(montages)} montages scored", flush=True)
+    today = tuple(sorted(a4.TODAY))
+    winner = a4.pick(selection, today)
+    confirmation = {
+        "states": {
+            "winner": a4.states_scores([by_name[p] for p in states_conf], winner, state_config),
+            "today": a4.states_scores([by_name[p] for p in states_conf], today, state_config),
+        },
+        "commands": {
+            "winner": a4.commands_scores(windows, commands_conf, winner),
+            "today": a4.commands_scores(windows, commands_conf, today),
+        },
+    }
+    verdict = a4.verdict(winner, today, confirmation["states"], confirmation["commands"])
+
+    def top(measure: str) -> list[dict[str, Any]]:
+        ranked = sorted(selection.items(), key=lambda kv: kv[1][measure], reverse=True)[:10]
+        return [{"montage": list(m), **{k: round(v, 4) for k, v in s.items()}} for m, s in ranked]
+
+    body = {
+        "provenance": _finished(provenance),
+        "complete": args.max_people is None,
+        "plan": "knowledge-base/plan/a4-four-electrodes.md",
+        "halves": {
+            "EEGMAT": {"selection": states_sel, "confirmation": states_conf},
+            "Yang2025": {"selection": commands_sel, "confirmation": commands_conf},
+        },
+        "selection": [{"montage": list(m), **s} for m, s in selection.items()],
+        "top_states": top("states"),
+        "top_commands": top("commands"),
+        "today": {"montage": list(today), **selection[today]},
+        "winner": {"montage": list(winner), **selection[winner]},
+        "confirmation": confirmation,
+        "verdict": verdict,
+    }
+    out = _timestamped(config, "a4", args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(body, indent=1), encoding="utf-8", newline="\n")
+    print(
+        f"selection half: today {', '.join(today)}: states {selection[today]['states'] * 100:.1f}%"
+        f", commands {selection[today]['commands'] * 100:.1f}%; pick {', '.join(winner)}: states "
+        f"{selection[winner]['states'] * 100:.1f}%, commands "
+        f"{selection[winner]['commands'] * 100:.1f}%"
+    )
+    print(f"VERDICT: {verdict['outcome']} {verdict['checks']}")
+    if "states" in verdict:
+        print(
+            f"confirmation half: states {verdict['states']['mean_diff'] * 100:+.1f} points "
+            f"(p = {verdict['states']['p_value']:.2g}), commands "
+            f"{verdict['commands']['mean_diff'] * 100:+.1f} points"
+        )
+    print(f"result: {out}{'' if body['complete'] else ' (smoke run: incomplete)'}")
     return 0
 
 

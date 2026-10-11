@@ -644,21 +644,22 @@ def verdict(
 
 
 # ------------------------------------------------------------------------------------ the run
-def run_e6(
+def load_state_people(
     data_config: Any,
     experiment: StateExperimentConfig,
     *,
     split_path: Path,
     max_people: int | None = None,
-) -> dict[str, Any]:
-    """Run E6 end to end on the development people; return the result body (no provenance).
+) -> tuple[list[PersonWindows], dict[str, float], dict[str, float]]:
+    """Load, validate, check and window every development person of the state dataset.
 
-    The data checks run first. If theta and alpha are missing (the spectrum check), the run
-    stops there with verdict ``STOPPED``.
+    Returns:
+        ``(people, spectrum ratio per person, eyes ratio per person)``: the data checks run on
+        the native-rate recordings, before our filters.
 
     Raises:
         NeurOSDataError, NeurOSConfigError, NeurOSSplitError: from loading, validation or the
-            locked test set (a locked person can never reach training or scoring).
+            locked test set (a locked person can never be loaded here).
     """
     from neuros.config.schemas import SignalContract
     from neuros.data.eegmat import harmonize_eegmat_subject
@@ -704,6 +705,28 @@ def run_e6(
             )
         )
         log.info("%s: %d windows", rest.person_id, len(people[-1].recording))
+    return people, spectrum, eyes
+
+
+def run_e6(
+    data_config: Any,
+    experiment: StateExperimentConfig,
+    *,
+    split_path: Path,
+    max_people: int | None = None,
+) -> dict[str, Any]:
+    """Run E6 end to end on the development people; return the result body (no provenance).
+
+    The data checks run first. If theta and alpha are missing (the spectrum check), the run
+    stops there with verdict ``STOPPED``.
+
+    Raises:
+        NeurOSDataError, NeurOSConfigError, NeurOSSplitError: from loading, validation or the
+            locked test set (a locked person can never reach training or scoring).
+    """
+    people, spectrum, eyes = load_state_people(
+        data_config, experiment, split_path=split_path, max_people=max_people
+    )
 
     spectrum_median = float(np.median(list(spectrum.values())))
     eyes_median = float(np.median(list(eyes.values())))

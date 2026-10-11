@@ -123,6 +123,37 @@ def smr_strength(
         NeurOSConfigError: on a non-positive ``seconds`` or a profile without C3/C4.
         NeurOSDataError: on no recordings, mixed people or rates, or too little data.
     """
+    picked, sfreq, first = first_session_rows(recordings, spec, profile, seconds=seconds)
+    freqs, power = welch_psd(picked, sfreq)
+    heights = peak_above_floor(freqs, power)
+    return {
+        "smr_db": float(heights.mean()),
+        "per_channel_db": dict(zip(SMR_CHANNELS, heights.tolist(), strict=True)),
+        "session": first,
+        "seconds_used": picked.shape[1] / sfreq,
+    }
+
+
+def first_session_rows(
+    recordings: Sequence[Recording],
+    spec: DatasetSpec,
+    profile: Sequence[str],
+    *,
+    seconds: float | None,
+) -> tuple[NDArray[np.float32], float, str]:
+    """The start of a person's first session at C3 and C4, as the engine would see it first.
+
+    The first session's runs are taken in run order, each run's filter start-up is dropped,
+    and the runs are joined; then the first ``seconds`` are kept (None: all of it). Channels go
+    through the dataset's profile (E2's placement and common average).
+
+    Returns:
+        ``(rows [SMR_CHANNELS, samples], sampling rate, the session's name)``.
+
+    Raises:
+        NeurOSConfigError: on a non-positive ``seconds`` or a profile without C3/C4.
+        NeurOSDataError: on no recordings, mixed people or rates.
+    """
     from neuros.eval.calibration import natural_key
     from neuros.eval.warmup import _profile_rows
 
@@ -134,7 +165,7 @@ def smr_strength(
     if not recordings:
         raise NeurOSDataError(f"{spec.key}: no recordings")
     if len({(r.dataset, r.subject) for r in recordings}) != 1:
-        raise NeurOSDataError("smr_strength needs one person's recordings")
+        raise NeurOSDataError("needs one person's recordings")
     rates = {r.sfreq for r in recordings}
     if len(rates) != 1:
         raise NeurOSDataError(f"recordings differ in sampling rate: {sorted(rates)}")
@@ -151,11 +182,4 @@ def smr_strength(
     if seconds is not None:
         data = data[:, : round(seconds * sfreq)]
     picked = data[[list(profile).index(ch) for ch in SMR_CHANNELS]]
-    freqs, power = welch_psd(picked, sfreq)
-    heights = peak_above_floor(freqs, power)
-    return {
-        "smr_db": float(heights.mean()),
-        "per_channel_db": dict(zip(SMR_CHANNELS, heights.tolist(), strict=True)),
-        "session": first,
-        "seconds_used": data.shape[1] / sfreq,
-    }
+    return picked, sfreq, first
