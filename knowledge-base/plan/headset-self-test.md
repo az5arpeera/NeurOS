@@ -12,6 +12,8 @@ Does NeurOS work live, on our Ganglion, on a founder's own brain?
 This is also the only consumer-hardware evidence we can get before 1 Nov (Q30's evidence 3).
 
 ## Pass bar (set before the first session)
+> **Pending founder decision (11 Oct):** the engine's quick calibration failed its replay test ([results](../results/2026-10-11-calibration-replay.md)): no gain with 3 channels. Before the first session, decide whether this bar stays on the quick-calibration doors or moves to the zero-calibration doors. The session steps record both either way.
+
 For at least one founder, after the quick calibration, the door game must reach both:
 1. **Committed accuracy ≥ 70%** (right among the doors the engine answered), one-sided binomial p < 0.05 against 50%.
 2. **At least half the doors answered** (the engine didn't hold back on most of them).

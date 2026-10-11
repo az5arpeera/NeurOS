@@ -15,6 +15,10 @@ Newest first. Format: **ID · date · decision** — why · who. Superseded deci
     - whether a calibration carries over to another day;
     - any consumer headset;
     - live use. The engine's guided calibration doesn't exist yet.
+  - **Follow-up 11 Oct: the engine's version fails its replay bar** ([results](../results/2026-10-11-calibration-replay.md)).
+    - +3.1 points on 34 never-seen people (p = 0.11; bar +2 with p < 0.05); 34 of 34 calibrations ran.
+    - No gain with 3 channels (BNCI2014_004 −1.2), the setup closest to our Ganglion.
+    - The offline claim above stands as worded. The calibration button stays out of the YC demo.
 - **D-039 · 2026-10-09 · "Use more of what we have": training crops later in each trial, and extra classes with a per-dataset softmax; test windows unchanged.** Implements the 6 Oct approval ("use more of what we have"). · Founders approved the idea; Claude set the rules below (founders may veto)
   - **Why:** E2 found the ceiling, not the warm-up speed, is what keeps cue-free accuracy below usable ([Q28](../open-questions.md)). Both levers add training signal without new data or new downloads.
   - **Crops** (`training_windows.crop_stride_s`; `registry.training_crop_starts`):

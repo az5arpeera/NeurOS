@@ -167,6 +167,12 @@ Claude Code pairs on all engineering. **Founders send all outreach;** Claude dra
     - **Report, not bar:** committed accuracy and commit rate in both arms.
     - **Fail:** the button stays out of the demo until the gap is understood.
     - **Cost:** about 20 CPU-minutes on AWS.
+    - **Result: FAIL** ([results](../results/2026-10-11-calibration-replay.md); 11 Oct, 17 CPU-minutes):
+      - leaning accuracy +3.1 points (59.1% → 62.1%), p = 0.11, CI −0.5 to +6.6; 34 of 34 calibrations completed;
+      - 19 channels (GuttmannFlury2025) +4.6, p = 0.059; 3 channels (BNCI2014_004) −1.2;
+      - commit rate 31% → 57%; committed accuracy 59% → 65% overall, but 65% → 59% on 3 channels.
+      - **So:** the button stays out of the YC demo (zero calibration only). The code stays.
+      - **Founders decide** before any headset session whether the self-test's bar stays on the quick-calibration arm.
   - **The founders' headset self-test is ready** ([runbook, decision and bar](headset-self-test.md), set 11 Oct before any session):
     - **Live demo on the Ganglion if,** for at least one founder after the quick calibration, the cue-free door game reaches ≥ 70% of answered doors right (p < 0.05) with at least half the doors answered.
     - **Otherwise** a labelled replay.
