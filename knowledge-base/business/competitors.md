@@ -1,9 +1,9 @@
-# Competitors and adjacent companies (v1, 2026-10-04)
+# Competitors and adjacent companies (v2, 2026-10-11)
 
 **Purpose:** what each company actually does, where it overlaps with NeurOS, and whether it competes directly or sits next to us. Feeds the YC application's competition answer.
 
 **Rules** (as in the [claims audit](../claims-audit.md)):
-- Every fact below comes from the linked source, checked on 4 Oct 2026.
+- Every fact below comes from the linked source, checked on 4 Oct 2026 (Arctop and Zander's January demo: 11 Oct).
 - Company claims are reported *as claims*: none of these companies has published evidence for its calibration claims that we found.
 - Re-check before quoting.
 
@@ -11,8 +11,9 @@
 
 | Company | What they sell | Signal / hardware | Calibration story | Versus NeurOS |
 |---|---|---|---|---|
-| **Zander Labs** (NL/DE) | A platform that reads **mental states** (workload, focus, error, surprise, stress, "intent") and makes software and AI react to them. B2B building block, plus professional services | Scalp EEG on **their own hardware**: the Zypher EEG patch, a 24-channel mini amplifier, a classification chip | Building **"universal classifiers"** that work for any person, headset and environment, with no individual calibration. Collecting 4,000 people's datasets (1,000 done in 2025). In development; no published accuracy found | **Direct competitor on our core thesis** (calibration-free, any person, any headset) and on our brain-state channel. **Adjacent** on intent commands |
+| **Zander Labs** (NL/DE) | A platform that reads **mental states** (workload, focus, error, surprise, stress, "intent") and makes software and AI react to them. B2B building block, plus professional services | Scalp EEG on **their own hardware**: the Zypher EEG patch, a 24-channel mini amplifier, a classification chip | Building **"universal classifiers"** that work for any person, headset and environment, with no individual calibration. Collecting 4,000 people's datasets (1,000 done in 2025). **Jan 2026: an integrated "plug-and-play" demo** (cognitive load adapts a UI, decoded locally). Still no published accuracy | **Direct competitor on our core thesis** (calibration-free, any person, any headset) and on our brain-state channel. **Adjacent** on intent commands |
 | **Synaptrix Labs** (NYC) | A **medical device**: brain-controlled wheelchairs for people with paralysis, via the FDA route. Also licenses artefact-removal AI to an EEG maker | Scalp EEG on **their own hardware**: the registered device uses 4 dry sensors over the visual cortex; new "Portal" hardware is high-density over the motor cortex | Per-user personalisation in the cloud; third-party articles say "minimal recalibration". **No zero-calibration claim** | **Adjacent:** one clinical application on their own hardware. Overlaps on deep-learning EEG decoding, aggregating public datasets, and licensing software to hardware makers |
+| **Arctop** (San Francisco) | **"An API for the human inside"**: software that decodes mental states (cognitive load, attention, enjoyment, sleep) from EEG in everyday wearables. A self-serve developer API, custom classifiers, its own app, and an EEG-adaptive AI agent | **No hardware of its own.** Names Master & Dynamic's MW75 Neuro headphones (12 channels, 500 Hz). Decodes in **its cloud** | **No calibration claim** on its site; no published accuracy | **Direct competitor on the business model** (the layer between headsets and apps, sold to developers). **Adjacent on signal:** passive states, not commands |
 | **Neuralink** | Brain implants | Intracortical spikes | Per-person pretraining; zero-shot is a stated, unsolved goal ([note](../research/papers/2026-neuralink-pretraining-50000-hours.md)) | **Different market** (surgery). Validates the problem |
 
 ## Zander Labs
@@ -44,6 +45,12 @@
 - **The data:** 4,000 datasets from people at their Dutch and German sites, by 2027 (1,000 reached in 2025).
 - **Approach:** they're watching EEG foundation models closely.
 - **Status:** in development. We found no published accuracy for the universal classifiers.
+- **January 2026 demo** ([release, 7 Jan 2026](https://www.zanderlabs.com/resources/fully-integrated-system)):
+  - their first fully integrated system: the Zypher electrodes and amplifier plus an on-chip decoder;
+  - it detected cognitive load and adapted a user interface in real time, with all processing local;
+  - they claim the algorithms are "plug-and-play" and decode any individual "without prior personalization", from pre-training on large EEG datasets;
+  - **not stated:** any accuracy, number of users or readiness level. Only cognitive load is named.
+- **Hardware roll-out** ([2025 review](https://www.zanderlabs.com/blog/2025-in-review)): the Zypher patch goes to partner institutions first, universities and knowledge institutes in Q2 2026, then more companies later in the year; prototypes go to partners through 2026. No third-party SDK or API is mentioned.
 
 **US entry:** announced 12 Mar 2026, seeking partners on the West Coast (Bay Area). Target sectors: defence, mobility, robotics, healthcare, specialist jobs such as air traffic control. The CEO describes the technology as a building block for partners, not an end product ([Business Wire](https://www.businesswire.com/news/home/20260312113517/en/DeepTech-Company-Zander-Labs-Enters-the-U.S.-Market-With-Groundbreaking-pBCI-Technology)).
 
@@ -65,6 +72,57 @@
 **Verdict:**
 - **Direct competitor for the calibration-free narrative and for our brain-state channel.** They have more money, more proprietary data and a head start there.
 - **Adjacent for intent commands,** their stated secondary target.
+
+## Arctop
+**What they are:**
+- Founded in spring 2016 in San Francisco by Dan Furman, PhD (CEO, neuroscientist; his Technion PhD decoded imagined finger movements from EEG) and Eitan Kay (CTO) ([site](https://www.arctop.com), [interview, Apr 2026](https://theneurotechnewsletter.substack.com/p/arctop-and-the-intelligence-layer)).
+- **The CEO's framing is ours:** Arctop works on "the intelligence layer between brain-sensing hardware and the applications built on top of it." Its tagline is "An API for the human inside", and it says it "does not make hardware."
+
+**Products** ([site](https://www.arctop.com)):
+- **Arctop API:** a public developer API with self-serve keys ([docs](https://docs.arctop.com)). Apps on connected devices read decoded scores in real time.
+- **Custom classifiers** for partners: states a study can define and measure.
+- **The Arctop app** on Master & Dynamic's MW75 Neuro headphones, measuring cognitive load live. The headphones themselves were built with Neurable (see below).
+- **Isaac:** an EEG-adaptive conversation agent in the app.
+- **RLbF** ("reinforcement learning from brain feedback"): decoded EEG as a reward signal to adapt a language model to its user. It's in a preprint (Aug 2026), not peer-reviewed.
+- **History:** the earlier platform was called **Neuos**. Its first product, Neuos Eureka (Aug 2020), measured audiences' reactions to media content ([Research Live](https://www.research-live.com/article/news/arctop-launches-brain-decoding-platform/id/5072892)).
+
+**Outputs:** cognitive load, visual and auditory attention, enjoyment, sleep, memory and identity. All passive states; no commands.
+
+**Privacy:** EEG is encrypted on the device and **decoded in Arctop's cloud**. Language models receive only the derived scores.
+
+**Customers and money:**
+- **$10M Series A** (Oct 2023), co-led by Fifth Growth Fund and Supermoon Capital ([VCA Online](https://www.vcaonline.com/news/2023101017/arctop-a-cognition-company-building-software-that-decodes-the-human-brain-announces-10m-series-a-funding-co-led-by-fifth-growth-fund-and-supermoon-capital)).
+  - Its site also lists In-Q-Tel and Script Capital as investors; neither is confirmed elsewhere.
+- **US Air Force:** a $1.25M AFWERX Direct-to-Phase II SBIR (Sep 2024): cognition-adaptive training simulations, with MetaTeq and BigBear.ai ([release](https://www.defence-industries.com/index.php/pressreleases/arctop-secures-125m-afwerx-contract)).
+- **Patents:** 13 granted, according to its site (US 6, Europe 2, Japan 2, Israel 3).
+- **Customers:** no enterprise customers named.
+
+**Calibration and evidence:**
+- **No calibration claim** on its site, either way, and no accuracy figures.
+- **Evidence cited:** only the RLbF preprint. The 2022 focus result with Endel is a company white paper.
+
+**Same as NeurOS:**
+- **The business model:** a hardware-agnostic layer between headsets and apps, sold to developers through an API.
+- Consumer form factors (headphones, earbuds, headbands) as the target hardware.
+
+**Different from NeurOS:**
+
+| | Arctop | NeurOS |
+|---|---|---|
+| Output | **Passive states** (load, attention, enjoyment) | **Active intent commands** (LEFT, RIGHT, HOLD with a reason), plus one state channel |
+| Where decoding runs | **Their cloud** | **On the user's machine** (local by default, §10) |
+| Hardware | Supported wearables (one named) | Any headset streaming over LSL or BrainFlow, including open boards |
+| Calibration | No claim | Zero calibration by default, adapting from normal use; measured |
+| Evidence | Company white papers, one preprint | Cue-controlled results on ~380 public-data people, with bars set before each run |
+| Ships to developers | API keys | Open SDK (Python, JavaScript) and a simulator that replays real datasets |
+
+**Verdict:**
+- **Direct competitor on the business model.** They already sell what our thesis describes: a self-serve brain-decoding API with no hardware of its own. They're seven years in, with a Series A and defence contracts.
+- **Adjacent on the signal:** they decode passive states; we decode commands.
+- **Where we're different:** commands (they have none), local processing, measured zero-calibration and published cue-controlled evidence.
+- **Naming risk:** their former platform name, **Neuos**, is close to **NeurOS**, in the same field.
+  - A quick search found no trademark record for either name.
+  - The founders should run a proper trademark search before the name goes into the application.
 
 ## Synaptrix Labs
 **What they are:**
@@ -107,10 +165,21 @@
    - Our honest edges:
      - **active intent for developers** (they do passive states for enterprises);
      - **any headset, including the cheap open ones,** versus their own hardware;
-     - **an open developer SDK and simulator** versus professional services;
+     - **an open developer SDK and simulator** versus professional services. (A self-serve API alone is no longer an edge: Arctop has one.)
      - **published, protocol-controlled evidence** (public data, leave-one-dataset-out, and the cue-artefact controls we just added) versus claims without published numbers;
      - **adaptation in seconds** (L1) rather than betting everything on one universal model.
 2. **The brain-state channel overlaps Zander's core.** Lead with intent and ship one validated state (rest vs mental effort) as the second channel; no parity claim (D-031, 4 Oct).
 3. **Investor appetite is real:** Mark Cuban backing Synaptrix, the €30M contract for Zander. Both are "why now" evidence.
 4. **Hardware makers do buy EEG software** (Synaptrix → IDUN). That supports our B2B channel. IDUN is on our backup contact list; it may already have a software partner.
-5. **Data:** Zander's proprietary recordings and Synaptrix's "Cortex" both aggregate data. Public-dataset aggregation (which we do too) is not a moat for anyone. Ours has to come from the cross-headset evaluation, the adaptation runtime and, later, opt-in data from deployed users.
+5. **"They'll lock down their ecosystems, we're open" doesn't hold as stated** (checked 11 Oct).
+   - Zander calls its technology a building block for partners, and Arctop already sells an open developer API without hardware.
+   - **The edge has to be specific:**
+     - commands, not only states;
+     - any headset, including cheap open boards;
+     - local processing;
+     - measured zero-calibration with cue-controlled evidence, where both competitors publish no accuracy.
+   - **Hardware makers are building their own models too:**
+     - Neurable built the brain sensing in Master & Dynamic's MW75 Neuro headphones.
+     - Muse (Interaxon) announced its own "foundation brain model" in June 2025, per its press release.
+     - Both are to profile next.
+6. **Data:** Zander's proprietary recordings and Synaptrix's "Cortex" both aggregate data. Public-dataset aggregation (which we do too) is not a moat for anyone. Ours has to come from the cross-headset evaluation, the adaptation runtime and, later, opt-in data from deployed users.
