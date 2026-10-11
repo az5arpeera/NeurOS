@@ -93,6 +93,8 @@ The biggest gains come from the smallest starting sets. The rate is falling as N
 - **The two assumptions are both generous to scaling:** a constant rate per doubling, and an equal lift for everyone.
 
 ## What could get near everyone
+*Worked out, with time-per-reliable-command numbers and 12 experiments, in the [post-YC research agenda](../plan/post-yc-research-agenda.md) (parked until after 1 Nov).*
+
 1. **A stronger signal:**
    - More channels and better contact.
    - Shin2017A's ceiling uses 30 channels; our zero-calibration model reads 3 there.

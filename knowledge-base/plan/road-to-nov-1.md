@@ -238,6 +238,8 @@ Claude Code pairs on all engineering. **Founders send all outreach;** Claude dra
 
 **Never cut:** E0, E1, E2, the engine + simulator, the live demo, the interviews, and since D-031 (4 Oct) one validated mental state (E6, kept small).
 
+**Parked for after 1 Nov:** the [post-YC research agenda](post-yc-research-agenda.md) (getting reliable control to nearly everyone on 3–4 electrodes). Nothing in it runs before the deadline.
+
 ## What YC will want to see (track weekly)
 | Metric | Target by 30 Oct |
 |---|---|
