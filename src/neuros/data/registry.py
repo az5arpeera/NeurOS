@@ -619,20 +619,24 @@ _SPECS: tuple[DatasetSpec, ...] = (
         moabb_class=None,
         subjects=tuple(range(0, 36)),
         eeg_channels=_EEGMAT_CHANNELS,
-        non_eeg_channels=("A2-A1", "ECG"),
+        # The files' own names (checked 11 Oct on all 72 files): the A2-A1 ear derivation is
+        # typed EEG, the ECG channel is named "ECG ECG". Neither is a scalp electrode.
+        non_eeg_channels=("EEG A2-A1", "ECG ECG"),
         native_sfreq=500.0,
         cue_offset_s=0.0,
         task_s=60.0,
-        class_on_screen_s=None,  # 60-s recordings, no class cue
+        class_on_screen_s=None,  # whole recordings of one state, no class cue
         pre_cue_fixation_s=None,
         rest_source="none",
         licence="ODC Attribution 1.0 (commercial use with attribution)",
         url="https://physionet.org/content/eegmat/1.0.0/",
-        channels_source="PhysioNet EEGMAT page (2026-10-02); verify on the files",
-        unverified=("eeg_channels", "non_eeg_channels", "native_sfreq"),
+        channels_source="the EDF headers of all 72 files (11 Oct 2026)",
+        unverified=(),
         notes=(
-            "Per person: _1 = background (rest), _2 = mental arithmetic, 60 s each. Not in MOABB; "
-            "our own loader arrives with the other loaders (week 1)."
+            "Per person: _1 = background (rest) before the task, _2 = mental serial subtraction. "
+            "Checked on the files (11 Oct): rest runs 80-188 s (median 182 s), the task 62 s, "
+            "although the PhysioNet page says 60-s segments; 500 Hz; header filter 0.5-45 Hz. "
+            "Not in MOABB: downloaded directly from PhysioNet and read by neuros.data.eegmat."
         ),
     ),
     # ------------------------------------------------------------------ added by D-033 (4 Oct)

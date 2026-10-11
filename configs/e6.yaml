@@ -1,0 +1,34 @@
+# E6: the mental-state channel (rest vs mental effort across people, no calibration).
+# Decision, pass bar and reasons: knowledge-base/plan/e6-state-channel.md (set 11 Oct, before any
+# EEGMAT data was loaded). Code: neuros.eval.state. Run: neuros --config configs/data.yaml e6
+name: e6
+dataset: EEGMAT
+band_hz: [4.0, 30.0]          # theta to beta; the state lives partly in theta (4-8 Hz)
+hop_s: 0.5                    # 2-s windows every 0.5 s
+baseline_s: 20.0              # the person's first 20 s of rest: normalisation only, never scored
+rest_scored_s: [20.0, 60.0]   # scored rest, against the whole task recording
+drift_halves_s: [[20.0, 40.0], [40.0, 60.0]]   # the drift control: rest vs rest
+late_rest_s: 40.0             # report only: the last 40 s of rest ...
+late_rest_min_rest_s: 120.0   # ... for people with at least 120 s of rest
+block_s: 10.0                 # the state display's unit (report only)
+bands_hz:
+  theta: [4.0, 8.0]
+  alpha: [8.0, 13.0]
+  beta: [13.0, 30.0]
+arms:
+  A: [Fp1, Fp2, F7, F3, Fz, F4, F8, T7, C3, Cz, C4, T8, P7, P3, Pz, P4, P8, O1, O2]  # all 19
+  B: [C3, Cz, C4, Pz]                  # the Ganglion montage (headset self-test)
+  C: [Fz, F3, F4, Pz, P3, P4]          # D-031's frontal theta + parietal alpha (report only)
+eyes_channels: [P3, P4, Pz, O1, O2]
+eyes_closed_ratio: 2.0
+spectrum_low_hz: [4.0, 13.0]
+spectrum_high_hz: [30.0, 45.0]
+bar:
+  ship_mean: 0.70
+  ship_min_people_at: 0.60
+  ship_min_people: 20
+  demo_mean: 0.65
+  p_value: 0.05
+  drift_max: 0.60
+  ship_arm: A
+  demo_arm: B

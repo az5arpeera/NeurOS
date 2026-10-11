@@ -2,7 +2,14 @@
 
 **Written:** Sun 11 Oct 2026, before any EEGMAT data is loaded (the rule: every run answers a decision, with its bar set first).
 
-**Status:** bar set; **waiting for founder approval to run.**
+**Status:** bar set; approved by the founders 11 Oct ("yes run E6").
+
+> **Amendment, 11 Oct, after inspecting the files and before any model ran:**
+> - **Rest recordings are longer than the page says:** 80–188 s (median 182 s). The task is 62 s, and the rate is 500 Hz.
+> - **The EDF headers give a 0.5–45 Hz filter.** That suggests the page's "30 Hz high-pass" is an error; the spectrum check still runs.
+> - **The bar is unchanged:** baseline 0–20 s, scored rest 20–60 s, drift control 20–40 vs 40–60 s.
+> - **One report-only control added: late rest.** It scores rest 20–60 s against the last 40 s of rest, for the people with ≥ 120 s of rest. Two minutes of drift is closer to the gap between the two recordings than 20 s is.
+> - **Code:** `neuros.data.eegmat`, `neuros.eval.state`, `configs/e6.yaml`. Run with `neuros --config configs/data.yaml e6`.
 
 ## The decision
 Can NeurOS tell **rest from mental effort across people, with no calibration** (only the person's first 20 s at rest), well enough to:

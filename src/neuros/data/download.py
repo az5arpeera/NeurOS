@@ -37,7 +37,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
-from neuros.data.physionet import PHYSIONET_PROJECTS, fetch_subjects
+from neuros.data.physionet import PHYSIONET_PROJECTS, fetch_subjects, local_destination
 from neuros.data.registry import DatasetSpec, moabb_dataset
 from neuros.errors import DataContext, NeurOSConfigError, NeurOSDataError
 from neuros.provenance import file_sha256, stamp
@@ -261,6 +261,8 @@ def download(
         extra["accept"] = True
         log.info("%s: licence accepted by the caller: %s", spec.key, spec.licence_acceptance)
     raw_dir = prepare_mne_environment(data_dir)
+    if spec.moabb_class is None:
+        return _download_physionet_direct(spec, subjects, data_dir, raw_dir)
     dataset = moabb_dataset(spec, **extra)
     path = manifest_path(data_dir, spec)
     manifest = _load_manifest(path)
@@ -313,6 +315,60 @@ def download(
         body["licence_accepted"] = spec.licence_acceptance
     if archives:
         body["archives"] = dict(sorted(archives.items()))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(body, indent=1), encoding="utf-8", newline="\n")
+    return body
+
+
+def _download_physionet_direct(
+    spec: DatasetSpec, subjects: Sequence[int], data_dir: Path, raw_dir: Path
+) -> dict[str, Any]:
+    """Download a PhysioNet dataset MOABB doesn't serve (EEGMAT) and update its manifest.
+
+    Every file is verified against PhysioNet's SHA256SUMS (``fetch_subjects``) and recorded with
+    its subject, exactly like MOABB datasets, so ``require_downloaded`` and ``verify_manifest``
+    work unchanged.
+
+    Raises:
+        NeurOSConfigError: if the dataset has no direct PhysioNet download.
+        NeurOSDataError: on a download or checksum failure, or a file that changed since it was
+            first recorded.
+    """
+    project = PHYSIONET_PROJECTS.get(spec.key)
+    if project is None:
+        raise NeurOSConfigError(f"{spec.key} is neither a MOABB nor a PhysioNet dataset")
+    path = manifest_path(data_dir, spec)
+    manifest = _load_manifest(path)
+    files: dict[str, dict[str, Any]] = dict(manifest.get("files", {}))
+    verified = fetch_subjects(project, subjects, raw_dir)
+    for subject in subjects:
+        for relpath in project.files_for_subject(subject):
+            file = local_destination(raw_dir, project, relpath)
+            key = file.resolve().relative_to(raw_dir.resolve()).as_posix()
+            digest = verified.get(key)
+            if digest is None or not file.is_file():
+                raise NeurOSDataError(f"{key} is missing after download", DataContext(spec.key))
+            previous = files.get(key)
+            if previous is not None and previous["sha256"] != digest:
+                raise NeurOSDataError(
+                    f"{key} changed since it was first recorded", DataContext(spec.key, subject)
+                )
+            files[key] = {
+                "subject": subject,
+                "bytes": file.stat().st_size,
+                "sha256": digest,
+                "verified_against": "publisher SHA256SUMS.txt",
+            }
+    body: dict[str, Any] = {
+        "dataset": spec.key,
+        "moabb_code": None,
+        "source": project.upstream_url(""),
+        "raw_dir_layout": "paths are relative to <data_dir>/raw",
+        "n_files": len(files),
+        "total_bytes": sum(int(f["bytes"]) for f in files.values()),
+        "provenance": manifest.get("provenance") or stamp(),
+        "files": dict(sorted(files.items())),
+    }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(body, indent=1), encoding="utf-8", newline="\n")
     return body

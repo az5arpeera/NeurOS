@@ -1,4 +1,4 @@
-"""PhysioNet datasets: fast, publisher-verified downloads (PhysionetMI now, EEGMAT next).
+"""PhysioNet datasets: fast, publisher-verified downloads (PhysionetMI and EEGMAT).
 
 Day-1 finding: physionet.org served EEGMMIDB at ~100 KB/s (12 s per 1.2 MB file, ~5 h for
 PhysionetMI's 872 files). PhysioNet publishes the same files on its AWS Open Data mirror (bucket
@@ -8,8 +8,10 @@ So we download from the mirror and check every file against ``SHA256SUMS.txt`` f
 **physionet.org itself**: the mirror never has to be trusted, and unlike plain MOABB downloads
 (TLS checks off, no known hashes) every byte is verified against the publisher's checksums.
 
-Files are written exactly where MOABB stores them (computed with MOABB's own path functions),
-so MOABB later finds them locally and loads them without touching the network.
+Files of MOABB datasets are written exactly where MOABB stores them (computed with MOABB's own
+path functions), so MOABB later finds them locally and loads them without touching the network.
+Datasets MOABB doesn't serve (EEGMAT) go to ``<raw>/physionet-<project>-<version>/`` and are read
+by their own loader (``neuros.data.eegmat``).
 """
 
 from __future__ import annotations
@@ -46,7 +48,9 @@ class PhysioNetProject:
     dataset: str  # our registry key
     project: str  # PhysioNet slug, e.g. "eegmmidb"
     version: str
-    moabb_sign: str  # MOABB signifier: files live under <raw>/MNE-<sign>-data/
+    # MOABB signifier: files live under <raw>/MNE-<sign>-data/. None for datasets MOABB doesn't
+    # serve: their files live under <raw>/physionet-<project>-<version>/ (``local_destination``).
+    moabb_sign: str | None
     files_for_subject: Callable[[int], list[str]]
 
     def upstream_url(self, relpath: str) -> str:
@@ -63,10 +67,17 @@ def _physionet_mi_files(subject: int) -> list[str]:
     return [f"S{subject:03d}/S{subject:03d}R{run:02d}.edf" for run in runs]
 
 
+def _eegmat_files(subject: int) -> list[str]:
+    """EEGMAT's two recordings per person: ``_1`` background (rest), ``_2`` mental arithmetic.
+    Subjects are numbered 00-35 on PhysioNet (registry: 0-35)."""
+    return [f"Subject{subject:02d}_1.edf", f"Subject{subject:02d}_2.edf"]
+
+
 PHYSIONET_PROJECTS: dict[str, PhysioNetProject] = {
     "PhysionetMI": PhysioNetProject(
         "PhysionetMI", "eegmmidb", "1.0.0", "EEGBCI", _physionet_mi_files
     ),
+    "EEGMAT": PhysioNetProject("EEGMAT", "eegmat", "1.0.0", None, _eegmat_files),
 }
 
 
@@ -132,6 +143,15 @@ def moabb_destination(raw_dir: Path, sign: str, url: str) -> Path:
 
     root = raw_dir / f"MNE-{sign.lower()}-data"
     return Path(_sanitize_path(_normalize_destination(url, root)))
+
+
+def local_destination(raw_dir: Path, project: PhysioNetProject, relpath: str) -> Path:
+    """Where a project's file is stored: MOABB's layout for MOABB datasets, else our own."""
+    if project.moabb_sign is not None:
+        return moabb_destination(raw_dir, project.moabb_sign, project.upstream_url(relpath))
+    if relpath.startswith("/") or ".." in Path(relpath).parts:
+        raise NeurOSDataError(f"refusing an unsafe relative path {relpath!r}")
+    return raw_dir / f"physionet-{project.project}-{project.version}" / relpath
 
 
 def _sha256_file(path: Path) -> str:
@@ -212,9 +232,7 @@ def fetch_subjects(
                 raise NeurOSDataError(
                     f"{relpath} has no published checksum", DataContext(project.dataset, subject)
                 )
-            destination = moabb_destination(
-                raw_dir, project.moabb_sign, project.upstream_url(relpath)
-            )
+            destination = local_destination(raw_dir, project, relpath)
             jobs.append((project.mirror_url(relpath), destination, checksums[relpath]))
 
     verified: dict[str, str] = {}

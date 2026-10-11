@@ -141,9 +141,16 @@ def _is_pooled(path: Path) -> bool:
     return "train_datasets" in (yaml.safe_load(path.read_text(encoding="utf-8")) or {})
 
 
+def _is_state(path: Path) -> bool:
+    """State-channel (E6) configs declare channel arms instead of a model."""
+    import yaml
+
+    return "arms" in (yaml.safe_load(path.read_text(encoding="utf-8")) or {})
+
+
 @pytest.mark.parametrize(
     "path",
-    [p for p in _EXPERIMENT_FILES if not _is_pooled(p)],
+    [p for p in _EXPERIMENT_FILES if not _is_pooled(p) and not _is_state(p)],
     ids=lambda p: p.name,
 )
 def test_every_committed_experiment_is_valid(path: Path) -> None:
@@ -151,6 +158,16 @@ def test_every_committed_experiment_is_valid(path: Path) -> None:
     contract = apply_signal_overrides(SignalContract(), experiment.signal)
     pooled = experiment.model.pool1 * experiment.model.pool2
     assert contract.window_samples >= pooled  # EEGNet's pools need this many samples
+    assert experiment.name == path.stem  # results land in results/<name>/
+
+
+@pytest.mark.parametrize(
+    "path", [p for p in _EXPERIMENT_FILES if _is_state(p)], ids=lambda p: p.name
+)
+def test_committed_state_experiments_are_valid(path: Path) -> None:
+    from neuros.eval.state import load_state_config
+
+    experiment = load_state_config(path)
     assert experiment.name == path.stem  # results land in results/<name>/
 
 

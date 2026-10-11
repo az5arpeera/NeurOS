@@ -236,7 +236,8 @@ def cmd_validate(args: argparse.Namespace) -> int:
     provenance = stamp(config, dataset=spec.key)  # at the start: the code that runs
     vocab = default_vocabulary()
     prepare_mne_environment(config.data_dir)
-    dataset = loading_dataset(spec, config.data_dir)
+    # EEGMAT isn't a MOABB dataset: it has its own loader (neuros.data.eegmat).
+    dataset = loading_dataset(spec, config.data_dir) if spec.moabb_class is not None else None
     results: list[dict[str, object]] = []
     rows: list[list[str]] = []
     pool = spec.subjects if args.include_excluded else spec.usable_subjects
@@ -249,7 +250,12 @@ def cmd_validate(args: argparse.Namespace) -> int:
     require_downloaded(spec, _subjects(args, pool), config.data_dir)
     for subject in _subjects(args, pool):
         try:
-            recordings = harmonize_moabb_subject(spec, subject, vocab, dataset=dataset)
+            if dataset is None:
+                from neuros.data.eegmat import harmonize_eegmat_subject
+
+                recordings = harmonize_eegmat_subject(spec, subject, vocab, config.data_dir)
+            else:
+                recordings = harmonize_moabb_subject(spec, subject, vocab, dataset=dataset)
         except NeurOSError as exc:
             results.append(
                 {"dataset": spec.key, "subject": subject, "ok": False, "load_error": str(exc)}
@@ -2629,7 +2635,83 @@ def build_parser() -> argparse.ArgumentParser:
         help="recompute every recording instead of using the preprocessed cache (§4.5)",
     )
     p.set_defaults(func=cmd_e1)
+
+    p = sub.add_parser("e6", help="E6: rest vs mental effort across people (EEGMAT)")
+    p.add_argument("--experiment", default="configs/e6.yaml", help="E6 YAML")
+    p.add_argument("--split", default=str(DEFAULT_SPLIT_PATH), help="locked test set file")
+    p.add_argument("--out", default=None, help="result file (default: results/e6/<run>.json)")
+    p.add_argument(
+        "--max-people", type=int, default=None, help="only the first N people (smoke tests)"
+    )
+    p.set_defaults(func=cmd_e6)
     return parser
+
+
+def cmd_e6(args: argparse.Namespace) -> int:
+    """E6: rest vs mental effort across people (knowledge-base/plan/e6-state-channel.md)."""
+    import datetime as dt
+
+    from neuros.eval.state import load_state_config, run_e6
+    from neuros.provenance import file_sha256, stamp
+
+    config = _config(args)
+    experiment_path = Path(args.experiment)
+    split_path = Path(args.split)
+    experiment = load_state_config(experiment_path)
+    provenance = stamp(  # at the start: the code that runs
+        experiment,
+        experiment=experiment.name,
+        experiment_sha256=file_sha256(experiment_path),
+        split=str(split_path),
+        split_sha256=file_sha256(split_path),
+    )
+    body = run_e6(config, experiment, split_path=split_path, max_people=args.max_people)
+    complete = args.max_people is None
+    run = dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%SZ")
+    out = Path(args.out) if args.out else config.results_dir / "e6" / f"e6-{run}.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(
+        json.dumps({"provenance": _finished(provenance), "complete": complete, **body}, indent=1),
+        encoding="utf-8",
+        newline="\n",
+    )
+    checks = body["checks"]
+    print(
+        f"checks: theta/alpha present {checks['theta_alpha_present']} (median ratio "
+        f"{checks['spectrum_ratio_low_over_high']['median']:.1f}); rest/task parietal alpha "
+        f"{checks['eyes_alpha_rest_over_task']['median']:.2f} (eyes probably closed: "
+        f"{checks['eyes_probably_closed_at_rest']})"
+    )
+    if body["verdict"].get("outcome") == "STOPPED":
+        print(f"STOPPED: {body['verdict']['reason']}; result: {out}")
+        return 1
+    rows = []
+    for key, arms in body["main"].items():
+        model, condition = key.split("/")
+        for arm, summary in arms.items():
+            drift = body["drift_control"][model][arm] if condition == "baseline" else None
+            rows.append(
+                [
+                    key,
+                    arm,
+                    f"{summary['mean'] * 100:.1f}",
+                    f"{summary['people_at_or_above']}/{summary['n_people']}",
+                    f"{summary['wilcoxon_p_vs_50']:.2g}",
+                    f"{summary['mean_auroc']:.3f}" if summary["mean_auroc"] is not None else "-",
+                    f"{drift['mean'] * 100:.1f}" if drift else "-",
+                ]
+            )
+    header = ["model/condition", "arm", "mean %", ">= 60%", "p vs 50%", "AUROC", "drift %"]
+    print(_table(rows, header))
+    late = body["late_rest_control"]
+    print(
+        f"primary model: {body['primary_model']}; late-rest control (report only): "
+        + ", ".join(f"arm {arm} {late[arm]['mean'] * 100:.1f}%" for arm in late if arm != "model")
+    )
+    for name, judged in body["verdict"].items():
+        print(f"VERDICT {name}: {judged['outcome']} {judged['checks']}")
+    print(f"result: {out}{'' if complete else ' (smoke run: incomplete)'}")
+    return 0
 
 
 def _utf8_output() -> None:

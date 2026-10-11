@@ -154,3 +154,29 @@ def test_fetch_subjects_reports_all_failures(
     sums = {"S001/a.edf": SHA, "S002/a.edf": SHA}
     with pytest.raises(NeurOSDataError, match="2 of 2 downloads failed"):
         fetch_subjects(_project(), [1, 2], tmp_path, sums=sums)
+
+
+def test_eegmat_files_and_local_destination(tmp_path: Path) -> None:
+    project = PHYSIONET_PROJECTS["EEGMAT"]
+    assert project.moabb_sign is None
+    assert project.files_for_subject(7) == ["Subject07_1.edf", "Subject07_2.edf"]
+    destination = physionet.local_destination(tmp_path, project, "Subject07_1.edf")
+    assert destination == tmp_path / "physionet-eegmat-1.0.0" / "Subject07_1.edf"
+
+
+@pytest.mark.parametrize("relpath", ["../escape.edf", "/abs.edf"])
+def test_local_destination_refuses_unsafe_paths(tmp_path: Path, relpath: str) -> None:
+    with pytest.raises(NeurOSDataError, match="unsafe"):
+        physionet.local_destination(tmp_path, PHYSIONET_PROJECTS["EEGMAT"], relpath)
+
+
+def test_fetch_subjects_without_moabb_layout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(physionet, "_open", lambda url: _Response(PAYLOAD))
+    sums = {"Subject00_1.edf": SHA, "Subject00_2.edf": SHA}
+    verified = fetch_subjects(PHYSIONET_PROJECTS["EEGMAT"], [0], tmp_path, sums=sums)
+    assert verified == {
+        "physionet-eegmat-1.0.0/Subject00_1.edf": SHA,
+        "physionet-eegmat-1.0.0/Subject00_2.edf": SHA,
+    }
