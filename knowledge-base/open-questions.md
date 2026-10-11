@@ -11,6 +11,26 @@ Priority: 🔴 blocking · 🟠 this week · 🟡 can wait until after the MVP.
 
 ## 🟠 This week (added 9 Oct)
 
+### Q32. Does the name "NeurOS" survive a trademark check? (added 11 Oct) 🔴 before the application names the company
+**What we found** (USPTO records read on 11 Oct through TSDR; a quick search, **not a legal clearance**):
+
+| Mark | Owner | Status | Goods and services | How close |
+|---|---|---|---|---|
+| **NEUOS** ([reg. 6719026](https://tsdr.uspto.gov/statusview/sn87551964)) | Arctop, Inc. ([competitors](business/competitors.md#arctop)) | **Registered 3 May 2022, live** | **Class 9:** software for "detecting, measuring and interpreting" electrical parameters, identifying and authenticating users, and "**controlling software programs and devices**". **Class 42:** SaaS including "brain-activity-based profiling". **Class 45:** authentication services | **Highest risk.** One letter apart, sounds alike, and the same kind of goods (brain-signal software that controls devices) |
+| **NEUROS** ([reg. 7235956](https://tsdr.uspto.gov/statusview/sn97657556), and stylized [reg. 7724724](https://tsdr.uspto.gov/statusview/sn97661246)) | Neuros Medical, Inc. | **Registered 5 Dec 2023 and 11 Mar 2025, live** | **Class 10:** neurostimulation medical devices (chronic pain, motor control, spasticity) | **Medium.** Identical letters in a related field (neurotechnology); different goods (a medical device, not software). The risk grows if NeurOS pitches medical or patient uses |
+| NEUROS (reg. 2944404) | (digital audio players) | Cancelled 2011 | Class 9 audio players and software | None (dead) |
+| NEUROS (serial 87371021) | (transdermal nerve stimulator) | Abandoned 2018 | — | None (dead) |
+| **NeeuroOS** | Neeuro Pte Ltd (Singapore; an A*STAR spin-off) | No US record found; Singapore not checked | An AI platform analysing brain signals from its own headband, open to third-party developers ("NeeuroOS Agent Studio") | **Worth checking.** Close spelling and the same business: a brain-signal platform for developers |
+
+**Why it matters now:** the YC application names the company. Renaming before the application, the domain, the SDK's package name and the first customers is cheap. Renaming after is expensive, and Arctop has the registration to object with.
+
+**Recommendation:**
+1. **Get a clearance opinion from a trademark attorney this week**: US, plus Singapore and the EU/UK if we'll sell there. Ask specifically about NEUOS (Class 9/42) and NEUROS (Class 10).
+2. **In parallel, shortlist 3–5 backup names** and run the same quick check on each (USPTO, plus a domain and the package names on PyPI and npm). The code's internal package name (`neuros`) can stay until a new name is chosen.
+3. **If the opinion is "risky", rename before submitting.** A YC application under a new name is normal; one that must be renamed after a demand letter isn't.
+
+**Not legal advice.** This is a first screen of public records; only an attorney's search and opinion can clear the name.
+
 ### Q28. D-031's gate (≈ 16 Oct): does the application still lead with time-to-usable intent?
 **What E2 found** ([results](results/2026-10-09-e2-warmup-curve.md)):
 - The warm-up works. Two minutes of unlabeled EEG close 52–65% of the gap to full-session alignment on all three cue-free datasets.

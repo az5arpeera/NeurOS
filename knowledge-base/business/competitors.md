@@ -139,9 +139,9 @@
 - **The investor risk is real now:** a YC partner may ask "isn't this Arctop?". The one-sentence answer: Arctop reads mental-state scores out of its own cloud; NeurOS is an engine developers embed, turning any headset's EEG into commands on the user's machine, with zero calibration measured in published, cue-controlled tests.
 - **Adjacent on the signal:** they decode passive states; we decode commands.
 - **Where we're different:** commands (they have none), local processing, measured zero-calibration and published cue-controlled evidence.
-- **Naming risk:** their former platform name, **Neuos**, is close to **NeurOS**, in the same field.
-  - A quick search found no trademark record for either name.
-  - The founders should run a proper trademark search before the name goes into the application.
+- **Naming risk:** their mark **NEUOS** is one letter from **NeurOS**, in the same field, and it is a **live US registration** (USPTO reg. 6719026, 3 May 2022, Arctop, Inc.).
+  - It covers Class 9 software that includes "controlling software programs and devices", plus Class 42 "brain-activity-based profiling" and Class 45 authentication.
+  - See [Q32](../open-questions.md) for the whole search and the founders' decision.
 
 ## Synaptrix Labs
 **What they are:**
