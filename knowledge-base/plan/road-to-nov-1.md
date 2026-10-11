@@ -2,6 +2,7 @@
 
 **v1 · 2026-10-02 (Fri).**
 - **Deadline:** the YC W27 application is due **Sun 1 Nov 2026** (D-001). We aim to submit by **Fri 30 Oct**, keeping the weekend as buffer. Check YC's posted deadline time.
+  - **Checked 11 Oct:** YC's apply page gives **Mon 2 Nov 2026, 8:00 PM PT**, with decisions by 11 Dec (D-041). The Fri 30 Oct target stays.
 - **Coding starts Sat 3 Oct** (D-021).
 - **All resources go to three tracks** (D-018): the MVP, business value / market fit, and the application.
 
@@ -239,6 +240,16 @@ Claude Code pairs on all engineering. **Founders send all outreach;** Claude dra
 **Never cut:** E0, E1, E2, the engine + simulator, the live demo, the interviews, and since D-031 (4 Oct) one validated mental state (E6, kept small).
 
 **Parked for after 1 Nov:** the [post-YC research agenda](post-yc-research-agenda.md) (getting reliable control to nearly everyone on 3–4 electrodes). Nothing in it runs before the deadline.
+
+**11 Oct ([D-041](../decisions/decision-log.md)):**
+- E3, E4 (with E4-zs), S1–S4, the text-anchored head and SSVEP insurance are cut from the sprint and parked as experiments in the post-YC agenda.
+- **Remaining sprint, in order:**
+  1. **E6:** [bar set 11 Oct](e6-state-channel.md); waiting for approval to run.
+  2. **The application:** [draft v1](../yc/application-draft-v1.md).
+  3. **The demo stage view.**
+  4. **E7 and E5.**
+  5. **Pilot sessions.**
+  6. **The freeze scripts.**
 
 ## What YC will want to see (track weekly)
 | Metric | Target by 30 Oct |

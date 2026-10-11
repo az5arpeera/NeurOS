@@ -206,6 +206,18 @@ On a 4-electrode headset, after 60 s of unlabeled use, **≥ 90% of people have 
 | 9, 11, 12 | Public error-potential, P300 and drowsiness or workload datasets: downloads, ask first |
 | 10 | Real participants, consent, our headset |
 
+## Experiments cut from the YC sprint
+Parked by [D-041](../decisions/decision-log.md) (11 Oct). These were in the architecture's experiment table (§8) and aren't dropped. Each still needs its decision and bar written before it runs.
+
+| Experiment | Question | Where it fits now |
+|---|---|---|
+| **E3:** test-time adaptation on replay (AdaBN, entropy minimisation; E3b domain-specific batch norm) | Does unsupervised adaptation during use lift accuracy beyond E2's alignment warm-up? | Part 2's "labels from use" stage: a cheaper cousin of experiment 9. Watch for the overconfidence the calibration replay showed |
+| **E4:** heads (linear vs text-anchored, the P-1 rule) and the SupCon λ sweep | Does a language-anchored head or contrastive training help cross-person accuracy? | Model-side; D-039 suggests small gains at best. Run after Stage 1 says whether the ceiling is real |
+| **E4-zs:** hold out "feet" entirely | Can the text head recognise a command it never trained on? | The long-term "name your own commands" claim (claims audit row 8). Report either way |
+| **S1–S4:** DANN, Deep CORAL, RA vs EA, ShallowConvNet | Do adversarial or moment-matching alignment, Riemannian alignment, or another backbone beat EA + EEGNet? | Comparison rows for a paper; low expected product impact |
+| **The text-anchored head** | Ship-ready naming of intents by text | Ships only if E4 passes the P-1 rule |
+| **SSVEP demo insurance** | A calibration-free flicker mode as a fallback demo | Becomes Part 1's lever 1 (the evoked fallback). Needs an SSVEP dataset download and a photosensitivity warning |
+
 ## Sources
 All search-result level unless marked. Read the full text before citing a number externally.
 - **Implants and speech decoding:**

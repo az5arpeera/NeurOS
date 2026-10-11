@@ -4,6 +4,7 @@ Newest first. Format: **ID · date · decision** — why · who. Superseded deci
 
 ## Decided
 
+- **D-041 · 2026-10-11 · Sprint scope: E3, E4 (incl. E4-zs), S1–S4, the text-anchored head and the SSVEP insurance demo leave the pre-deadline sprint and become parked experiments** ([post-YC agenda](../plan/post-yc-research-agenda.md#experiments-cut-from-the-yc-sprint)). Why: D-039 showed that model changes don't move cue-free accuracy, so the remaining 13 days to the 24 Oct freeze go to E6 (never cut), E7, E5, the demo, the application and interviews. Also recorded: YC's apply page gives the W27 deadline as **Mon 2 Nov, 8:00 PM PT** (D-001 said 1 Nov); the Fri 30 Oct submission target stays. · Founder ("the cut stuff could be experiments"; Claude's recommendation)
 - **D-040 · 2026-10-10 · The headline becomes "calibration saved": NeurOS works from minute zero, and about 3 minutes of calibration on top of it comes within 1–3 points of a 10–13-minute conventional calibration.** Amends D-009's "no calibration task": zero calibration stays the default, and a short calibration becomes the honest way to the higher number. · Founder (accepted recommendation, "approximately there")
   - **Evidence** ([Q30 results](../results/2026-10-10-q30-finetune-q31-fit-check.md); development people, offline):
     - Yang2025 (41 people): 59.8% vs 60.5% (−0.7, 95% CI −2.7 to +1.2).
