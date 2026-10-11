@@ -46,6 +46,8 @@
 
 | ID | Decision | Bar | Waiting for | Plan |
 |---|---|---|---|---|
+| A5 | Do we build per-person frequency alignment into the model before the freeze? | Aligned minus fixed bands ≥ +2.0 points over 50 cue-free people, p < 0.05, no dataset below 0 | Code, then an AWS start (founders) | [plan](plan/a5-frequency-alignment.md) |
+| A4 | Which four electrodes go on the Ganglion (and to partners) for commands and states? | On the confirmation half: states ≥ today's + 5 points (p < 0.05) and commands ≥ today's − 1 point | Code, then an AWS start (founders) | [plan](plan/a4-four-electrodes.md) |
 | Headset self-test | Is the YC demo video a live headset session or a labelled replay? | At least one founder: ≥ 70% of answered doors right (p < 0.05), with at least half the doors answered | The founders' session on the Ganglion, and their call on which doors the bar scores (zero calibration recommended) | [plan](plan/headset-self-test.md) |
 
 ## In the sprint, bar not yet written (before the 24 Oct freeze)
@@ -55,8 +57,6 @@
 | E7 | How many false commands per minute when someone isn't trying (other imagery, mental arithmetic)? Do 5 commands work as well as 3? | Backs "it doesn't fire randomly" in the demo and the application | In hand |
 | E5 | Virtual headsets: the frozen model on only the channels a given headset has (Ganglion, Unicorn, Crown, 3-channel) | Which hardware we can honestly say we support | In hand |
 | Freeze runs | The locked test set, 10-fold and leave-one-dataset-out, on the frozen recipe (24 Oct) | The only numbers allowed into the application | In hand |
-| Agenda experiment 5 | Frequency normalisation: align each person's rhythm peaks before the model | Could lift command accuracy. To count, it must pass before the freeze | In hand, CPU |
-| Agenda experiment 4 | The best four electrodes for commands *and* mental states | E6 showed states live over the front and back of the head, commands over the motor strip | In hand |
 
 ## Parked (D-041: after the deadline)
 

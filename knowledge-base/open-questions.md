@@ -32,6 +32,8 @@ Priority: 🔴 blocking · 🟠 this week · 🟡 can wait until after the MVP.
 **Not legal advice.** This is a first screen of public records; only an attorney's search and opinion can clear the name.
 
 ### Q28. D-031's gate (≈ 16 Oct): does the application still lead with time-to-usable intent?
+**Answered 11 Oct → [D-042](decisions/decision-log.md):** lead with "calibration saved" plus the rigour story; the ambitious goal (zero calibration for everyone, any headset, commands and states) stays the stated mission, never a claimed result.
+
 **What E2 found** ([results](results/2026-10-09-e2-warmup-curve.md)):
 - The warm-up works. Two minutes of unlabeled EEG close 52–65% of the gap to full-session alignment on all three cue-free datasets.
 - **The level is too low to call usable.**

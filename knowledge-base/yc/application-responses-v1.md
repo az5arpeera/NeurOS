@@ -12,7 +12,7 @@
 - **The company name:**
   - The portal draft says **"NuerOS"**; the repo and every document say **NeurOS**. Is the spelling intentional?
   - Either way, Q32 still applies: Arctop's live NEUOS mark is one letter from both. Settle the name before filming the video.
-- **Q28, the lead:** these answers lead with "calibration saved" plus rigour.
+- **Q28, the lead (decided 11 Oct, [D-042](../decisions/decision-log.md)):** these answers lead with "calibration saved" plus rigour. The ambitious goal (zero calibration for everyone, any headset, commands and states) is stated as the mission, never as a result.
   - E6 failed its bar ([results](../results/2026-10-11-e6-state-channel.md)), so no answer claims a validated mental state.
   - Mental states appear only as what we're working on next.
 
@@ -59,7 +59,7 @@
 **Link to the product / login credentials:** [GitHub or docs link if we open a developer preview; otherwise leave blank.]
 
 **What is your company going to make? Please describe your product and what it does or will do.**
-> We're building the software that lets apps read brain signals from any EEG headset, with no setup session. Today a brain-computer interface makes every new user sit through 10–15 minutes of training trials before it works, and every headset maker writes its own decoding software from scratch. NeurOS is one model trained on hundreds of people. It works from the first minute and adapts quietly while you use it. Developers add it with a few lines of Python or JavaScript, test against real recorded brains in our simulator, and ship. It runs on the user's own computer, so brain data doesn't have to leave it. We start with commands (left, right, and "hold" when it isn't sure) and are adding mental states such as rest vs focused effort.
+> We're building the software that lets apps read brain signals from any EEG headset, with no setup session. Today a brain-computer interface makes every new user sit through 10–15 minutes of training trials before it works, and every headset maker writes its own decoding software from scratch. NeurOS is one model trained on hundreds of people. It works from the first minute and adapts quietly while you use it. Developers add it with a few lines of Python or JavaScript, test against real recorded brains in our simulator, and ship. It runs on the user's own computer, so brain data doesn't have to leave it. We start with commands (left, right, and "hold" when it isn't sure) and are adding mental states such as rest vs focused effort. The goal: a brain interface that works for anyone, on any headset, the moment they put it on.
 >
 > On 73 people it had never seen, from three datasets with no cue on screen, two minutes of ordinary use matched what 5–20 labelled training trials give ‡. A 3-minute calibration on top came within 1–3 points of a full 10–13-minute session ‡.
 
