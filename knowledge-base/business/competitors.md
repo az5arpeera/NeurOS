@@ -13,7 +13,7 @@
 |---|---|---|---|---|
 | **Zander Labs** (NL/DE) | A platform that reads **mental states** (workload, focus, error, surprise, stress, "intent") and makes software and AI react to them. B2B building block, plus professional services | Scalp EEG on **their own hardware**: the Zypher EEG patch, a 24-channel mini amplifier, a classification chip | Building **"universal classifiers"** that work for any person, headset and environment, with no individual calibration. Collecting 4,000 people's datasets (1,000 done in 2025). **Jan 2026: an integrated "plug-and-play" demo** (cognitive load adapts a UI, decoded locally). Still no published accuracy | **Direct competitor on our core thesis** (calibration-free, any person, any headset) and on our brain-state channel. **Adjacent** on intent commands |
 | **Synaptrix Labs** (NYC) | A **medical device**: brain-controlled wheelchairs for people with paralysis, via the FDA route. Also licenses artefact-removal AI to an EEG maker | Scalp EEG on **their own hardware**: the registered device uses 4 dry sensors over the visual cortex; new "Portal" hardware is high-density over the motor cortex | Per-user personalisation in the cloud; third-party articles say "minimal recalibration". **No zero-calibration claim** | **Adjacent:** one clinical application on their own hardware. Overlaps on deep-learning EEG decoding, aggregating public datasets, and licensing software to hardware makers |
-| **Arctop** (San Francisco) | **"An API for the human inside"**: software that decodes mental states (cognitive load, attention, enjoyment, sleep) from EEG in everyday wearables. A self-serve developer API, custom classifiers, its own app, and an EEG-adaptive AI agent | **No hardware of its own.** Names Master & Dynamic's MW75 Neuro headphones (12 channels, 500 Hz). Decodes in **its cloud** | **No calibration claim** on its site; no published accuracy | **Direct competitor on the business model** (the layer between headsets and apps, sold to developers). **Adjacent on signal:** passive states, not commands |
+| **Arctop** (San Francisco) | **"An API for the human inside"**: software that decodes mental states (cognitive load, attention, enjoyment, sleep) from EEG in everyday wearables. A self-serve developer API, custom classifiers, its own app, and an EEG-adaptive AI agent | **No hardware of its own.** Names Master & Dynamic's MW75 Neuro headphones (12 channels, 500 Hz). Decodes in **its cloud** | **No calibration claim** on its site; no published accuracy | **Adjacent today, closest to us in framing** ("the layer between headsets and apps"). Its developer API only *reads* scores from Arctop's own cloud platform: no EEG in, no raw EEG out, no commands. **Direct if** it opens data ingestion or an on-device SDK |
 | **Neuralink** | Brain implants | Intracortical spikes | Per-person pretraining; zero-shot is a stated, unsolved goal ([note](../research/papers/2026-neuralink-pretraining-50000-hours.md)) | **Different market** (surgery). Validates the problem |
 
 ## Zander Labs
@@ -79,7 +79,20 @@
 - **The CEO's framing is ours:** Arctop works on "the intelligence layer between brain-sensing hardware and the applications built on top of it." Its tagline is "An API for the human inside", and it says it "does not make hardware."
 
 **Products** ([site](https://www.arctop.com)):
-- **Arctop API:** a public developer API with self-serve keys ([docs](https://docs.arctop.com)). Apps on connected devices read decoded scores in real time.
+- **Arctop Developer API** ([full reference](https://docs.arctop.com/api/dev/v1/docs), read 11 Oct; it says it is complete):
+  - **What it is:** read access to the user's own recordings on Arctop's platform (or a developer group's members'):
+    - session lists;
+    - per-paradigm **score CSVs**;
+    - marker events;
+    - a live WebSocket that relays the scores (`capability_output`) of paradigms already running.
+  - **The only write:** stamping markers (e.g. `stimulus:face-07`) into live recordings. That's an experiment tool, with group keys and an audit trail for teams running studies.
+  - **What it is not:**
+    - **no endpoint accepts EEG**, so a developer can't bring their own headset or data;
+    - **raw EEG isn't available** ("Raw EEG is not reachable through this API");
+    - **a developer can't start a decoder or choose a paradigm:** the socket "never starts the streamer and never activates a paradigm";
+    - **no commands.**
+  - **Server-side only:** the key must travel in an `Authorization` header, which browsers can't set on a WebSocket. A web app needs its own backend relay.
+  - **Every end user must be an Arctop user streaming to Arctop's cloud** (one streamer per user), so the developer doesn't own the decoding or the data path.
 - **Custom classifiers** for partners: states a study can define and measure.
 - **The Arctop app** on Master & Dynamic's MW75 Neuro headphones, measuring cognitive load live. The headphones themselves were built with Neurable (see below).
 - **Isaac:** an EEG-adaptive conversation agent in the app.
@@ -114,10 +127,16 @@
 | Hardware | Supported wearables (one named) | Any headset streaming over LSL or BrainFlow, including open boards |
 | Calibration | No claim | Zero calibration by default, adapting from normal use; measured |
 | Evidence | Company white papers, one preprint | Cue-controlled results on ~380 public-data people, with bars set before each run |
-| Ships to developers | API keys | Open SDK (Python, JavaScript) and a simulator that replays real datasets |
+| Ships to developers | Read-only API keys for scores already on Arctop's platform; server-side only | An embeddable engine plus an open SDK (Python, JavaScript; browser-ready) and a simulator that replays real datasets |
+| Developer's own headset or data | Not accepted | Any headset's stream is the input |
 
 **Verdict:**
-- **Direct competitor on the business model.** They already sell what our thesis describes: a self-serve brain-decoding API with no hardware of its own. They're seven years in, with a Series A and defence contracts.
+- **Adjacent today, closest to us in framing** (revised 11 Oct after reading the full API reference).
+  - The "intelligence layer" pitch and the tagline are ours.
+  - The product is a cloud analytics platform with read-only data access: built for research and enterprise teams running studies, not an engine a developer embeds in an app with its own users and headset.
+  - They're seven years in, with a Series A and defence contracts.
+- **What would make them direct:** an EEG ingestion endpoint or an on-device SDK that runs on third-party headsets, and command outputs. Watch their API reference: its version prefix (`/api/dev/v1`) changes on breaking changes.
+- **The investor risk is real now:** a YC partner may ask "isn't this Arctop?". The one-sentence answer: Arctop reads mental-state scores out of its own cloud; NeurOS is an engine developers embed, turning any headset's EEG into commands on the user's machine, with zero calibration measured in published, cue-controlled tests.
 - **Adjacent on the signal:** they decode passive states; we decode commands.
 - **Where we're different:** commands (they have none), local processing, measured zero-calibration and published cue-controlled evidence.
 - **Naming risk:** their former platform name, **Neuos**, is close to **NeurOS**, in the same field.
@@ -165,14 +184,14 @@
    - Our honest edges:
      - **active intent for developers** (they do passive states for enterprises);
      - **any headset, including the cheap open ones,** versus their own hardware;
-     - **an open developer SDK and simulator** versus professional services. (A self-serve API alone is no longer an edge: Arctop has one.)
+     - **an open developer SDK and simulator** versus professional services. (Arctop also has self-serve keys, but only to read scores from its own cloud. The edge is the embeddable engine that takes any headset's data.)
      - **published, protocol-controlled evidence** (public data, leave-one-dataset-out, and the cue-artefact controls we just added) versus claims without published numbers;
      - **adaptation in seconds** (L1) rather than betting everything on one universal model.
 2. **The brain-state channel overlaps Zander's core.** Lead with intent and ship one validated state (rest vs mental effort) as the second channel; no parity claim (D-031, 4 Oct).
 3. **Investor appetite is real:** Mark Cuban backing Synaptrix, the €30M contract for Zander. Both are "why now" evidence.
 4. **Hardware makers do buy EEG software** (Synaptrix → IDUN). That supports our B2B channel. IDUN is on our backup contact list; it may already have a software partner.
 5. **"They'll lock down their ecosystems, we're open" doesn't hold as stated** (checked 11 Oct).
-   - Zander calls its technology a building block for partners, and Arctop already sells an open developer API without hardware.
+   - Zander calls its technology a building block for partners. Arctop has no hardware and a self-serve developer API, though that API only reads scores from Arctop's own cloud platform.
    - **The edge has to be specific:**
      - commands, not only states;
      - any headset, including cheap open boards;
