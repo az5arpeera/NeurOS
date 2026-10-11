@@ -1151,13 +1151,42 @@ def cmd_run(args: argparse.Namespace) -> int:
             details = f" {dict(event.details)}" if event.details else ""
             print(f"[{event.t:10.1f}] calibration {event.phase}: {event.message}{details}")
 
+    recorder = None
+    if args.record is not None:  # the session's evidence: raw EEG, events, the app's markers
+        from neuros.engine.recorder import SessionRecorder
+
+        recorder = SessionRecorder(
+            Path(args.record),
+            channels=channels,
+            sfreq=source.sfreq,
+            source=describe_source(source),
+            details={
+                "bundle": str(args.bundle),
+                "bundle_provenance": {
+                    k: v
+                    for k, v in bundle.provenance.items()
+                    if k not in ("train_people", "validation_people")
+                },
+                "headset": args.headset,
+                "threshold": args.threshold,
+            },
+        )
+        print(f"recording the session to {args.record}", flush=True)
+
     async def main() -> None:
-        hub = EventHub(list(engine.config.policy.commands.values()), requests=REQUESTS)
+        requests = (*REQUESTS, "mark") if recorder is not None else REQUESTS
+        hub = EventHub(list(engine.config.policy.commands.values()), requests=requests)
         server = await start_server(hub, port=args.port)
         print(f"intents on ws://127.0.0.1:{args.port}; demo page: http://127.0.0.1:{args.port}/")
         try:
             await run_live(
-                source, engine, hub=hub, seconds=args.seconds, on_event=show, calibrator=calibrator
+                source,
+                engine,
+                hub=hub,
+                seconds=args.seconds,
+                on_event=show,
+                calibrator=calibrator,
+                recorder=recorder,
             )
         finally:
             server.close()
@@ -1167,6 +1196,47 @@ def cmd_run(args: argparse.Namespace) -> int:
         asyncio.run(main())
     except KeyboardInterrupt:
         print("stopped")
+    finally:
+        if recorder is not None:  # also when the server never started (closing is idempotent)
+            recorder.close()
+            print(f"session saved: {args.record} ({recorder.n_samples} samples)")
+    return 0
+
+
+def cmd_session(args: argparse.Namespace) -> int:
+    """Summarise a recorded headset session (``neuros run --record``): what was saved, and the
+    door game recomputed from the saved markers and intents, per calibration level."""
+    from neuros.engine.recorder import door_scores, load_session
+
+    session = load_session(Path(args.folder))
+    meta = session.meta
+    seconds = session.data.shape[1] / session.sfreq
+    print(
+        f"{args.folder}: {meta.get('source')}; {len(session.channels)} channels "
+        f"{list(session.channels)} at {session.sfreq:g} Hz; {seconds / 60:.1f} min; "
+        f"{len(session.events)} events; {len(session.markers())} door markers"
+    )
+    print(f"started {meta.get('started_utc')}, ended {meta.get('ended_utc') or 'not cleanly'}")
+    scores = door_scores(session)
+    if not scores:
+        print("no door markers: nothing to score")
+        return 0
+    rows = [
+        [
+            s.level,
+            str(s.doors),
+            str(s.right),
+            str(s.wrong),
+            str(s.held),
+            f"{s.accuracy * 100:.1f}%",
+            f"{s.answered_fraction * 100:.0f}%",
+            f"{s.p_value():.3g}",
+        ]
+        for s in scores.values()
+    ]
+    header = ["level", "doors", "right", "wrong", "held", "right of answered", "answered", "p"]
+    print(_table(rows, header))
+    print("p: one-sided binomial test of the answered doors against 50%.")
     return 0
 
 
@@ -2432,6 +2502,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--seconds", type=float, default=None, help="stop after this long")
     p.add_argument(
+        "--record",
+        default=None,
+        metavar="DIR",
+        help="save the session (raw EEG, every event, the app's markers) to a new folder, "
+        "e.g. sessions/2026-10-12-founder-a (local only, git-ignored)",
+    )
+    p.add_argument(
         "--calibration-trials",
         type=int,
         default=10,
@@ -2443,6 +2520,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="the fine-tuning recipe: an experiment YAML with a finetune section (Q30's)",
     )
     p.set_defaults(func=cmd_run)
+
+    p = sub.add_parser(
+        "session", help="summarise a recorded headset session and score its door game"
+    )
+    p.add_argument("folder", help="a folder written by `neuros run --record`")
+    p.set_defaults(func=cmd_session)
 
     p = sub.add_parser("audit", help="cue-contamination audit of a cued dataset (D-030)")
     p.add_argument("--dataset", required=True)

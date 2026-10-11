@@ -13,7 +13,9 @@ The server never blocks the engine: a slow or vanished app is dropped, not waite
 **Requests from apps.** An app may send ``{"type": "request", "request": NAME}`` (optionally
 with ``"schema": "neuros.intent.v0"``), where NAME is one the hub advertised in ``hello``
 (``requests``): with the guided calibration (D-040), ``calibrate``, ``cancel_calibration``
-and ``reset_calibration``. Requests are queued for the engine's loop (``take_requests``);
+and ``reset_calibration``; when the session is recorded, ``mark`` with a ``"label"`` among
+the commands (e.g. the door a game asked for, saved with the session as ground truth).
+Requests are queued for the engine's loop (``take_requests``);
 anything else (not JSON, too long, unknown, more than ``MAX_PENDING_REQUESTS`` waiting) is
 logged and ignored, never answered with an error that could stall the app.
 
@@ -31,6 +33,7 @@ import ipaddress
 import json
 import logging
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -54,6 +57,14 @@ DEFAULT_STATIC_DIR = Path(__file__).resolve().parents[3] / "clients" / "js"
 MAX_REQUEST_CHARS = 1024
 MAX_PENDING_REQUESTS = 16
 NOT_FOUND = b"not found\n"
+
+
+@dataclass(frozen=True)
+class Request:
+    """An app's request; ``label`` only for ``mark``."""
+
+    name: str
+    label: str | None = None
 
 
 def check_host(host: str, *, allow_remote: bool) -> None:
@@ -87,7 +98,7 @@ class EventHub:
         """
         self.commands = tuple(commands)
         self.requests = tuple(requests)
-        self._pending: list[str] = []
+        self._pending: list[Request] = []
         self._clients: set[Any] = set()
         self._state: str = "disconnected"
         self.sent = 0
@@ -145,13 +156,19 @@ class EventHub:
         if name not in self.requests:
             log.info("ignoring request %r (this engine accepts %s)", name, list(self.requests))
             return False
+        label = None
+        if name == "mark":
+            label = request.get("label")
+            if label not in self.commands:
+                log.info("ignoring a mark whose label %r isn't a command", label)
+                return False
         if len(self._pending) >= MAX_PENDING_REQUESTS:
             log.warning("ignoring request %r: %d already waiting", name, len(self._pending))
             return False
-        self._pending.append(str(name))
+        self._pending.append(Request(str(name), label))
         return True
 
-    def take_requests(self) -> list[str]:
+    def take_requests(self) -> list[Request]:
         """The queued requests, oldest first (the queue is emptied)."""
         taken, self._pending = self._pending, []
         return taken

@@ -299,6 +299,9 @@ The runtime is PyTorch on CPU, because test-time adaptation needs gradients.
 - When `command` is `"HOLD"`, `hold_reason` is one of `low_confidence | unrecognized | motion | muscle | flat | saturated | signal_gap | warmup | adaptation_reset`.
 - `probs` lists the enabled commands; decoy probabilities appear under `"other"`.
 - A separate `status` event reports engine state changes.
+- **As built (10 Oct):** `calibration.level` is null with zero calibration, or `"quick"` after the guided calibration.
+  - `calibration` events carry its steps for the app to draw: `started`; per trial `ready`, `cue` (with `command`), `imagine`, `rest`; then `training` and `done` or `failed`.
+  - Apps may send `{"type": "request", "request": "calibrate" | "cancel_calibration" | "reset_calibration"}`; the engine lists what it accepts in `hello.requests`.
 
 ### 7.4 Simulator ("virtual headset")
 **What it does:**
@@ -329,6 +332,13 @@ JavaScript: `new NeurOSClient("ws://localhost:8765").on("intent", e => ...)` (D-
   - `neuros simulate --bundle B --dataset D --subject N [--speed 1 --serve | --lsl-out NAME]` replays a session. It refuses locked-test people, and people who trained the bundle unless `--allow-seen`.
   - `neuros run --bundle B (--brainflow GANGLION_BOARD --headset ganglion | --lsl [NAME])` runs the live engine.
 - **Clients:** `clients/js/neuros-client.js` has no dependencies and reconnects by itself. `neuros.client.intents()` is the Python async client.
+- **Guided calibration (D-040, `neuros.engine.calibration`):** optional, about 3 minutes.
+  - **Trials:** 20 (10 per hand, seeded order, at most 2 of a hand in a row): ready 1.5 s, arrow 1 s, imagine 4 s, rest 1.5–2.5 s. The window is labelled 1.25–3.25 s after the cue, on the engine's own clock.
+  - **Gate:** at least 8 of 10 trials per hand must be usable, or the calibration fails and zero calibration stays.
+  - **Fine-tune:** aligned with the live reference; a copy of the model is fine-tuned with Q30's recipe (`configs/e2_finetune.yaml`; about 1 s on a laptop CPU).
+  - **Switch:** a model that predicts one class for every trial is refused; otherwise the engine switches (`set_decoder`, the policy restarts). `reset` returns to the bundle's model.
+  - **Commands:** `neuros run` offers it to apps. `neuros simulate --serve` offers it on a replay, using the recording's own trials. `neuros simulate --calibrate` scores a zero-calibration arm against a quick-calibration arm.
+  - **Not saved to disk:** carry-over to another day is untested.
 - **Headsets:**
   - **Ganglion profile** (D-025): C3, Cz, C4, Pz, so the model sees C3/Cz/C4. That's Shin2017A's profile, whose zero-calibration numbers (57% after 2 min, 62% over a full session) are the closest preview of the demo.
   - **Muse:** has no motor-strip channels (TP9, AF7, AF8, TP10), so motor imagery can't run on a Muse at all.

@@ -28,25 +28,35 @@ from neuros.errors import NeurOSConfigError
 
 if TYPE_CHECKING:
     from neuros.engine.calibration import Calibrator
+    from neuros.engine.recorder import SessionRecorder
 
 # HOLD reasons whose probabilities still say where the model leans (the window was decoded).
 _DECODED_HOLDS = ("low_confidence", "unrecognized")
 
 
 def _calibration_events(
-    calibrator: Calibrator | None, hub: EventHub | None, engine: Engine
+    calibrator: Calibrator | None,
+    hub: EventHub | None,
+    engine: Engine,
+    recorder: SessionRecorder | None = None,
 ) -> list[Event]:
-    """The calibrator's due events, after handling any app requests (in arrival order)."""
-    if calibrator is None:
-        if hub is not None:
-            hub.take_requests()  # nothing can act on them (the hub didn't advertise any)
-        return []
+    """Handle the apps' requests in arrival order (calibration requests go to the calibrator,
+    ``mark`` to the recorder, stamped with the engine's clock), then the calibrator's due
+    events. Requests nothing here can act on are dropped (the hub only advertises those that
+    can be)."""
     t = engine.last_t
     events: list[Event] = []
-    if hub is not None and t is not None:
+    if hub is not None:
         for request in hub.take_requests():
-            events.extend(calibrator.handle(request, t))
-    events.extend(calibrator.step(t))
+            if t is None:
+                continue  # no data yet: no clock to act on
+            if request.name == "mark":
+                if recorder is not None and request.label is not None:
+                    recorder.write_marker(t, request.label)
+            elif calibrator is not None:
+                events.extend(calibrator.handle(request.name, t))
+    if calibrator is not None:
+        events.extend(calibrator.step(t))
     return events
 
 
@@ -114,12 +124,15 @@ async def run_live(
     seconds: float | None = None,
     on_event: Callable[[Event], None] | None = None,
     calibrator: Calibrator | None = None,
+    recorder: SessionRecorder | None = None,
 ) -> list[Event]:
     """Feed a live source (``sources.LslSource`` / ``BrainFlowSource``) to ``engine`` until
     ``seconds`` have passed (None: until cancelled, e.g. Ctrl+C); return the events.
 
     The source's blocking pulls run in a worker thread, so the WebSocket keeps serving apps.
-    The source is closed and the engine told the stream ended, whatever stops the loop.
+    The source is closed and the engine told the stream ended, whatever stops the loop. With a
+    ``recorder``, every chunk (before the engine sees it), every event and every app marker
+    is saved; it is flushed about once a second and closed at the end.
 
     Raises:
         NeurOSConfigError: on a non-positive ``seconds``.
@@ -134,19 +147,29 @@ async def run_live(
     async def emit(batch: list[Event]) -> None:
         for event in batch:
             events.append(event)
+            if recorder is not None:
+                recorder.write_event(event)
             if on_event is not None:
                 on_event(event)
             if hub is not None:
                 await hub.broadcast(event)
 
+    flushed = started
     try:
         while seconds is None or loop.time() - started < seconds:
             samples, stamps = await loop.run_in_executor(None, next, iterator)
+            if recorder is not None:
+                recorder.write_chunk(samples, stamps)
+                if loop.time() - flushed >= 1.0:
+                    recorder.flush()
+                    flushed = loop.time()
             await emit(engine.push(samples, stamps))
-            await emit(_calibration_events(calibrator, hub, engine))
+            await emit(_calibration_events(calibrator, hub, engine, recorder))
     finally:
         await emit(engine.close())
         source.close()
+        if recorder is not None:
+            recorder.close()
     return events
 
 

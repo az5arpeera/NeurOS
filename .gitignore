@@ -16,6 +16,8 @@ dist/
 /cache/
 /results/
 /bundles/
+# Recorded headset sessions (people's brain data): local only, never committed.
+/sessions/
 
 # OS and editors
 .DS_Store

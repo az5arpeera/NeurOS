@@ -167,6 +167,13 @@ Claude Code pairs on all engineering. **Founders send all outreach;** Claude dra
     - **Report, not bar:** committed accuracy and commit rate in both arms.
     - **Fail:** the button stays out of the demo until the gap is understood.
     - **Cost:** about 20 CPU-minutes on AWS.
+  - **The founders' headset self-test is ready** ([runbook, decision and bar](headset-self-test.md), set 11 Oct before any session):
+    - **Live demo on the Ganglion if,** for at least one founder after the quick calibration, the cue-free door game reaches ≥ 70% of answered doors right (p < 0.05) with at least half the doors answered.
+    - **Otherwise** a labelled replay.
+    - **Tools:**
+      - `neuros run --record DIR` saves raw EEG, every event and the page's door markers;
+      - `neuros session DIR` rescores the game from the saved session;
+      - the door game now shows each door for 1 s only (D-030).
   - The engine extra (pylsl, websockets, brainflow) is installed on the laptop (approved 10 Oct).
 - **Next (before D-031's gate, ≈ 16 Oct; Q28):**
   - ~~Training crops and multi-class auxiliary training~~: done 10 Oct, no lift.

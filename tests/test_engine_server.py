@@ -94,7 +94,7 @@ def test_apps_get_hello_then_every_event_and_the_demo_page() -> None:
         "state": "disconnected",
         "requests": ["calibrate", "reset_calibration"],
     }
-    assert requests == ["calibrate", "reset_calibration"]
+    assert [r.name for r in requests] == ["calibrate", "reset_calibration"]
     assert received[1]["type"] == "status"
     assert received[1]["state"] == "settling"
     assert received[2]["type"] == "intent"

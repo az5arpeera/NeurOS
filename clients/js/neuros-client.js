@@ -19,6 +19,8 @@
 //   client.calibrate()          start the ~3-minute guided calibration
 //   client.cancelCalibration()  stop it; the model in use stays
 //   client.resetCalibration()   back to zero calibration
+//   client.mark("LEFT")         a ground-truth marker (e.g. the door a game asked for), saved
+//                               with the session when the engine records it (neuros run --record)
 //
 // The client reconnects by itself (with a growing pause, capped) when the engine restarts, and
 // never throws on a malformed message: it reports it through the "error" listeners instead.
@@ -97,6 +99,14 @@ export class NeurOSClient {
   calibrate() { return this.request("calibrate"); }
   cancelCalibration() { return this.request("cancel_calibration"); }
   resetCalibration() { return this.request("reset_calibration"); }
+
+  /** A ground-truth marker for a recorded session; label must be one of the commands. */
+  mark(label) {
+    if (!this.commands.includes(label) || !this.requests.includes("mark")) return false;
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return false;
+    this.socket.send(JSON.stringify({ type: "request", schema: SCHEMA, request: "mark", label }));
+    return true;
+  }
 
   receive(text) {
     let event;

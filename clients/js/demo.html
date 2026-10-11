@@ -111,7 +111,7 @@
     </div>
     <div class="row" style="margin-top: 12px;">
       <button id="practice-toggle">Start</button>
-      <span class="note">A new door every 7 s; the first command 1–6 s after it counts. For a live headset: a replayed person can't see these prompts.</span>
+      <span class="note">A door every 9 s, shown for 1 s and then hidden (so the score can't come from looking at it); the first command 3.5–7 s after it counts. For a live headset: a replayed person can't see these prompts. With <code>neuros run --record</code>, each door is saved with the session.</span>
     </div>
   </section>
 
@@ -237,10 +237,17 @@
   $("reset").addEventListener("click", () => client.resetCalibration());
 
   // ------------------------------------------------------------ door game
-  // A target every 7 s; the first committed command 1-6 s after it is scored; none is "held".
-  const PROMPT_EVERY_MS = 7000, SCORE_FROM_MS = 1000, SCORE_UNTIL_MS = 6000;
+  // Cue-free, like the calibration and our evaluation (D-030): the door is shown for 1 s, then
+  // hidden while the person imagines, so the engine can't be reading the screen (eye movements
+  // toward a lit door). A trial: cue 0-1 s, imagine 1-7 s, rest 7-9 s. The first committed
+  // command whose 2-s window started after the cue (plus the 0.5-s smoothing) counts: 3.5-7 s
+  // after the cue. No command in that span is "held back". Doors come in shuffled blocks of 10
+  // (5 each), so neither side dominates.
+  const TRIAL_MS = 9000, CUE_MS = 1000, REST_FROM_MS = 7000;
+  const SCORE_FROM_MS = 3500, SCORE_UNTIL_MS = 7000;
   const score = { right: 0, wrong: 0, held: 0 };
-  let practiceTimer = null, target = null, promptedAt = 0, answered = true;
+  let practiceTimer = null, phaseTimers = [], target = null, promptedAt = 0, answered = true;
+  let bag = [];
 
   function drawScore() {
     for (const key of Object.keys(score)) $(`score-${key}`).textContent = score[key];
@@ -250,20 +257,38 @@
     for (const name of ["LEFT", "RIGHT"]) $(`door-${name}`).className = "door";
   }
 
+  function nextTarget() {
+    if (bag.length === 0) {
+      bag = [..."LLLLLRRRRR"].map((c) => (c === "L" ? "LEFT" : "RIGHT"));
+      for (let i = bag.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [bag[i], bag[j]] = [bag[j], bag[i]];
+      }
+    }
+    return bag.pop();
+  }
+
   function nextPrompt() {
     if (!answered) score.held += 1;
     drawScore();
     clearDoors();
-    target = Math.random() < 0.5 ? "LEFT" : "RIGHT";
+    phaseTimers.forEach(clearTimeout);
+    target = nextTarget();
     promptedAt = performance.now();
     answered = false;
     $(`door-${target}`).classList.add("target");
     $("prompt").textContent = `Open the ${target.toLowerCase()} door`;
+    client.mark(target);  // saved with a recorded session (neuros run --record) as ground truth
+    phaseTimers = [
+      setTimeout(() => { clearDoors(); $("prompt").textContent = "+ Imagine it now"; }, CUE_MS),
+      setTimeout(() => { $("prompt").textContent = "Relax."; }, REST_FROM_MS),
+    ];
   }
 
   function stopPractice() {
     if (practiceTimer === null) return;
     clearInterval(practiceTimer);
+    phaseTimers.forEach(clearTimeout);
     practiceTimer = null;
     $("practice-toggle").textContent = "Start";
     $("prompt").textContent = "Paused.";
@@ -276,7 +301,7 @@
     score.right = score.wrong = score.held = 0;
     answered = true;
     nextPrompt();
-    practiceTimer = setInterval(nextPrompt, PROMPT_EVERY_MS);
+    practiceTimer = setInterval(nextPrompt, TRIAL_MS);
     $("practice-toggle").textContent = "Stop";
   });
 
