@@ -31,8 +31,10 @@ ml = ["torch>=2.4"]
 # PyTorch's cu126 index (NVIDIA driver >= 525). On the GPU machine:
 # `uv sync --extra dev --extra ml-cuda`. Mutually exclusive with `ml` ([tool.uv] conflicts).
 ml-cuda = ["torch>=2.4"]
-# Online engine (LSL in, WebSocket out). Needed from week 2.
-engine = ["pylsl>=1.16", "brainflow>=5.12", "websockets>=12"]
+# Online engine (LSL in, WebSocket out). Needed from week 2. BrainFlow only on Python 3.12+:
+# on 3.11 it loads its native library through pkg_resources, which setuptools removed in v82
+# (`neuros.engine.sources.brainflow_api` says so; LSL works on 3.11).
+engine = ["pylsl>=1.16", "brainflow>=5.12; python_version >= '3.12'", "websockets>=12"]
 # Building text anchors offline for the text-anchored head (D-023). Never imported at runtime.
 anchors = ["sentence-transformers>=3"]
 dev = [

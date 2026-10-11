@@ -15,9 +15,11 @@ too small and every window would look flat.
 
 from __future__ import annotations
 
+import importlib
 import math
 import time
 from collections.abc import Iterator, Sequence
+from types import ModuleType
 from typing import Any
 
 import numpy as np
@@ -137,6 +139,25 @@ class LslSource:
         self.inlet.close_stream()
 
 
+def brainflow_api() -> ModuleType:
+    """BrainFlow's ``board_shim`` module, or a clear error saying how to get it.
+
+    BrainFlow is in the optional engine extra, on Python 3.12+ only: BrainFlow 5.23 loads its
+    native library through ``pkg_resources`` on Python 3.11, and setuptools removed that module
+    in version 82 (Feb 2026), so the import fails there.
+
+    Raises:
+        NeurOSConfigError: if BrainFlow isn't installed or can't load.
+    """
+    try:
+        return importlib.import_module("brainflow.board_shim")
+    except ImportError as error:  # not installed, or 3.11's missing pkg_resources
+        raise NeurOSConfigError(
+            "BrainFlow sources need the engine extra on Python 3.12 or newer "
+            f"(`uv sync --extra engine`); here: {type(error).__name__}: {error}"
+        ) from error
+
+
 class BrainFlowSource:
     """Pull chunks from a BrainFlow board (see the module docs)."""
 
@@ -155,10 +176,11 @@ class BrainFlowSource:
                 the board's own, when BrainFlow knows them).
 
         Raises:
-            NeurOSConfigError: if the board's channel names are unknown and not given, or don't
-                match its channel count.
+            NeurOSConfigError: if BrainFlow can't load (``brainflow_api``), or the board's
+                channel names are unknown and not given, or don't match its channel count.
         """
-        from brainflow.board_shim import BoardShim, BrainFlowInputParams
+        api = brainflow_api()
+        BoardShim, BrainFlowInputParams = api.BoardShim, api.BrainFlowInputParams
 
         if not (math.isfinite(poll_s) and poll_s > 0):
             raise NeurOSConfigError(f"poll_s must be > 0, got {poll_s}")

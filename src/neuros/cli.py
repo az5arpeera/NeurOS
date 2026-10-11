@@ -1097,14 +1097,14 @@ def cmd_run(args: argparse.Namespace) -> int:
     from neuros.engine.policy import PolicySettings
     from neuros.engine.runner import run_live
     from neuros.engine.server import EventHub, start_server
-    from neuros.engine.sources import BrainFlowSource, LslSource, describe_source
+    from neuros.engine.sources import BrainFlowSource, LslSource, brainflow_api, describe_source
     from neuros.errors import NeurOSConfigError
 
     bundle = ModelBundle.load(Path(args.bundle))
     if (args.lsl is None) == (args.brainflow is None):
         raise NeurOSConfigError("choose one source: --lsl [NAME] or --brainflow BOARD")
     if args.brainflow is not None:
-        from brainflow.board_shim import BoardIds
+        BoardIds = brainflow_api().BoardIds
 
         try:
             board = int(args.brainflow)
