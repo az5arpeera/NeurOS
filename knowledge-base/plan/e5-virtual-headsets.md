@@ -1,6 +1,6 @@
 # E5: virtual headsets: which hardware can we honestly say NeurOS supports?
 
-**Written:** Mon 12 Oct 2026, before any code or run. **Status:** bar set; waiting for founder approval to run.
+**Written:** Mon 12 Oct 2026, before any code or run. **Status:** run 12 Oct ([results](../results/2026-10-12-e5-virtual-headsets.md)): **3-channel class experimental** (−3.4 points; bar ≤ 3), **EPOC X class not supported** (50.0%). Approved by the founders 12 Oct.
 
 **Amended 12 Oct, still before any code or run:** the founders now have access to an **Emotiv EPOC X** and want to use it instead of the Ganglion. Added its class (FC5, FC6) to the channel sets, with the same bar. It's now the second headline check ([why](../explainers/emotiv-epoc-x.md)).
 

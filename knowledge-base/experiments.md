@@ -28,6 +28,7 @@
 
 | ID | Decision / question | Hypothesis or bar (set before running) | Verdict | Write-up |
 |---|---|---|---|---|
+| E5 | Which headset classes are supported, experimental or not supported for commands? | Supported: ≤ 3 points below the research cap (paired, 50 people) and above chance; experimental: above chance only | **3 channels (Ganglion/Unicorn/2b): experimental**, 55.7%, −3.4 points. **EPOC X (FC5/FC6): not supported**, 50.0%. Crown layout and C3/C4: experimental but ~52% (Cz matters) | [results](results/2026-10-12-e5-virtual-headsets.md) |
 | E7 | Can the application and demo say NeurOS holds when you aren't trying to give a command? | 29 never-seen EEGMAT people (C3/Cz/C4, mvp-v0, θ 0.6): commit rate ≤ 10% at rest and during arithmetic | **FAIL**: 24.7% at rest, 22.9% in arithmetic vs 20.4% during real imagery (~8 false commands/min). θ 0.7 silences idle and imagery alike. The claim is out; the door game's window stays | [results](results/2026-10-12-e7-quiet-when-idle.md) |
 | E0 | Does our pipeline reproduce the literature? | EEGNet + alignment on BNCI2014-001 within ±3 points of 74.3% | **PASS** (75.0%). But after the arrow leaves the screen, **60.6%**: the 75% was mostly the cue (D-030) | [results](results/2026-10-03-e0-eegnet-bnci2014-001.md) |
 | E0b | Which frequency band, reference and channels? | Pick on development folds | **8–30 Hz, motor strip** (D-034) | [results](results/2026-10-04-e0b-riemannian-band-reference-channels.md) |
@@ -49,7 +50,6 @@
 
 | ID | Decision | Bar | Waiting for | Plan |
 |---|---|---|---|---|
-| E5 | Which headset classes are supported, experimental or not supported for commands? | Supported: ≤ 3 points below the research cap (paired, 50 people) and above chance (p < 0.05); experimental: above chance only; the 3-channel (Ganglion) class and, since 12 Oct, the EPOC X class (FC5/FC6, 41 Yang2025 people) are the headline checks | Founder approval; then GPU on AWS (~30–40 min) | [plan](plan/e5-virtual-headsets.md) |
 | A6 | Freeze our from-scratch EEGNet (mvp-v0) or a fine-tuned pretrained encoder (MIRepNet, REVE-base)? | On E2's folds and 73 cue-free people at 120 s: mean ≥ E2 + 3 points (p < 0.05), no dataset below E2, p99 latency < 50 ms on the laptop, licence allows shipping | Founder approval + downloads (27 MB, 277 MB); then ~1 day code, GPU on AWS | [plan](plan/a6-pretrained-backbone.md) |
 | Headset self-test | Is the YC demo video a live headset session or a labelled replay? | At least one founder: ≥ 70% of answered doors right (p < 0.05), with at least half the doors answered | The founders' session on the Ganglion, and their call on which doors the bar scores (zero calibration recommended) | [plan](plan/headset-self-test.md) |
 

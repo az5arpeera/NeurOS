@@ -21,6 +21,8 @@ Priority: 🔴 blocking · 🟠 this week · 🟡 can wait until after the MVP.
 
 **Founders to check:** does the account you have access to include an EmotivPRO licence (needed for LSL streaming)?
 
+**E5 answered the data side (12 Oct):** the EPOC X class scores **50.0%** (chance) with our model, so it can't carry the commands demo; the 3-channel class (C3/Cz/C4) is experimental at 3.4 points below a full cap ([results](results/2026-10-12-e5-virtual-headsets.md)). The recommendation stands: EPOC X for the pipeline bring-up, a C3/Cz/C4 board for commands.
+
 ### Q32. Does the name "NeurOS" survive a trademark check? (added 11 Oct) 🔴 before the application names the company
 **What we found** (USPTO records read on 11 Oct through TSDR; a quick search, **not a legal clearance**):
 
