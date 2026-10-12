@@ -179,6 +179,17 @@
 
 **Verdict: adjacent.** They'd become direct if NeuroDiffusion grew from denoising into intent decoding sold across headsets.
 
+## Prior art (research, not companies): MIRepNet and the EEG foundation models
+Added 12 Oct from the [pretrained-model review](../research/pretrained-eeg-models-2026.md).
+- **MIRepNet** (Knowledge-Based Systems 2026, [arXiv 2507.20254](https://arxiv.org/html/2507.20254); MIT code and weights).
+  - It pools seven public MOABB motor-imagery datasets (330 people; four of them our training sets). It uses our preprocessing (8–30 Hz, Euclidean alignment) plus a channel template for any headset.
+  - It claims adaptation "with fewer than 30 trials per class".
+  - **That's prior art for "calibration saved".** The application and investors' questions should name it.
+- **Our difference, stated accurately:**
+  - MIRepNet reports nothing without the new user's labels. Every result fine-tunes on 12–86 of their trials.
+  - NeurOS starts with zero labels (the warm-up), runs live (the engine, quality gate, hold policy), and offers the quick calibration as an option on top.
+- **Foundation models** (REVE, LUNA, CBraMod, LaBraM, ZUNA) are general EEG encoders from labs, not products. REVE (commercial use allowed) is a candidate starting point for our own model ([A6](../plan/a6-pretrained-backbone.md)).
+
 ## What this means for NeurOS
 1. **We can't claim to be the only calibration-free EEG company.** Zander Labs says the same thing, with €30M of government money and 1,000+ proprietary datasets.
    - Our honest edges:
