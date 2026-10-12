@@ -1,6 +1,6 @@
 # E7: does NeurOS stay quiet when you're not trying to give a command?
 
-**Written:** Mon 12 Oct 2026, before any code or run. **Status:** bar set; waiting for founder approval to run.
+**Written:** Mon 12 Oct 2026, before any code or run. **Status:** run 12 Oct: **FAIL** ([results](../results/2026-10-12-e7-quiet-when-idle.md)). Approved by the founders 12 Oct ("start the run on the computer and aws").
 
 **Note (12 Oct):** this tests the C3/Cz/C4 class (Ganglion, Unicorn, 2b). If the demo headset becomes the founders' Emotiv EPOC X, it doesn't apply as written: EEGMAT has no FC5/FC6, the only model channels the EPOC X has. So hold E7 until the headset question is settled ([E5's EPOC row](e5-virtual-headsets.md) and the [EPOC X note](../explainers/emotiv-epoc-x.md)).
 
