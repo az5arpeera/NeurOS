@@ -1,6 +1,6 @@
 # A4: which four electrodes serve both commands and mental states?
 
-**Written:** Sun 11 Oct 2026, before any code or run. **Status:** bar set; approved by the founders 11 Oct ("good for the run both tests").
+**Written:** Sun 11 Oct 2026, before any code or run. **Status:** run 11 Oct: **FAIL**, keep C3, Cz, C4, Pz ([results](../results/2026-10-11-a4-four-electrodes.md)). Approved by the founders 11 Oct ("good for the run both tests").
 
 **From:** the [post-YC agenda](post-yc-research-agenda.md), experiment 4. Pulled forward because [E6](../results/2026-10-11-e6-state-channel.md) showed the mental state lives over the front and back of the head, while our Ganglion montage (C3, Cz, C4, Pz) sits on the motor strip.
 

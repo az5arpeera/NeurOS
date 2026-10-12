@@ -42,12 +42,12 @@
 | Projection | How much data would zero calibration need to work for everyone? | A desk calculation, no bar | **Not reachable by data alone** for motor imagery | [results](results/2026-10-11-data-scaling-projection.md) |
 | E6 | Can we tell rest from mental effort across people, without calibration? | Full cap ≥ 70% mean and ≥ 20/29 people at ≥ 60%; Ganglion's channels ≥ 65%; drift at chance | **FAIL:** 70.9% but 18/29; Ganglion 56.1%. No state ships | [plan](plan/e6-state-channel.md), [results](results/2026-10-11-e6-state-channel.md) |
 | A5 | Do we build per-person frequency alignment into the model before the freeze? | Aligned minus fixed bands ≥ +2.0 points over 50 cue-free people, p < 0.05, no dataset below 0 | **FAIL:** −0.24 points (p = 0.41); not built. Most peaks clipped at 11.5 Hz | [plan](plan/a5-frequency-alignment.md), [results](results/2026-10-11-a5-frequency-alignment.md) |
+| A4 | Which four electrodes go on the Ganglion (and to partners) for commands and states? | On the confirmation half: states ≥ today's + 5 points (p < 0.05) and commands ≥ today's − 1 point | **FAIL:** the pick (C3, C4, Fz, Pz; 72.7% on states in the selection half) scored +1.1 points (p = 0.81) on the confirmation half, where both layouts sat at chance. Keep C3, Cz, C4, Pz. Underpowered halves | [plan](plan/a4-four-electrodes.md), [results](results/2026-10-11-a4-four-electrodes.md) |
 
 ## Bar set, not run
 
 | ID | Decision | Bar | Waiting for | Plan |
 |---|---|---|---|---|
-| A4 | Which four electrodes go on the Ganglion (and to partners) for commands and states? | On the confirmation half: states ≥ today's + 5 points (p < 0.05) and commands ≥ today's − 1 point | Code, then an AWS start (founders) | [plan](plan/a4-four-electrodes.md) |
 | Headset self-test | Is the YC demo video a live headset session or a labelled replay? | At least one founder: ≥ 70% of answered doors right (p < 0.05), with at least half the doors answered | The founders' session on the Ganglion, and their call on which doors the bar scores (zero calibration recommended) | [plan](plan/headset-self-test.md) |
 
 ## In the sprint, bar not yet written (before the 24 Oct freeze)
