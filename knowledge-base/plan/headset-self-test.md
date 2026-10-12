@@ -2,6 +2,8 @@
 
 **Written:** 11 Oct 2026, before any headset session (the rule: every run answers a decision with its bar set first).
 
+**12 Oct:** the founders now have access to an Emotiv EPOC X. This runbook is for a headset with C3/C4; the EPOC X has neither. Read the [EPOC X note](../explainers/emotiv-epoc-x.md) before using it here.
+
 **Who runs it:** the founders, on their laptop with the Ganglion (D-025). Claude can't touch the headset; it can read the saved session afterwards and score it.
 
 ## The decision

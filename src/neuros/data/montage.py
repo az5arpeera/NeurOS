@@ -208,7 +208,12 @@ class HeadsetProfile(BaseModel):
             )
 
 
-PACKAGED_PROFILES: tuple[str, ...] = ("ganglion", "bcic2b", "unicorn", "crown")
+PACKAGED_PROFILES: tuple[str, ...] = ("ganglion", "bcic2b", "unicorn", "crown", "epocx")
+
+# Packaged headsets with no electrode over the hand areas: they load and stream, but
+# ``require_motor_coverage`` rejects them, and ``neuros run`` warns that left vs right
+# commands aren't expected to work on them.
+NO_MOTOR_PROFILES: frozenset[str] = frozenset({"epocx"})
 
 
 def load_profile(name_or_path: str | Path) -> HeadsetProfile:

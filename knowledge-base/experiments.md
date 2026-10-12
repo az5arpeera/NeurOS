@@ -48,8 +48,8 @@
 
 | ID | Decision | Bar | Waiting for | Plan |
 |---|---|---|---|---|
-| E7 | Can the application and demo say NeurOS holds when you aren't trying to give a command? | On 29 never-seen EEGMAT people (C3/Cz/C4, mvp-v0, θ 0.6): commit rate ≤ 10% at rest and ≤ 10% during mental arithmetic, half of the 20% during real imagery on 3 channels | Founder approval; then CPU on the laptop | [plan](plan/e7-quiet-when-idle.md) |
-| E5 | Which headset classes are supported, experimental or not supported for commands? | Supported: ≤ 3 points below the research cap (paired, 50 people) and above chance (p < 0.05); experimental: above chance only; the 3-channel (Ganglion) class is the headline check | Founder approval; then GPU on AWS (~30–40 min) | [plan](plan/e5-virtual-headsets.md) |
+| E7 | Can the application and demo say NeurOS holds when you aren't trying to give a command? | On 29 never-seen EEGMAT people (C3/Cz/C4, mvp-v0, θ 0.6): commit rate ≤ 10% at rest and ≤ 10% during mental arithmetic, half of the 20% during real imagery on 3 channels | Founder approval; held until the demo headset is settled (Q33: it tests the C3/Cz/C4 class, which the EPOC X isn't); then CPU on the laptop | [plan](plan/e7-quiet-when-idle.md) |
+| E5 | Which headset classes are supported, experimental or not supported for commands? | Supported: ≤ 3 points below the research cap (paired, 50 people) and above chance (p < 0.05); experimental: above chance only; the 3-channel (Ganglion) class and, since 12 Oct, the EPOC X class (FC5/FC6, 41 Yang2025 people) are the headline checks | Founder approval; then GPU on AWS (~30–40 min) | [plan](plan/e5-virtual-headsets.md) |
 | Headset self-test | Is the YC demo video a live headset session or a labelled replay? | At least one founder: ≥ 70% of answered doors right (p < 0.05), with at least half the doors answered | The founders' session on the Ganglion, and their call on which doors the bar scores (zero calibration recommended) | [plan](plan/headset-self-test.md) |
 
 ## In the sprint, bar not yet written (before the 24 Oct freeze)

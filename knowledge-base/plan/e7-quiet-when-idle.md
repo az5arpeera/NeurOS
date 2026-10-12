@@ -2,6 +2,8 @@
 
 **Written:** Mon 12 Oct 2026, before any code or run. **Status:** bar set; waiting for founder approval to run.
 
+**Note (12 Oct):** this tests the C3/Cz/C4 class (Ganglion, Unicorn, 2b). If the demo headset becomes the founders' Emotiv EPOC X, it doesn't apply as written: EEGMAT has no FC5/FC6, the only model channels the EPOC X has. So hold E7 until the headset question is settled ([E5's EPOC row](e5-virtual-headsets.md) and the [EPOC X note](../explainers/emotiv-epoc-x.md)).
+
 ## Scope change from the architecture's E7 (§8)
 - **Kept:** "false commands per minute on never-seen activity."
 - **Dropped from the sprint, parked with E4:** "3 vs 5 commands."

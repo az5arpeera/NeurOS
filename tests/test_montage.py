@@ -9,6 +9,7 @@ import yaml
 
 from neuros.data.channels import C_CORE_ROWS, row_of, sort_spatially
 from neuros.data.montage import (
+    NO_MOTOR_PROFILES,
     PACKAGED_PROFILES,
     compute_c_core,
     load_c_core,
@@ -55,7 +56,22 @@ def test_compute_c_core_errors() -> None:
 def test_packaged_profiles_load_and_cover_motor_cortex(name: str) -> None:
     profile = load_profile(name)
     assert profile.name == name
-    profile.require_motor_coverage(load_c_core())
+    if name in NO_MOTOR_PROFILES:
+        with pytest.raises(NeurOSChannelError, match="C3"):
+            profile.require_motor_coverage(load_c_core())
+    else:
+        profile.require_motor_coverage(load_c_core())
+
+
+def test_epocx_profile_reaches_only_the_strip_edges() -> None:
+    # Emotiv's manual: 14 sites, none over the hand areas. Within C-core it has the frontal
+    # corners and FC5/FC6; within the model's motor-strip layout, only FC5 and FC6.
+    profile = load_profile("epocx")
+    assert len(profile.channels) == 14
+    present, _ = profile.coverage(load_c_core())
+    assert present == ("F3", "F4", "FC5", "FC6")
+    assert profile.native_sfreq == 128.0
+    assert "epocx" in NO_MOTOR_PROFILES
 
 
 def test_ganglion_profile_matches_d025() -> None:

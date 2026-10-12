@@ -1169,6 +1169,16 @@ def cmd_run(args: argparse.Namespace) -> int:
         ),
     )
     print(f"model channels on this headset: {list(engine.profile)}", flush=True)
+    # A headset without C3 and C4 (the EPOC X, for one) still streams and decodes, but left vs
+    # right imagery shows over the hand areas: say so up front, so a session that stays at
+    # chance isn't mistaken for a broken engine.
+    missing_hands = [ch for ch in ("C3", "C4") if ch not in engine.profile]
+    if missing_hands:
+        print(
+            f"warning: no electrode at {missing_hands} (the hand areas): left vs right "
+            "commands aren't expected to work on this headset",
+            flush=True,
+        )
     # The optional guided calibration (D-040): an app's "calibrate" request starts it; the
     # engine schedules the cued trials on the headset's clock.
     calibrator = Calibrator(

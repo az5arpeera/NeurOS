@@ -1,0 +1,33 @@
+# Emotiv EPOC X: 14 saline-felt electrodes on fixed arms (founders' access from 12 Oct 2026).
+# None of them sits over the hand areas (C3/C4): of the model's motor-strip layout it reaches only
+# FC5 and FC6, so left vs right commands aren't expected to work (E5 measures it virtually).
+name: epocx
+description: "Emotiv EPOC X, 14 saline channels (no C3/C4)"
+native_sfreq: 128.0  # 128 or 256 SPS, set in Emotiv's software (2048 Hz internal)
+units: uV
+lsl_stream_type: EEG
+electrodes: wet      # saline-soaked felt pads, not gel
+channels:
+  - {device: AF3, canonical: AF3}
+  - {device: F7, canonical: F7}
+  - {device: F3, canonical: F3}
+  - {device: FC5, canonical: FC5}
+  - {device: T7, canonical: T7}
+  - {device: P7, canonical: P7}
+  - {device: O1, canonical: O1}
+  - {device: O2, canonical: O2}
+  - {device: P8, canonical: P8}
+  - {device: T8, canonical: T8}
+  - {device: FC6, canonical: FC6}
+  - {device: F4, canonical: F4}
+  - {device: F8, canonical: F8}
+  - {device: AF4, canonical: AF4}
+accelerometer: []
+verified: false
+notes: >-
+  Positions from Emotiv's EPOC X manual (technical specifications, checked 12 Oct 2026); CMS/DRL
+  references at P3/P4. Raw EEG reaches other software only through a paid Emotiv licence
+  (EmotivPRO's LSL outlet, or the Cortex API's raw-EEG access). The device labels are assumed to
+  be the position names: on the first real stream, check the labels EmotivPRO's LSL outlet
+  publishes (it may add non-EEG columns such as a counter or contact quality, which `neuros run`
+  refuses until they're handled), then set verified to true.

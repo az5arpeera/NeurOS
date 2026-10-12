@@ -11,6 +11,16 @@ Priority: 🔴 blocking · 🟠 this week · 🟡 can wait until after the MVP.
 
 ## 🟠 This week (added 9 Oct)
 
+### Q33. The demo headset: the Emotiv EPOC X, or one with C3/C4? (added 12 Oct) 🔴 before any headset session
+**The situation:** the founders have access to an EPOC X and want to use it instead of the Ganglion. Its 14 sensors miss the hand areas. Of our model's 20 motor-strip positions it reaches only FC5 and FC6, so commands are expected near chance. Raw EEG also needs a paid Emotiv licence. Details: [EPOC X note](explainers/emotiv-epoc-x.md).
+
+**Recommendation:**
+1. Use the EPOC X now for the live-pipeline bring-up (an engineering checklist, no commands scored).
+2. Keep a headset with C3/C4 for the commands demo: the Ganglion kit, or a supervised session on Professor Sun's OpenBCI cap.
+3. Let [E5](plan/e5-virtual-headsets.md)'s new EPOC row (FC5/FC6 on 41 never-seen people) settle whether the EPOC X can carry commands at all.
+
+**Founders to check:** does the account you have access to include an EmotivPRO licence (needed for LSL streaming)?
+
 ### Q32. Does the name "NeurOS" survive a trademark check? (added 11 Oct) 🔴 before the application names the company
 **What we found** (USPTO records read on 11 Oct through TSDR; a quick search, **not a legal clearance**):
 
