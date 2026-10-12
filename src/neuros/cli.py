@@ -25,6 +25,10 @@ E1 (pooled training across datasets; on AWS with ``--device cuda``, D-032):
     neuros e1 --experiment configs/e1.yaml        pooled vs single-dataset vs leave-one-dataset-out,
                                                   with the cue-only control (D-030)
 
+Sprint experiments (each answers a decision with a bar set first, knowledge-base/plan/):
+
+    neuros idle [--bundle bundles/mvp-v0]         E7: false commands at rest and during arithmetic
+
 Every command that loads data refuses people that ``neuros download`` didn't fetch: MOABB would
 otherwise download them unasked.
 
@@ -2711,6 +2715,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.set_defaults(func=cmd_e6)
 
+    p = sub.add_parser("idle", help="E7: false commands at rest and during mental arithmetic")
+    p.add_argument("--bundle", default="bundles/mvp-v0", help="the shipping bundle folder")
+    p.add_argument("--split", default=str(DEFAULT_SPLIT_PATH), help="locked test set file")
+    p.add_argument("--out", default=None, help="result file (default: results/e7/<run>.json)")
+    p.add_argument(
+        "--imagery-dataset", default="BNCI2014_004", help="real-imagery context (never seen)"
+    )
+    p.add_argument("--skip-imagery", action="store_true", help="skip the imagery context")
+    p.add_argument(
+        "--max-people", type=int, default=None, help="only the first N people (smoke tests)"
+    )
+    p.set_defaults(func=cmd_idle)
+
     for name, func, text in (
         ("freq-align", cmd_freq_align, "A5: per-person frequency alignment vs fixed bands"),
         (
@@ -2919,6 +2936,202 @@ def cmd_freq_align(args: argparse.Namespace) -> int:
     )
     print(f"result: {out}{'' if body['complete'] else ' (smoke run: incomplete)'}")
     return 0
+
+
+def cmd_idle(args: argparse.Namespace) -> int:
+    """E7: does the engine stay quiet when nobody is trying? (knowledge-base/plan/e7-...)"""
+    import numpy as np
+
+    from neuros.data.download import loading_dataset
+    from neuros.data.eegmat import harmonize_eegmat_subject
+    from neuros.data.harmonize import harmonize_moabb_subject
+    from neuros.data.recording import person_id
+    from neuros.data.registry import get_spec, task_epoch
+    from neuros.data.validate import validate_recording
+    from neuros.data.vocabulary import default_vocabulary
+    from neuros.engine.bundle import ModelBundle
+    from neuros.engine.pipeline import Engine
+    from neuros.engine.policy import PolicySettings
+    from neuros.engine.runner import score_replay
+    from neuros.errors import NeurOSConfigError
+    from neuros.eval import idle
+    from neuros.eval.calibration import natural_key
+    from neuros.provenance import stamp
+
+    config = _config(args)
+    provenance = stamp(config, experiment="e7", bundle=str(args.bundle))  # at the start
+    _warn_if_dirty(provenance)
+    bundle = ModelBundle.load(Path(args.bundle))
+    seen = set(bundle.provenance.get("train_people", [])) | set(
+        bundle.provenance.get("validation_people", [])
+    )
+    vocabulary = default_vocabulary()
+    window_s, hop_s = bundle.contract.window_s, bundle.contract.hop_s
+
+    def new_engine(channels: Sequence[str], sfreq: float, policy: PolicySettings) -> Engine:
+        return Engine(bundle.decoder(), bundle.engine_config(channels, sfreq, policy=policy))
+
+    def people(spec_key: str) -> list[int]:
+        spec = get_spec(spec_key)
+        subjects = _dev_subjects(spec, None, args.split, "E7")[: args.max_people or None]
+        trained = [s for s in subjects if person_id(spec.key, s) in seen]
+        if trained:  # a replay of a training person would understate false commands
+            raise NeurOSConfigError(f"{spec.key} people {trained} trained this bundle")
+        return subjects
+
+    # 1. Idle: EEGMAT rest, a 5-s pause, mental arithmetic, on C3/Cz/C4.
+    eegmat = get_spec("EEGMAT")
+    counts: dict[float, list[dict[str, idle.SegmentCount]]] = {t: [] for t in idle.THRESHOLDS}
+    per_person: dict[str, Any] = {}
+    for subject in people(eegmat.key):
+        recordings = harmonize_eegmat_subject(eegmat, subject, vocabulary, config.data_dir)
+        for recording in recordings:  # data boundary checks before anything streams
+            validate_recording(
+                recording, eegmat, vocabulary, config.signal, config.validation
+            ).raise_if_errors()
+        person = recordings[0].person_id
+        per_person[person] = {}
+        for threshold in idle.THRESHOLDS:
+            policy = idle.policy_for(bundle.classes, threshold)
+            events, simulators, engine = idle.replay_recordings(
+                new_engine, recordings, policy, channels=idle.IDLE_CHANNELS, seed=subject
+            )
+            segments = idle.count_segments(
+                events,
+                idle.replay_spans([s.duration_s for s in simulators]),
+                window_s=window_s,
+                settle_s=engine.config.settling_s,
+                commands=list(policy.commands.values()),
+            )
+            counts[threshold].append(segments)
+            per_person[person][f"{threshold:g}"] = {
+                name: count.to_dict(hop_s) for name, count in segments.items()
+            }
+        at_bar = per_person[person][f"{idle.BAR_THRESHOLD:g}"]
+        print(
+            f"{person}: committed {at_bar['rest']['commit_rate'] * 100:.1f}% at rest, "
+            f"{at_bar['arithmetic']['commit_rate'] * 100:.1f}% during arithmetic "
+            f"(theta {idle.BAR_THRESHOLD})",
+            flush=True,
+        )
+    summary = {
+        f"{t:g}": {name: idle.pooled([c[name] for c in counts[t]], hop_s) for name in idle.SEGMENTS}
+        for t in idle.THRESHOLDS
+    }
+    at_bar = summary[f"{idle.BAR_THRESHOLD:g}"]
+    outcome = idle.verdict(at_bar["rest"]["commit_rate"], at_bar["arithmetic"]["commit_rate"])
+
+    # 2. Context (not the bar): the same engine during real imagery, BNCI2014-004's first
+    # sessions (as the 10 Oct replay ran), at each threshold.
+    imagery: dict[str, Any] = {}
+    if not args.skip_imagery:
+        spec = get_spec(args.imagery_dataset)
+        epoch = task_epoch(spec, bundle.contract)
+        # Pooled over people per threshold: scored task decisions, commands, right commands,
+        # and each person's balanced committed accuracy (people who committed at all).
+        decided = dict.fromkeys(idle.THRESHOLDS, 0)
+        committed = dict.fromkeys(idle.THRESHOLDS, 0)
+        right = dict.fromkeys(idle.THRESHOLDS, 0)
+        balanced: dict[float, list[float]] = {t: [] for t in idle.THRESHOLDS}
+        for subject in people(spec.key):
+            recordings = harmonize_moabb_subject(
+                spec, subject, vocabulary, dataset=loading_dataset(spec, config.data_dir)
+            )
+            first = sorted({r.session for r in recordings}, key=natural_key)[0]
+            runs = sorted(
+                (r for r in recordings if r.session == first), key=lambda r: natural_key(r.run)
+            )
+            for threshold in idle.THRESHOLDS:
+                policy = idle.policy_for(bundle.classes, threshold)
+                events, simulators, _ = idle.replay_recordings(
+                    new_engine, runs, policy, seed=subject
+                )
+                score = score_replay(
+                    events,
+                    [m for s in simulators for m in s.markers],
+                    policy.commands,
+                    window_s=window_s,
+                    task_start_s=epoch.start_s,
+                    task_end_s=spec.task_s,
+                    tolerance_s=hop_s / 2,
+                )
+                decided[threshold] += score.task_decisions
+                committed[threshold] += score.task_commands
+                right[threshold] += score.task_correct
+                if score.task_commands:
+                    balanced[threshold].append(score.balanced_task_accuracy)
+            print(f"{spec.key} subject {subject}: replayed", flush=True)
+        imagery = {
+            "dataset": spec.key,
+            "channels": list(bundle.profile(runs[0].ch_names)),
+            "session": "first",
+            "class_on_screen": not epoch.cue_free,
+            "per_threshold": {
+                f"{t:g}": {
+                    "task_decisions": decided[t],
+                    "commit_rate": committed[t] / decided[t] if decided[t] else None,
+                    "committed_right_pooled": right[t] / committed[t] if committed[t] else None,
+                    "committed_right_balanced_mean": (
+                        float(np.mean(balanced[t])) if balanced[t] else None
+                    ),
+                    "people_with_commands": len(balanced[t]),
+                }
+                for t in idle.THRESHOLDS
+            },
+        }
+
+    complete = args.max_people is None
+    out = _timestamped(config, "e7", args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    body: dict[str, Any] = {
+        "provenance": _finished(provenance),
+        "complete": complete,
+        "plan": "knowledge-base/plan/e7-quiet-when-idle.md",
+        "channels": list(idle.IDLE_CHANNELS),
+        "gap_s": idle.GAP_S,
+        "thresholds": list(idle.THRESHOLDS),
+        "summary": summary,
+        "verdict": outcome if complete else {"outcome": "SMOKE", "note": "not all people"},
+        "imagery_context": imagery,
+        "per_person": per_person,
+    }
+    out.write_text(json.dumps(body, indent=1), encoding="utf-8", newline="\n")
+    rows = []
+    for t in idle.THRESHOLDS:
+        key = f"{t:g}"
+        context = imagery.get("per_threshold", {}).get(key, {})
+        rows.append(
+            [
+                key,
+                f"{summary[key]['rest']['commit_rate'] * 100:.1f}%",
+                f"{summary[key]['arithmetic']['commit_rate'] * 100:.1f}%",
+                f"{summary[key]['rest']['onsets_per_minute_median']:.2f}",
+                f"{summary[key]['arithmetic']['onsets_per_minute_median']:.2f}",
+                _pct(context.get("commit_rate")),
+                _pct(context.get("committed_right_pooled")),
+            ]
+        )
+    print()
+    print(
+        _table(
+            rows,
+            [
+                "theta",
+                "rest commits",
+                "arithmetic commits",
+                "rest onsets/min",
+                "arith. onsets/min",
+                "imagery commits",
+                "imagery right",
+            ],
+        )
+    )
+    print(f"\nverdict: {body['verdict']['outcome']} ({outcome['bar']}); result: {out}")
+    return 0
+
+
+def _pct(value: float | None) -> str:
+    return "n/a" if value is None else f"{value * 100:.1f}%"
 
 
 def cmd_four_electrodes(args: argparse.Namespace) -> int:
