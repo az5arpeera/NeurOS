@@ -2011,7 +2011,8 @@ def _e1_warmup_sets(
     for kind, windows in sets.items():
         windows.save(work / kind)
         folders[kind] = work / kind
-    report["kinds"] = [kind for kind, _, _ in warmup_kinds(warmup)]
+    # E5's channel sets (if any) are scored exactly like the warm-up sets, on their own people.
+    report["kinds"] = [kind for kind, _, _ in warmup_kinds(warmup)] + report["channel_set_kinds"]
     return report
 
 
@@ -2241,9 +2242,13 @@ def cmd_e1(args: argparse.Namespace) -> int:
         )
         payload.setdefault("reports", {})[str(seed)] = report(outcomes, people, cue_free)
         if experiment.warmup is not None:
-            from neuros.eval.warmup import summarize_warmup
+            from neuros.eval.warmup import summarize_channel_sets, summarize_warmup
 
             payload["warmup"]["summary"] = summarize_warmup(outcomes, experiment.warmup)
+            if experiment.warmup.channel_sets:  # E5: virtual headsets
+                payload["warmup"]["channel_sets"] = summarize_channel_sets(
+                    outcomes, experiment.warmup
+                )
     payload["complete"] = True
     payload["provenance"] = _finished(provenance)
     save()

@@ -1,0 +1,59 @@
+# E5 (knowledge-base/plan/e5-virtual-headsets.md, bar set 12 Oct before any code or run):
+# which headset classes are supported, experimental or not supported for zero-calibration
+# commands?
+#   - E2's pooled models (same recipe, seed and folds, so the same models) score E2's cue-free
+#     development people after 120 s of unlabeled streaming, with the windows cut to each
+#     headset class's channels (common average over them, zeros elsewhere: the live engine's
+#     placement) and the stream reference built from the same channels.
+#   - The research cap is each dataset's own full profile at 120 s (E2's e2_stream_120s).
+#   - Only what the bar needs: no cue-only control, no rest seeding, budgets 0 and 120 s.
+#
+# On AWS:
+#   uv run --no-sync neuros --config configs/data.yaml e1 --experiment configs/e5.yaml \
+#     --device cuda --workers 4 --threads 2
+name: e5
+description: >
+  Virtual headsets: E2's pooled EEGNet + EA models scored after 120 s of streaming on each
+  headset class's channels (Crown, Ganglion/Unicorn/2b, C3/C4, EPOC), against the research cap.
+train_datasets: [PhysionetMI, Dreyer2023, Stieger2021, Lee2019_MI, Cho2017, Yang2025, BNCI2014_001]
+test_only_datasets: [Shin2017A, GuttmannFlury2025, BNCI2014_004]
+labels: [left_hand, right_hand]
+channels: motor
+reference: car
+alignment: ea
+alignment_unit: session
+conditions: [pooled]
+folds: 5
+validation_fraction: 0.1
+cue_only_epoch_s: [0.0, 0.5]
+seeds: [20261005]
+signal:
+  band_hz: [8.0, 30.0]
+
+model:
+  dropout: 0.25
+
+train:
+  max_epochs: 100
+  lr: 0.001
+  weight_decay: 0.05
+  label_smoothing: 0.1
+  swa_fraction: 0.25
+  patience: 15
+  people_per_batch: 16
+  windows_per_person: 8
+  log_every: 10
+
+warmup:
+  datasets: [Yang2025, BNCI2014_001, Shin2017A]   # E2's cue-free people
+  budgets_s: [0, 120]
+  prior_s: 10.0
+  stream_window_s: 2.0
+  stream_hop_s: 0.125
+  rest_seeded: false
+  channel_set_budget_s: 120
+  channel_sets:
+    strip4: [CP3, C3, C4, CP4]   # Neurosity Crown
+    three: [C3, Cz, C4]          # OpenBCI Ganglion, g.tec Unicorn, BCI IV-2b: the headline check
+    two: [C3, C4]                # report only: the bare minimum
+    epoc: [FC5, FC6]             # Emotiv EPOC / EPOC+ / EPOC X (added 12 Oct): the second check

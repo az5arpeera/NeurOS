@@ -12,6 +12,7 @@ dropout 0.5, 300 epochs, SWA), and every deviation from the defaults is visible 
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Literal
 
@@ -211,6 +212,12 @@ class WarmupConfig(BaseModel):
     stream_hop_s: float = Field(default=0.125, gt=0.0, le=10.0)
     # H1: seed from the relaxed pre-cue fixation only, as well as from the whole stream.
     rest_seeded: bool = True
+    # E5 (virtual headsets): name -> model channels a headset class has. Each set is scored on
+    # every warm-up person whose dataset has all its channels: the windows cut to those
+    # channels (common average over them, zeros elsewhere, as the live engine places a
+    # headset), aligned with the stream reference after ``channel_set_budget_s``.
+    channel_sets: dict[str, tuple[str, ...]] = Field(default_factory=dict)
+    channel_set_budget_s: float = 120.0
 
     @model_validator(mode="after")
     def _check(self) -> WarmupConfig:
@@ -223,6 +230,16 @@ class WarmupConfig(BaseModel):
             raise ValueError(f"budgets_s above 1800 s leave nothing to score, got {budgets[-1]}")
         if self.stream_hop_s > self.stream_window_s:
             raise ValueError("stream_hop_s must not exceed stream_window_s (gaps in the stream)")
+        for name, channels in self.channel_sets.items():
+            if not re.fullmatch(r"[a-z0-9_]+", name):
+                raise ValueError(f"channel set names are lower-case words, got {name!r}")
+            if len(channels) < 2 or len(set(channels)) != len(channels):
+                raise ValueError(f"channel set {name!r} needs >= 2 distinct channels")
+        if self.channel_sets and self.channel_set_budget_s not in budgets:
+            raise ValueError(
+                f"channel_set_budget_s {self.channel_set_budget_s} must be one of {budgets} "
+                "(its research-cap comparison is that budget's stream set)"
+            )
         return self
 
 

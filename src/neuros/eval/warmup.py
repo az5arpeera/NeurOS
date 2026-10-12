@@ -32,6 +32,14 @@ in building a reference.
 The windows a person is scored on never enter their own reference at any budget (they start
 after the largest budget), and a person's prior never includes them (it comes from other
 people's training data).
+
+**E5, virtual headsets** (``knowledge-base/plan/e5-virtual-headsets.md``). With
+``channel_sets`` set, the same scored windows are also cut to each headset class's channels:
+common average over the set, the stream reference after ``channel_set_budget_s`` built from the
+same channels (and a prior on them), zeros elsewhere: exactly how the live engine places a
+headset with fewer channels. A set is scored on every warm-up person whose dataset has all of
+its channels; ``summarize_channel_sets`` labels each set against the research cap (the dataset's
+own full profile at the same budget).
 """
 
 from __future__ import annotations
@@ -82,6 +90,20 @@ def kind_name(mode: str, budget_s: float) -> str:
     else:
         label = f"{budget_s:g}".replace(".", "p")
     return f"e2_{mode}_{label}s"
+
+
+def channel_set_kind(name: str, budget_s: float) -> str:
+    """The data-kind name of one E5 channel set at a stream budget: ``e5_three_120s``."""
+    return "e5_" + name + "_" + kind_name("stream", budget_s).removeprefix("e2_stream_")
+
+
+def channel_set_kinds(settings: WarmupConfig) -> list[tuple[str, str, tuple[str, ...]]]:
+    """Every E5 channel set as ``(kind, name, channels)``, in the config's order."""
+    budget = settings.channel_set_budget_s
+    return [
+        (channel_set_kind(name, budget), name, tuple(channels))
+        for name, channels in settings.channel_sets.items()
+    ]
 
 
 def warmup_kinds(settings: WarmupConfig) -> list[tuple[str, str, float]]:
@@ -376,6 +398,34 @@ def person_mean_covariances(
     }
 
 
+@dataclass
+class _SetParts:
+    """One channel set's placed windows and their metadata, collected person by person."""
+
+    x: list[NDArray[np.float32]]
+    present: list[NDArray[np.bool_]]
+    labels: list[str]
+    people: list[str]
+    datasets: list[str]
+    flags: list[NDArray[np.uint8]]
+
+    @classmethod
+    def empty(cls) -> _SetParts:
+        return cls([], [], [], [], [], [])
+
+    def stack(self, layout: Sequence[str], sfreq: float) -> PooledWindows:
+        return PooledWindows(
+            x=np.concatenate(self.x),
+            present=np.concatenate(self.present),
+            labels=np.array(self.labels, dtype=str),
+            people=np.array(self.people, dtype=str),
+            datasets=np.array(self.datasets, dtype=str),
+            flags=np.concatenate(self.flags).astype(np.uint8),
+            layout=tuple(layout),
+            sfreq=sfreq,
+        )
+
+
 def build_warmup_sets(
     task_windows: Mapping[str, WindowSet],
     layout: Sequence[str],
@@ -418,6 +468,12 @@ def build_warmup_sets(
         raise NeurOSDataError(f"task windows differ in sampling rate: {sorted(rates)}")
     sfreq = float(next(iter(rates)))
     prior_windows = settings.prior_s / settings.stream_hop_s
+    set_kinds = channel_set_kinds(settings)
+    for _, name, channels in set_kinds:
+        outside_layout = [ch for ch in channels if ch not in layout]
+        if outside_layout:
+            raise NeurOSConfigError(f"channel set {name!r}: {outside_layout} aren't model inputs")
+    set_parts = {kind: _SetParts.empty() for kind, _, _ in set_kinds}
 
     for dataset in settings.datasets:
         if dataset not in task_windows:
@@ -432,6 +488,23 @@ def build_warmup_sets(
         # Raw windows: _profile_rows applies the derived channels (so each slice is derived once).
         windows = task_windows[dataset]
         entry: dict[str, Any] = {"profile": list(profile), "people": {}}
+        # E5: the channel sets this dataset has in full, each in layout order, with the training
+        # people's mean covariances on exactly those channels (for the set's prior).
+        set_profiles: dict[str, tuple[str, ...]] = {}
+        set_means: dict[str, dict[str, NDArray[np.float64]]] = {}
+        entry["channel_sets"] = {}
+        for kind, name, channels in set_kinds:
+            lacking = [ch for ch in channels if ch not in profile]
+            if lacking:
+                entry["channel_sets"][name] = f"not scored: the dataset lacks {lacking}"
+                continue
+            set_profiles[kind] = tuple(ch for ch in layout if ch in channels)
+            entry["channel_sets"][name] = list(set_profiles[kind])
+            set_means[kind] = {}
+            for source in trainable:
+                set_means[kind] |= person_mean_covariances(
+                    task_windows[source], specs[source], set_profiles[kind]
+                )
         for person in windows.people:
             if person not in fold_of:
                 raise NeurOSDataError(f"{person} is in no development fold")
@@ -440,9 +513,18 @@ def build_warmup_sets(
                 raise NeurOSDataError(f"no training person forms a prior for {dataset}")
             prior = np.mean([person_means[p] for p in outside], axis=0)
             subject = int(person.split(":", 1)[1])
-            streams = session_streams(
-                load_recordings(dataset, subject), spec, profile, settings, max_ptp_uv=max_ptp_uv
-            )
+            recordings = load_recordings(dataset, subject)
+            streams = session_streams(recordings, spec, profile, settings, max_ptp_uv=max_ptp_uv)
+            set_streams = {
+                kind: session_streams(recordings, spec, chans, settings, max_ptp_uv=max_ptp_uv)
+                for kind, chans in set_profiles.items()
+            }
+            set_priors: dict[str, NDArray[np.float64]] = {}
+            for kind, means in set_means.items():
+                others = [p for p in means if p not in folds[fold_of[person]]]
+                if not others:
+                    raise NeurOSDataError(f"no training person forms a prior for {kind}")
+                set_priors[kind] = np.mean([means[p] for p in others], axis=0)
             mine = np.flatnonzero(np.array(windows.person_ids) == person)
             sessions = np.array(windows.sessions)[mine]
             runs = np.array(windows.runs)[mine]
@@ -493,6 +575,28 @@ def build_warmup_sets(
                     for kind, mode, _ in kinds
                     if mode in ("stream", "rest")
                 }
+                for kind, chans in set_profiles.items():
+                    set_rows = np.array([ch in chans for ch in layout])
+                    set_x = _profile_rows(
+                        windows.data[scored], windows.ch_names, spec, chans, context
+                    )
+                    set_reference = blended_reference(
+                        set_streams[kind][session],
+                        settings.channel_set_budget_s,
+                        set_priors[kind],
+                        prior_windows,
+                        mode="stream",
+                        context=context,
+                    )
+                    placed = np.zeros((scored.size, len(layout), x.shape[-1]), dtype=np.float32)
+                    placed[:, set_rows, :] = apply_alignment(set_x, set_reference)
+                    collected = set_parts[kind]
+                    collected.x.append(placed)
+                    collected.present.append(np.repeat(set_rows[None, :], scored.size, axis=0))
+                    collected.labels += [windows.labels[i] for i in scored]
+                    collected.people += [person] * scored.size
+                    collected.datasets += [dataset] * scored.size
+                    collected.flags.append(windows.flags[scored])
                 present_rows.append(np.repeat(rows[None, :], scored.size, axis=0))
                 meta["labels"] += [windows.labels[i] for i in scored]
                 meta["people"] += [person] * scored.size
@@ -532,6 +636,10 @@ def build_warmup_sets(
             layout=tuple(layout),
             sfreq=sfreq,
         )
+    for kind, collected in set_parts.items():
+        if collected.x:  # a set no warm-up dataset has stays unscored (reported per dataset)
+            sets[kind] = collected.stack(layout, sfreq)
+    report["channel_set_kinds"] = [kind for kind in set_parts if kind in sets]
     return sets, report
 
 
@@ -587,3 +695,101 @@ def summarize_warmup(
         entry["s_seconds"] = min(reached) if reached else None
         summary[dataset] = entry
     return summary
+
+
+# E5's bar (knowledge-base/plan/e5-virtual-headsets.md, set before any run): the research cap
+# is compared on these datasets' people only (Shin2017A's full profile *is* its 3-channel set).
+E5_PAIRED_DATASETS: tuple[str, ...] = ("Yang2025", "BNCI2014_001")
+E5_MAX_DROP_POINTS = 3.0
+E5_ALPHA = 0.05
+
+
+def _scores_by_kind(outcomes: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, float]]:
+    """``kind -> person -> balanced accuracy`` from the folds' ``extra_scores``.
+
+    Raises:
+        NeurOSDataError: if a person is scored twice in one set (folds overlap).
+    """
+    table: dict[str, dict[str, float]] = {}
+    for outcome in outcomes:
+        for kind, scores in (outcome.get("extra_scores") or {}).items():
+            column = table.setdefault(kind, {})
+            for score in scores:
+                if score["person"] in column:
+                    raise NeurOSDataError(f"{score['person']} scored twice in {kind}")
+                column[score["person"]] = float(score["balanced_accuracy_raw"])
+    return table
+
+
+def channel_set_label(
+    above_chance: bool, paired_drop_points: float | None, *, max_drop: float = E5_MAX_DROP_POINTS
+) -> str:
+    """E5's label: supported (above chance and at most ``max_drop`` points below the research
+    cap), experimental (above chance only, or no paired people to compare), not supported."""
+    if not above_chance:
+        return "not supported"
+    if paired_drop_points is not None and paired_drop_points <= max_drop:
+        return "supported"
+    return "experimental"
+
+
+def summarize_channel_sets(
+    outcomes: Sequence[Mapping[str, Any]], settings: WarmupConfig
+) -> dict[str, Any]:
+    """E5: each channel set's accuracy, its paired drop from the research cap and its label.
+
+    - **Above chance:** every person scored on the set, two-sided Wilcoxon against 50%,
+      p < ``E5_ALPHA``, and a mean above 50%.
+    - **Drop:** research cap minus set, paired over the set's people in ``E5_PAIRED_DATASETS``
+      (in points; positive = the set is worse). The cap is the same budget's stream set on the
+      dataset's own full profile.
+    """
+    from neuros.eval.metrics import paired_wilcoxon, summarize
+
+    table = _scores_by_kind(outcomes)
+    cap_kind = kind_name("stream", settings.channel_set_budget_s)
+    cap = table.get(cap_kind, {})
+    result: dict[str, Any] = {
+        "budget_s": settings.channel_set_budget_s,
+        "research_cap_kind": cap_kind,
+        "paired_datasets": list(E5_PAIRED_DATASETS),
+        "max_drop_points": E5_MAX_DROP_POINTS,
+        "alpha": E5_ALPHA,
+        "sets": {},
+    }
+    for kind, name, channels in channel_set_kinds(settings):
+        scores = table.get(kind, {})
+        entry: dict[str, Any] = {"kind": kind, "channels": list(channels)}
+        if not scores:
+            entry["label"] = "not scored (no warm-up dataset has these channels)"
+            result["sets"][name] = entry
+            continue
+        people = sorted(scores)
+        values = [scores[p] for p in people]
+        chance = paired_wilcoxon(values, [0.5] * len(values))
+        above = bool(chance["p_value"] < E5_ALPHA and np.mean(values) > 0.5)
+        per_dataset = {}
+        for dataset in dict.fromkeys(p.split(":", 1)[0] for p in people):
+            mine = [scores[p] for p in people if p.startswith(f"{dataset}:")]
+            per_dataset[dataset] = summarize(mine)
+        paired_people = [p for p in people if p.split(":", 1)[0] in E5_PAIRED_DATASETS and p in cap]
+        paired: dict[str, Any] | None = None
+        drop: float | None = None
+        if paired_people:
+            paired = paired_wilcoxon(
+                [scores[p] for p in paired_people], [cap[p] for p in paired_people]
+            )
+            drop = -100.0 * float(paired["mean_diff"])
+            paired["research_cap_mean"] = float(np.mean([cap[p] for p in paired_people]))
+            paired["set_mean"] = float(np.mean([scores[p] for p in paired_people]))
+        entry |= {
+            "all_people": summarize(values),
+            "per_dataset": per_dataset,
+            "vs_chance": chance,
+            "above_chance": above,
+            "vs_research_cap": paired,
+            "drop_points": drop,
+            "label": channel_set_label(above, drop),
+        }
+        result["sets"][name] = entry
+    return result

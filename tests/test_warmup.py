@@ -19,8 +19,12 @@ from neuros.eval.splits import make_dev_folds
 from neuros.eval.warmup import (
     blended_reference,
     build_warmup_sets,
+    channel_set_kind,
+    channel_set_kinds,
+    channel_set_label,
     kind_name,
     session_streams,
+    summarize_channel_sets,
     summarize_warmup,
     warmup_kinds,
 )
@@ -301,3 +305,130 @@ def test_rest_counts_by_covered_seconds(world: dict[str, object]) -> None:
     weight = 2.0 / stream.hop_s  # 2 s of data = 16 stream windows
     expected = (16.0 * prior + weight * stream.rest_covariances[0]) / (16.0 + weight)
     np.testing.assert_allclose(one_rest.covariance.matrix, expected, rtol=2e-3, atol=1e-6)
+
+
+# ---------------------------------------------------------------------- E5: channel sets
+E5_SETTINGS = SETTINGS.model_copy(
+    update={
+        "channel_sets": {"whole": LAYOUT, "pair": ("C3", "C4")},
+        "channel_set_budget_s": 20.0,
+    }
+)
+
+
+def test_channel_set_config_rules() -> None:
+    with pytest.raises(ValidationError, match="must be one of"):
+        WarmupConfig(datasets=("A",), budgets_s=(0.0, 60.0), channel_sets={"x": ("C3", "C4")})
+    with pytest.raises(ValidationError, match="lower-case"):
+        WarmupConfig(
+            datasets=("A",), budgets_s=(0.0, 120.0), channel_sets={"Bad Name": ("C3", "C4")}
+        )
+    with pytest.raises(ValidationError, match="distinct"):
+        WarmupConfig(datasets=("A",), budgets_s=(0.0, 120.0), channel_sets={"x": ("C3", "C3")})
+    assert channel_set_kind("epoc", 120.0) == "e5_epoc_120s"
+    assert [k for k, _, _ in channel_set_kinds(E5_SETTINGS)] == ["e5_whole_20s", "e5_pair_20s"]
+
+
+def test_channel_sets_place_like_the_engine(world: dict[str, object]) -> None:
+    recordings = world["recordings"]
+    sets, report = build_warmup_sets(
+        world["task"],  # type: ignore[arg-type]
+        LAYOUT,
+        specs=world["specs"],  # type: ignore[arg-type]
+        folds=world["folds"],  # type: ignore[arg-type]
+        trainable=("SynA", "SynB"),
+        settings=E5_SETTINGS,
+        load_recordings=lambda d, s: recordings[(d, s)],  # type: ignore[index]
+        max_ptp_uv=1e6,
+        progress=lambda _: None,
+    )
+    assert report["channel_set_kinds"] == ["e5_whole_20s", "e5_pair_20s"]
+    cap = sets["e2_stream_20s"]
+    # A set covering the whole profile is the research cap itself, bit for bit.
+    np.testing.assert_array_equal(sets["e5_whole_20s"].x, cap.x)
+    pair = sets["e5_pair_20s"]
+    assert np.array_equal(pair.people, cap.people)
+    assert np.array_equal(pair.labels, cap.labels)
+    rows = np.array([ch in ("C3", "C4") for ch in LAYOUT])
+    assert (pair.present == rows).all()
+    assert not pair.x[:, ~rows, :].any()  # zeros where the headset has no electrode
+    assert pair.x[:, rows, :].any()
+    # Two channels after a common average are mirror images (C3 = -C4).
+    np.testing.assert_allclose(pair.x[:, 0, :], -pair.x[:, 2, :], atol=1e-4)
+    assert report["datasets"]["SynB"]["channel_sets"]["pair"] == ["C3", "C4"]
+
+
+def test_channel_sets_outside_the_layout_or_dataset(world: dict[str, object]) -> None:
+    recordings = world["recordings"]
+
+    def build(settings: WarmupConfig) -> tuple[dict, dict]:
+        return build_warmup_sets(
+            world["task"],  # type: ignore[arg-type]
+            LAYOUT,
+            specs=world["specs"],  # type: ignore[arg-type]
+            folds=world["folds"],  # type: ignore[arg-type]
+            trainable=("SynA", "SynB"),
+            settings=settings,
+            load_recordings=lambda d, s: recordings[(d, s)],  # type: ignore[index]
+            max_ptp_uv=1e6,
+            progress=lambda _: None,
+        )
+
+    outside = E5_SETTINGS.model_copy(update={"channel_sets": {"epoc": ("FC5", "FC6")}})
+    with pytest.raises(NeurOSConfigError, match="aren't model inputs"):
+        build(outside)
+    # A layout channel a dataset lacks: the set isn't scored there, and the report says why.
+    specs = dict(world["specs"])  # type: ignore[call-overload]
+    specs["SynB"] = dataclasses.replace(
+        specs["SynB"], eeg_channels=tuple(ch for ch in specs["SynB"].eeg_channels if ch != "CP4")
+    )
+    sets, report = build_warmup_sets(
+        world["task"],  # type: ignore[arg-type]
+        LAYOUT,
+        specs=specs,
+        folds=world["folds"],  # type: ignore[arg-type]
+        trainable=("SynA", "SynB"),
+        settings=E5_SETTINGS.model_copy(update={"channel_sets": {"wide": ("C3", "C4", "CP4")}}),
+        load_recordings=lambda d, s: recordings[(d, s)],  # type: ignore[index]
+        max_ptp_uv=1e6,
+        progress=lambda _: None,
+    )
+    assert "e5_wide_20s" not in sets
+    assert "lacks ['CP4']" in report["datasets"]["SynB"]["channel_sets"]["wide"]
+
+
+def test_channel_set_labels_follow_the_bar() -> None:
+    assert channel_set_label(False, 0.0) == "not supported"
+    assert channel_set_label(True, 2.9) == "supported"
+    assert channel_set_label(True, 3.1) == "experimental"
+    assert channel_set_label(True, None) == "experimental"  # nobody to pair with the cap
+
+    settings = WarmupConfig(
+        datasets=("Yang2025", "BNCI2014_001", "Shin2017A"),
+        budgets_s=(0.0, 120.0),
+        rest_seeded=False,
+        channel_sets={"three": ("C3", "Cz", "C4"), "epoc": ("FC5", "FC6"), "none": ("C1", "C2")},
+    )
+    rng = np.random.default_rng(3)
+    yang = [f"Yang2025:{i}" for i in range(1, 21)]
+    bnci = [f"BNCI2014_001:{i}" for i in range(1, 10)]
+    shin = [f"Shin2017A:{i}" for i in range(1, 11)]
+    cap = {p: 0.66 + rng.normal(0, 0.03) for p in yang + bnci + shin}
+    three = {p: cap[p] - 0.01 for p in yang + bnci} | {p: cap[p] for p in shin}
+    epoc = {p: 0.5 + rng.normal(0, 0.02) for p in yang}
+
+    def scores(table: dict[str, float]) -> list[dict[str, object]]:
+        return [{"person": p, "balanced_accuracy_raw": v} for p, v in table.items()]
+
+    outcomes = [
+        {"extra_scores": {"e2_stream_120s": scores(cap), "e5_three_120s": scores(three)}},
+        {"extra_scores": {"e5_epoc_120s": scores(epoc)}},
+    ]
+    summary = summarize_channel_sets(outcomes, settings)
+    sets = summary["sets"]
+    assert sets["three"]["label"] == "supported"
+    assert sets["three"]["drop_points"] == pytest.approx(1.0)
+    assert sets["three"]["vs_research_cap"]["n_people"] == 29  # Shin2017A isn't paired
+    assert sets["three"]["all_people"]["n_people"] == 39
+    assert sets["epoc"]["label"] == "not supported"
+    assert sets["none"]["label"].startswith("not scored")
