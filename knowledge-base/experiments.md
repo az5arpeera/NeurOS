@@ -48,14 +48,14 @@
 
 | ID | Decision | Bar | Waiting for | Plan |
 |---|---|---|---|---|
+| E7 | Can the application and demo say NeurOS holds when you aren't trying to give a command? | On 29 never-seen EEGMAT people (C3/Cz/C4, mvp-v0, θ 0.6): commit rate ≤ 10% at rest and ≤ 10% during mental arithmetic, half of the 20% during real imagery on 3 channels | Founder approval; then CPU on the laptop | [plan](plan/e7-quiet-when-idle.md) |
+| E5 | Which headset classes are supported, experimental or not supported for commands? | Supported: ≤ 3 points below the research cap (paired, 50 people) and above chance (p < 0.05); experimental: above chance only; the 3-channel (Ganglion) class is the headline check | Founder approval; then GPU on AWS (~30–40 min) | [plan](plan/e5-virtual-headsets.md) |
 | Headset self-test | Is the YC demo video a live headset session or a labelled replay? | At least one founder: ≥ 70% of answered doors right (p < 0.05), with at least half the doors answered | The founders' session on the Ganglion, and their call on which doors the bar scores (zero calibration recommended) | [plan](plan/headset-self-test.md) |
 
 ## In the sprint, bar not yet written (before the 24 Oct freeze)
 
 | ID | Question | Why it matters | Data |
 |---|---|---|---|
-| E7 | How many false commands per minute when someone isn't trying (other imagery, mental arithmetic)? Do 5 commands work as well as 3? | Backs "it doesn't fire randomly" in the demo and the application | In hand |
-| E5 | Virtual headsets: the frozen model on only the channels a given headset has (Ganglion, Unicorn, Crown, 3-channel) | Which hardware we can honestly say we support | In hand |
 | Freeze runs | The locked test set, 10-fold and leave-one-dataset-out, on the frozen recipe (24 Oct) | The only numbers allowed into the application | In hand |
 
 ## Parked (D-041: after the deadline)
@@ -64,6 +64,7 @@
 |---|---|---|
 | E3 | Test-time adaptation (AdaBN, entropy minimisation) | [post-YC agenda](plan/post-yc-research-agenda.md#experiments-cut-from-the-yc-sprint) |
 | E4, E4-zs | Language-anchored head, contrastive training; recognising a command never trained on | same |
+| E7's 3 vs 5 commands | Does an opt-in 5-command mode (+FEET, +BOTH_HANDS) work on never-seen people? | [E7 plan](plan/e7-quiet-when-idle.md#scope-change-from-the-architectures-e7-8); parked with E4 (D-039: extra classes don't help) |
 | S1–S4 | DANN, Deep CORAL, RA vs EA, ShallowConvNet | same |
 | SSVEP | A calibration-free "select by looking" mode | same, and the agenda's Part 1 |
 | Agenda experiments 1–3, 6–12 | The ceiling, why some people fail, simulated heads, person encoder, JEPA, error-response labels, user training, language model plus recognition, states against each person's baseline | [post-YC agenda](plan/post-yc-research-agenda.md) |
