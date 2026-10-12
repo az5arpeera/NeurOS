@@ -11,7 +11,9 @@ Priority: 🔴 blocking · 🟠 this week · 🟡 can wait until after the MVP.
 
 ## 🟠 This week (added 9 Oct)
 
-### Q33. The demo headset: the Emotiv EPOC X, or one with C3/C4? (added 12 Oct) 🔴 before any headset session
+### Q33. The demo headset: the Emotiv EPOC X, or one with C3/C4? (added 12 Oct)
+**Answered 12 Oct → [D-043](decisions/decision-log.md):** the founders order the OpenBCI Ganglion for the commands demo; the EPOC X is for the pipeline bring-up only.
+
 **The situation:** the founders have access to an EPOC X and want to use it instead of the Ganglion. Its 14 sensors miss the hand areas. Of our model's 20 motor-strip positions it reaches only FC5 and FC6, so commands are expected near chance. Raw EEG also needs a paid Emotiv licence. Details: [EPOC X note](explainers/emotiv-epoc-x.md).
 
 **Recommendation:**

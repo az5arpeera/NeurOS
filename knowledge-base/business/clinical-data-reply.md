@@ -1,6 +1,6 @@
 # Data thread: reply draft to David Chen (v2, 12 Oct 2026)
 
-**Status:** a draft for Azhar to adapt and send. Claude drafts only; the founders send. No contact details are stored here.
+**Status:** **sent by Azhar on 12 Oct** (v2 below). Claude drafts only; the founders send. No contact details are stored here. Next: log David's reply and any introductions here.
 
 **v2 (founder's direction):**
 - Low-cost headset recordings are a real ask, not something to collect alone.

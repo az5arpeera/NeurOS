@@ -1,6 +1,6 @@
 # A6: does a pretrained encoder beat our from-scratch EEGNet?
 
-**Written:** Mon 12 Oct 2026, before any code, download or run. **Status:** bar drafted; **needs founder approval and download permission** (below).
+**Written:** Mon 12 Oct 2026, before any code, download or run. **Status:** **approved 12 Oct with both downloads** ([D-043](../decisions/decision-log.md)); work starts 13 Oct.
 
 **From:** the founder's question "do we really have to train from scratch?" and the [pretrained-model review](../research/pretrained-eeg-models-2026.md).
 
