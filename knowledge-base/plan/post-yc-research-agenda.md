@@ -217,6 +217,7 @@ Parked by [D-041](../decisions/decision-log.md) (11 Oct). These were in the arch
 | **S1–S4:** DANN, Deep CORAL, RA vs EA, ShallowConvNet | Do adversarial or moment-matching alignment, Riemannian alignment, or another backbone beat EA + EEGNet? | Comparison rows for a paper; low expected product impact |
 | **The text-anchored head** | Ship-ready naming of intents by text | Ships only if E4 passes the P-1 rule |
 | **Pretrained encoders, after A6** (13 Oct: [result](../results/2026-10-13-a6-pretrained-backbone.md)) | Does a pretrained encoder help with (a) a gentler fine-tuning recipe (A6's kept model was epoch 1 every fold), (b) little training data (a new headset class, one person's calibration), (c) REVE on broadband input? | A6 found a tie (+0.9) with the authors' recipe on 339 people. Bundle v2 can already ship one |
+| **Braindecode follow-ups** (13 Oct: [review](../research/braindecode-review-2026-10.md)) | (1) Channel-subset training, specified in architecture §4.3 but never built: does it close the Ganglion class's 3.4-point gap (E5)? (2) Left/right mirror averaging at prediction time. (3) Mixup or segment recombination. (4) A backbone sweep from single BSD-3 files | (1) is the only candidate for before the freeze, and only with a bar and a hard cut-off. Braindecode itself isn't a dependency (weight, non-commercial files) |
 | **SSVEP demo insurance** | A calibration-free flicker mode as a fallback demo | Becomes Part 1's lever 1 (the evoked fallback). Needs an SSVEP dataset download and a photosensitivity warning |
 
 ## Sources
