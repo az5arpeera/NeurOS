@@ -80,7 +80,9 @@ If both pass, the larger gain wins; within 1 point of each other, the smaller mo
 - **MIRepNet:** absent channels are filled by its own inverse-distance interpolation onto its 45-channel template, after alignment, as its pipeline does.
 - **Resampling:** both resample internally (FFT) from our 128 Hz.
 - **What differs from pretraining:** our windows are 8–30 Hz and Euclidean-aligned (roughly unit variance, like z-scoring). REVE was pretrained on broadband signals, so this is a shift that fine-tuning has to absorb. It keeps the windows identical to E2's, which the paired comparison needs.
-- **Latency on the founders' laptop** (16 threads, one 2-s window): MIRepNet p99 8.9 ms, REVE p99 33.8 ms, EEGNet 1.1 ms. **Both pass the < 50 ms bar** (`scripts/analysis/a6_latency.py`).
+- **Latency on the founders' laptop** (16 threads, one 2-s window): MIRepNet p99 8.9–9.5 ms, EEGNet 1.1 ms. **REVE is marginal:** p99 33.8 ms on one run and 46.3 ms on the next (`scripts/analysis/a6_latency.py`).
+  - **How the bar is measured** (fixed 13 Oct, before any training run): three runs of `a6_latency.py` (300 decisions each, full 20-channel layout) on the laptop on mains power; the bar uses the **median of the three p99s**.
+  - Absent channels are now dropped before REVE's transformer when a batch shares one presence pattern (always so live). That's exactly equivalent, and a 3-channel headset costs a fraction of the full layout.
 
 **The fine-tuning recipes** (inside E2's: AdamW, label smoothing 0.1, SWA, early stopping on validation people):
 - **MIRepNet** (`configs/a6_mirepnet.yaml`): its own `finetune.py`, all weights at lr 1e-3; up to 40 epochs, patience 10.

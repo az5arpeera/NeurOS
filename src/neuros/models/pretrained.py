@@ -509,6 +509,13 @@ class ReveClassifier(_PretrainedClassifier):
         present = present_channels(x)
         eeg = fft_resample(x, self.resampled)
         positions = self.positions.to(x.device).expand(x.shape[0], -1, -1)
+        if bool((present == present[:1]).all()):
+            # One presence pattern for the whole batch (always so live: one headset, one window
+            # at a time): drop absent channels before the transformer instead of masking them.
+            # The result is identical (masked keys never reach present tokens, and pooling
+            # skips them), and a 3-channel headset costs a fraction of the full layout.
+            keep = present[0]
+            eeg, positions, present = eeg[:, keep], positions[:, keep], present[:, keep]
         tokens, token_mask = self.encoder(eeg, positions, present)
         query = self.encoder.cls_query_token.expand(x.shape[0], -1, -1)  # [B, 1, E]
         scores = (query @ tokens.transpose(-1, -2)) / tokens.shape[-1] ** 0.5  # [B, 1, N]
