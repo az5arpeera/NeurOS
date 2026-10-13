@@ -1,6 +1,6 @@
 # A6: does a pretrained encoder beat our from-scratch EEGNet?
 
-**Written:** Mon 12 Oct 2026, before any code, download or run. **Status:** **approved 12 Oct with both downloads** ([D-043](../decisions/decision-log.md)); work started 12 Oct. **REVE's port check failed 12 Oct** ([result](../results/2026-10-12-a6-port-check.md)): REVE parked (D-044). **MIRepNet's port check passed** ([result](../results/2026-10-12-a6-mirepnet-port-check.md)); its full run started 02:45 UTC 13 Oct (2 workers: a MIRepNet worker needs ~8 GB of GPU memory).
+**Written:** Mon 12 Oct 2026, before any code, download or run. **Status:** **approved 12 Oct with both downloads** ([D-043](../decisions/decision-log.md)); work started 12 Oct. **REVE's port check failed 12 Oct** ([result](../results/2026-10-12-a6-port-check.md)): REVE parked (D-044). **MIRepNet's port check passed** ([result](../results/2026-10-12-a6-mirepnet-port-check.md)); its full run started 02:45 UTC 13 Oct (2 workers: a MIRepNet worker needs ~8 GB of GPU memory). **A6 FAILED 13 Oct** ([result](../results/2026-10-13-a6-pretrained-backbone.md)): +0.9 points (p = 0.23) against the +3 bar. `mvp-v0` stays; no `mvp-v1`.
 
 **From:** the founder's question "do we really have to train from scratch?" and the [pretrained-model review](../research/pretrained-eeg-models-2026.md).
 
