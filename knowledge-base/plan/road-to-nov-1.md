@@ -249,7 +249,7 @@ Claude Code pairs on all engineering. **Founders send all outreach;** Claude dra
   3. **The demo stage view:** built 11 Oct (`clients/js/stage.html`, served at `/stage`; the engine's opt-in `--telemetry` sends each channel's cleaned signal and quality). Tested live on a real-time replay of a never-seen person; ready for the Ganglion (`neuros run ... --telemetry`). **D-042:** the application leads with "calibration saved" plus rigour. **A5 and A4:** [bars set](../experiments.md), code ready, waiting for the AWS machine.
   4. **E7 and E5.**
   5. **Pilot sessions.**
-  6. **The freeze scripts.**
+  6. **The freeze scripts:** [plan](freeze-24-oct.md) drafted 13 Oct (awaiting approval). It proposes dropping the 10-fold and LODO runs (not cited anywhere).
 
 ## What YC will want to see (track weekly)
 | Metric | Target by 30 Oct |
