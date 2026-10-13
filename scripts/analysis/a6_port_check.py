@@ -1,11 +1,14 @@
-"""A6's port check: do REVE's published weights carry real knowledge through our port?
+"""A6's port check: do a pretrained encoder's published weights carry knowledge through our port?
 
-The check (``knowledge-base/plan/a6-pretrained-backbone.md``, 'Port check', set before any run):
-REVE with its encoder frozen for every epoch (a linear probe on top of a fixed encoder), on a
-10-person-per-dataset subset, once with the published weights and once with random weights.
-A faithful port of a useful encoder must beat its random-weights twin by at least 5 points of
-validation accuracy (the mean over folds of the kept model's balanced accuracy on the fold's
-validation people). If it doesn't, the port is suspect and A6 stops until the cause is found.
+The check (``knowledge-base/plan/a6-pretrained-backbone.md``, 'Port check' for REVE and
+'MIRepNet port check', each set before its run): the encoder frozen for every epoch (a linear
+probe on top of a fixed encoder), on a 10-person-per-dataset subset, once with the published
+weights and once with random weights. A faithful port of a useful encoder must beat its
+random-weights twin by at least 5 points of validation accuracy (the mean over folds of the kept
+model's balanced accuracy on the fold's validation people).
+
+Also printed (context, not the bar): the folds' held-out people by dataset, so datasets outside
+an encoder's pretraining can be read separately (MIRepNet saw some training datasets' labels).
 
 Usage:
     uv run --no-sync python scripts/analysis/a6_port_check.py PRETRAINED.json RANDOM.json
@@ -64,6 +67,23 @@ def fold_validation(data: dict[str, Any], path: Path) -> dict[str, dict[str, flo
     return folds
 
 
+def held_out_people(data: dict[str, Any]) -> dict[str, float]:
+    """``person -> balanced accuracy`` on the pooled folds' held-out people (task windows).
+
+    Raises:
+        SystemExit: if a person is held out by two folds (the folds must partition people).
+    """
+    scores: dict[str, float] = {}
+    for task in data["tasks"]:
+        if task["condition"] != "pooled":
+            continue
+        for entry in task["scores"]:
+            if entry["person"] in scores:
+                raise SystemExit(f"{entry['person']} is held out by two folds")
+            scores[entry["person"]] = float(entry["balanced_accuracy_raw"])
+    return scores
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("pretrained", type=Path)
@@ -96,6 +116,21 @@ def main() -> int:
     b_val = np.mean([rnd[n]["validation"] for n in rnd])
     gain = 100 * float(a_val - b_val)
     print(f"{'mean':16s} {100 * a_val:10.1f}% {100 * b_val:7.1f}% {gain:+6.1f}")
+
+    # Context only: held-out people by dataset, paired by person.
+    held_pre = held_out_people(runs["pretrained"])
+    held_rnd = held_out_people(runs["random"])
+    if sorted(held_pre) != sorted(held_rnd):
+        raise SystemExit("the runs held out different people")
+    print("held-out people by dataset (task windows; cued datasets included):")
+    for dataset in sorted({p.split(":", 1)[0] for p in held_pre}):
+        people = [p for p in held_pre if p.split(":", 1)[0] == dataset]
+        a = np.mean([held_pre[p] for p in people])
+        b = np.mean([held_rnd[p] for p in people])
+        print(
+            f"  {dataset:18s} ({len(people):2d}): {100 * a:.1f}% vs {100 * b:.1f}% "
+            f"({100 * (a - b):+.1f})"
+        )
     passed = gain >= MIN_GAIN_POINTS
     print(f"PORT CHECK: {'PASS' if passed else 'FAIL'} (bar: gain >= +{MIN_GAIN_POINTS:g} points)")
     return 0

@@ -4,6 +4,7 @@ Newest first. Format: **ID · date · decision** — why · who. Superseded deci
 
 ## Decided
 
+- **D-044 · 2026-10-12 · A6: REVE is parked after its port check failed (+2.2 points vs random weights, bar +5); MIRepNet gets the same port check, then its full A6 run if that passes.** REVE moves to the post-YC agenda with the [port-check result](../results/2026-10-12-a6-port-check.md); the MIRepNet check's bar is in the [A6 plan](../plan/a6-pretrained-backbone.md). · Founder ("yes park reve and run the mirepnet check")
 - **D-043 · 2026-10-12 · Demo hardware: the OpenBCI Ganglion carries the commands demo; the Emotiv EPOC X is for the live-pipeline bring-up only. A6 (pretrained encoders) is approved with its two downloads, starting 13 Oct.** Answers [Q33](../open-questions.md). · Founder ("yes approve A6 and both downloads, start tomorrow; i think i will order the ganglion from open bci today")
   - **Why the Ganglion:** E5 found the EPOC X class (FC5/FC6) at chance (50.0%) and the C3/Cz/C4 class at 55.7%, 3.4 points below a full cap ([results](../results/2026-10-12-e5-virtual-headsets.md)). Commands need C3, Cz and C4; the Ganglion runbook places C3, Cz, C4 and Pz.
   - **The EPOC X:** the bring-up checklist in the [EPOC X note](../explainers/emotiv-epoc-x.md) (stream, quality, stage view), once an Emotiv licence that streams raw EEG is confirmed. No commands are scored on it.

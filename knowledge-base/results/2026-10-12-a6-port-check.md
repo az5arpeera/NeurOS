@@ -40,7 +40,7 @@ The held-out column includes cued datasets, so it's context, not part of the bar
 - **Whether fine-tuning the whole encoder would help.** The full A6 run updates every REVE weight. But it was premised on REVE's pretraining carrying over, and here the frozen features are only 2 points better than random ones.
 - **Whether unfiltered input would change the picture.** That's a different window from E2's, so even a pass there wouldn't give a paired comparison with E2.
 
-## What happens next (founder decision, not yet taken)
-**Proposed:**
-- Park REVE with this result. It's also the slowest run (2–3 h), borderline on the 50 ms latency bar, and its published 64% rests on 2 test people with the cue on screen.
-- Run the same check on MIRepNet before its full A6 run: pretrained vs random weights, frozen, ≥ 5 points, about 5 minutes. Then, if it passes, run MIRepNet's full A6 against the unchanged bar.
+## What happens next (D-044)
+The founders decided on 12 Oct ("yes park reve and run the mirepnet check"):
+- **REVE is parked.** It moves to the post-YC agenda with these numbers.
+- **MIRepNet gets the same check** before its full A6 run. The bar is written in the [plan](../plan/a6-pretrained-backbone.md) ('MIRepNet port check').

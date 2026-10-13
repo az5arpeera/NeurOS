@@ -1,0 +1,43 @@
+# A6 MIRepNet port check (plan: 'MIRepNet port check'; D-044): MIRepNet with its encoder
+# frozen for every epoch (a linear probe), its published weights. The training recipe is the REVE
+# port check's, unchanged. Run with --max-subjects 10 on AWS; compare validation accuracy.
+name: a6_mirepnet_probe_pretrained
+description: >
+  A6 port check: MIRepNet's encoder frozen (published
+  weights), a linear head trained on 10 people per dataset of E2's folds.
+train_datasets: [PhysionetMI, Dreyer2023, Stieger2021, Lee2019_MI, Cho2017, Yang2025, BNCI2014_001]
+test_only_datasets: [Shin2017A, GuttmannFlury2025, BNCI2014_004]
+labels: [left_hand, right_hand]
+channels: motor
+reference: car
+alignment: ea
+alignment_unit: session
+conditions: [pooled]
+folds: 5
+validation_fraction: 0.1
+cue_only_epoch_s: [0.0, 0.5]
+seeds: [20261005]
+signal:
+  band_hz: [8.0, 30.0]
+
+backbone:
+  name: mirepnet
+  weights: data/pretrained/mirepnet/MIRepNet.pth
+
+train:
+  max_epochs: 4
+  lr: 0.001
+  weight_decay: 0.01
+  label_smoothing: 0.1
+  swa_fraction: 0.25
+  patience: 4
+  people_per_batch: 16
+  windows_per_person: 8
+  log_every: 1
+  backbone_lr_scale: 0.1
+  frozen_backbone_epochs: 4
+
+warmup:
+  datasets: [Yang2025, BNCI2014_001, Shin2017A]
+  budgets_s: [0, 120]
+  rest_seeded: false

@@ -1,6 +1,6 @@
 # A6: does a pretrained encoder beat our from-scratch EEGNet?
 
-**Written:** Mon 12 Oct 2026, before any code, download or run. **Status:** **approved 12 Oct with both downloads** ([D-043](../decisions/decision-log.md)); work started 12 Oct. **REVE's port check failed 12 Oct** ([result](../results/2026-10-12-a6-port-check.md)): its arm stops; MIRepNet awaits a founder decision.
+**Written:** Mon 12 Oct 2026, before any code, download or run. **Status:** **approved 12 Oct with both downloads** ([D-043](../decisions/decision-log.md)); work started 12 Oct. **REVE's port check failed 12 Oct** ([result](../results/2026-10-12-a6-port-check.md)): REVE parked (D-044); MIRepNet's own port check next.
 
 **From:** the founder's question "do we really have to train from scratch?" and the [pretrained-model review](../research/pretrained-eeg-models-2026.md).
 
@@ -92,6 +92,17 @@ If both pass, the larger gain wins; within 1 point of each other, the smaller mo
   - Their mixup and LoRA aren't used.
 
 **Port check (engineering, before the A6 runs).** On a 10-person-per-dataset subset, with the encoder frozen throughout (a linear probe), the pretrained REVE must beat the same architecture with **random weights** by at least 5 points of validation accuracy. If it doesn't, the port is suspect and A6 stops until it's found.
+
+**REVE parked (D-044, 12 Oct).** Its port check failed: +2.2 points against the +5 bar ([result](../results/2026-10-12-a6-port-check.md)). The founders parked it rather than spend GPU on diagnostics before the freeze. `configs/a6_reve.yaml` stays unrun; REVE moves to the post-YC agenda with the port-check numbers.
+
+**MIRepNet port check (written 12 Oct, before the run; D-044).** The same check as REVE's, with the same recipe, subset and scorer (`scripts/analysis/a6_port_check.py`):
+- **Setup:** MIRepNet's encoder frozen for all 4 epochs, published vs random weights, 10 people per dataset, E2's folds (`configs/a6_mirepnet_probe_{pretrained,random}.yaml`).
+- **"Frozen" means frozen weights.** MIRepNet's one batch-norm layer re-estimates its statistics on our data in both arms; the trainer always does this.
+- **Pass:** pretrained beats random by **≥ 5 points** of validation accuracy (the mean over folds of the kept model).
+  - Pass → the full `a6_mirepnet` run against the A6 bar above, unchanged.
+  - Fail → the port is suspect. With the 24 Oct freeze, A6 closes and `mvp-v0` stays.
+- **Expected to pass.** MIRepNet was pretrained with left/right labels on our own preprocessing (8–30 Hz, Euclidean alignment).
+- **Caveat:** some validation people may come from datasets MIRepNet was pretrained on with labels (PhysionetMI, Dreyer2023, Lee2019, Cho2017). That can flatter the pretrained arm, so a pass here shows the port works, not that it transfers. The scorer also prints held-out people by dataset as context. The A6 bar itself scores only Yang2025, BNCI2014-001 and Shin2017A, none of which MIRepNet saw.
 
 ## Cost
 - **Downloads (permission needed; sizes from Hugging Face on 12 Oct):**
