@@ -56,6 +56,26 @@ class EEGNetConfig(BaseModel):
     head_max_norm: float | None = Field(default=0.25, gt=0)
 
 
+class BackboneConfig(BaseModel):
+    """A6: start from a published pretrained encoder instead of training EEGNet from scratch
+    (``neuros.models.pretrained``; ``knowledge-base/plan/a6-pretrained-backbone.md``).
+
+    The encoder is fine-tuned with the rest of the recipe (``train``); the trainer gives it its
+    own learning-rate scale and can hold it frozen for the first epochs (``TrainConfig``).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", allow_inf_nan=False)
+
+    name: Literal["reve-base", "mirepnet"]
+    # The published weights (downloaded with the founders' permission; never committed).
+    # ``null`` = the same architecture with random weights: the control that shows whether the
+    # pretraining (rather than the architecture) does the work.
+    weights: str | None = Field(default=None, min_length=1)
+    # Dropout before the new linear head (REVE's recipe uses 0.3-0.5). For MIRepNet, ``null``
+    # keeps its published 0.5 throughout the encoder.
+    dropout: float | None = Field(default=None, ge=0.0, lt=1.0)
+
+
 class TrainConfig(BaseModel):
     """The training recipe (architecture §6.4). The seed is per run, not part of the recipe."""
 
@@ -82,6 +102,12 @@ class TrainConfig(BaseModel):
     min_delta: float = Field(default=1e-4, ge=0)
     # Windows per forward pass when evaluating (memory only; doesn't change any number).
     eval_batch_size: int = Field(default=512, ge=1)
+    # A6, pretrained backbones only (models with ``parameter_groups``; EEGNet ignores both):
+    # the backbone's learning rate is ``lr`` times this, and it stays frozen for the first
+    # ``frozen_backbone_epochs`` epochs while the new head learns (a linear probe first, as
+    # REVE's authors fine-tune).
+    backbone_lr_scale: float = Field(default=1.0, gt=0, le=1.0)
+    frozen_backbone_epochs: int = Field(default=0, ge=0)
     # Print one progress line every this many epochs (0 = only the summary).
     log_every: int = Field(default=25, ge=0)
 
@@ -351,6 +377,8 @@ class PooledExperimentConfig(BaseModel):
     seeds: tuple[int, ...] = (20261005,)
     signal: dict[str, Any] = Field(default_factory=dict)
     model: EEGNetConfig = EEGNetConfig()
+    # A6: a pretrained encoder replaces EEGNet (``model`` is then unused). None = EEGNet.
+    backbone: BackboneConfig | None = None
     train: TrainConfig = TrainConfig()
     # E2: score the pooled models' test people under online-style warm-up alignment too.
     warmup: WarmupConfig | None = None

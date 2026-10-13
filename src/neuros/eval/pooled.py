@@ -69,6 +69,7 @@ from neuros.align.ea import align_groups, align_with_references
 from neuros.config.experiment import (
     Alignment,
     AlignmentUnit,
+    BackboneConfig,
     EEGNetConfig,
     PooledCondition,
     Reference,
@@ -877,6 +878,8 @@ class TaskSettings:
     # Q30: fine-tune each pooled model's test people on their first labelled trials
     # (``neuros.eval.finetune``); None = no fine-tuning.
     finetune: FinetuneSettings | None = None
+    # A6: a pretrained encoder instead of EEGNet (``neuros.models.pretrained``); None = EEGNet.
+    backbone: BackboneConfig | None = None
 
     def __post_init__(self) -> None:
         if self.train_classes and self.train_classes[: len(self.classes)] != self.classes:
@@ -988,6 +991,44 @@ def _dataset_classes(windows: PooledWindows) -> dict[str, frozenset[str]]:
     return {dataset: frozenset(labels) for dataset, labels in classes.items()}
 
 
+def build_classifier(
+    settings: TaskSettings,
+    layout: Sequence[str],
+    n_samples: int,
+    classes: Sequence[str],
+    sfreq: float,
+) -> Any:
+    """The model a task trains: EEGNet, or A6's pretrained encoder (``settings.backbone``) with
+    its published weights loaded and a new head for ``classes``.
+
+    Call it after seeding: the new head's (and EEGNet's) initialisation draws from the seed.
+
+    Raises:
+        NeurOSConfigError: if the weights file is missing or the layout has no positions.
+        NeurOSDataError: if the published weights don't match the implementation.
+    """
+    if settings.backbone is None:
+        from neuros.models.eegnet import EEGNetClassifier
+
+        return EEGNetClassifier(len(layout), n_samples, tuple(classes), settings.model)
+    from pathlib import Path
+
+    from neuros.models.pretrained import MIRepNetClassifier, ReveClassifier
+
+    backbone = settings.backbone
+    model: ReveClassifier | MIRepNetClassifier
+    if backbone.name == "reve-base":
+        dropout = 0.3 if backbone.dropout is None else backbone.dropout
+        model = ReveClassifier(layout, n_samples, classes, sfreq=sfreq, dropout=dropout)
+    else:
+        model = MIRepNetClassifier(
+            layout, n_samples, classes, sfreq=sfreq, dropout=backbone.dropout
+        )
+    if backbone.weights is not None:  # None: the random-weights control
+        model.load_pretrained(Path(backbone.weights))
+    return model
+
+
 def run_task(
     task: ModelTask,
     data: PooledWindows,
@@ -1024,7 +1065,6 @@ def run_task(
     """
     import torch
 
-    from neuros.models.eegnet import EEGNetClassifier
     from neuros.train.data import TensorData
     from neuros.train.device import configure_determinism, describe_device, resolve_device
     from neuros.train.trainer import predict_logits, train_classifier
@@ -1106,7 +1146,7 @@ def run_task(
     train = tensors(source, task.train, scale, training=True)
     validation = tensors(data, task.validation, scale, training=False) if task.validation else None
     torch.manual_seed(task.seed)  # weight initialisation
-    model = EEGNetClassifier(train.n_channels, train.n_samples, head, settings.model)
+    model = build_classifier(settings, data.layout, train.n_samples, head, data.sfreq)
     result = train_classifier(
         model,
         train,

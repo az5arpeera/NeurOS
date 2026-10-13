@@ -2184,6 +2184,7 @@ def cmd_e1(args: argparse.Namespace) -> int:
         threads=args.threads,
         extra_kinds=tuple(warmup_report["kinds"]) if warmup_report else (),
         train_classes=experiment.train_labels if training_report is not None else (),
+        backbone=experiment.backbone,
         finetune=(
             FinetuneSettings.from_config(experiment.finetune)
             if experiment.finetune is not None

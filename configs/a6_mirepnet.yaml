@@ -1,0 +1,61 @@
+# A6 (knowledge-base/plan/a6-pretrained-backbone.md, approved 12 Oct, D-043): does a pretrained
+# encoder beat our from-scratch EEGNet? Everything is E2's (datasets, folds, seed, windows,
+# alignment, warm-up scoring at 120 s) except the model and its fine-tuning recipe, so the
+# comparison with E2 is paired person by person. The E5 channel sets are also reported.
+#
+# On AWS (weights copied to /mnt/neuros/data/pretrained/, never committed):
+#   uv run --no-sync neuros --config configs/data.yaml e1 --experiment configs/a6_mirepnet.yaml \
+#     --device cuda --workers 4 --threads 2
+#
+# Recipe: MIRepNet's own fine-tuning (finetune.py: all weights at lr 1e-3, cosine) inside E2's
+# (AdamW, weight decay 0.05, label smoothing 0.1, SWA, early stopping on validation people).
+name: a6_mirepnet
+description: >
+  A6: MIRepNet (pretrained on 7 MOABB motor-imagery datasets; MIT) fine-tuned on E2's folds,
+  scored like E2 after 120 s of unlabeled streaming, plus the E5 channel sets.
+train_datasets: [PhysionetMI, Dreyer2023, Stieger2021, Lee2019_MI, Cho2017, Yang2025, BNCI2014_001]
+test_only_datasets: [Shin2017A, GuttmannFlury2025, BNCI2014_004]
+labels: [left_hand, right_hand]
+channels: motor
+reference: car
+alignment: ea
+alignment_unit: session
+conditions: [pooled]
+folds: 5
+validation_fraction: 0.1
+cue_only_epoch_s: [0.0, 0.5]
+seeds: [20261005]
+signal:
+  band_hz: [8.0, 30.0]
+
+backbone:
+  name: mirepnet
+  weights: data/pretrained/mirepnet/MIRepNet.pth
+  # dropout: null keeps MIRepNet's published 0.5
+
+train:
+  max_epochs: 40
+  lr: 0.001
+  weight_decay: 0.05
+  label_smoothing: 0.1
+  swa_fraction: 0.25
+  patience: 10
+  people_per_batch: 16
+  windows_per_person: 8
+  log_every: 5
+  backbone_lr_scale: 1.0
+  frozen_backbone_epochs: 0
+
+warmup:
+  datasets: [Yang2025, BNCI2014_001, Shin2017A]   # E2's cue-free people
+  budgets_s: [0, 120]
+  prior_s: 10.0
+  stream_window_s: 2.0
+  stream_hop_s: 0.125
+  rest_seeded: false
+  channel_set_budget_s: 120
+  channel_sets:
+    strip4: [CP3, C3, C4, CP4]   # Neurosity Crown
+    three: [C3, Cz, C4]          # OpenBCI Ganglion, g.tec Unicorn, BCI IV-2b: the headline check
+    two: [C3, C4]                # report only: the bare minimum
+    epoc: [FC5, FC6]             # Emotiv EPOC / EPOC+ / EPOC X (added 12 Oct): the second check

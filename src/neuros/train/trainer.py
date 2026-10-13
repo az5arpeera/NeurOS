@@ -332,8 +332,17 @@ def train_classifier(
         epoch_windows=train.n_primary if train.primary is not None else None,
     )
     allowed = train.allowed  # None: every class competes (E0/E1's plain cross-entropy)
+    # A6: a pretrained model splits its parameters into "backbone" and "head", so the backbone
+    # can learn more slowly and sit frozen while the new head learns first. EEGNet is one group
+    # with scale 1: the same optimiser, step for step, as before.
+    grouping = getattr(model, "parameter_groups", None)
+    named_groups: list[tuple[str, list[nn.Parameter]]] = (
+        grouping() if callable(grouping) else [("all", list(model.parameters()))]
+    )
     optimizer = torch.optim.AdamW(
-        model.parameters(), lr=config.lr, weight_decay=config.weight_decay
+        [{"params": params, "name": name} for name, params in named_groups],
+        lr=config.lr,
+        weight_decay=config.weight_decay,
     )
     parameter_names = [name for name, _ in model.named_parameters()]
 
@@ -348,8 +357,13 @@ def train_classifier(
     for index in range(config.max_epochs):
         epoch_started = time.perf_counter()
         lr = cosine_lr(index, config.max_epochs, config.lr, config.min_lr)
+        frozen = index < config.frozen_backbone_epochs
         for group in optimizer.param_groups:
-            group["lr"] = lr
+            is_backbone = group["name"] == "backbone"
+            group["lr"] = lr * (config.backbone_lr_scale if is_backbone else 1.0)
+            if is_backbone:  # frozen = no gradients at all (and no backward through it)
+                for parameter in group["params"]:
+                    parameter.requires_grad_(not frozen)
         model.train()
         loss_sum = 0.0
         seen = 0
@@ -406,6 +420,8 @@ def train_classifier(
             stopped_early = True
             break
 
+    for parameter in model.parameters():  # a frozen backbone is trainable again afterwards
+        parameter.requires_grad_(True)
     # With early stopping the run ends at the best validation epoch; otherwise at the last one.
     end_index = best_index if config.patience is not None else len(snapshots) - 1
     swa_epochs: tuple[int, int] | None = None

@@ -52,6 +52,45 @@ If both pass, the larger gain wins; within 1 point of each other, the smaller mo
 - **Cue-free people only.** The other datasets keep the class on screen.
 - **Possible leakage.** REVE's pretraining corpus includes public motor-imagery datasets, possibly some of our development people (it lists Lee2019). Pretraining was unlabeled (masked reconstruction), so no class labels leaked, but the people aren't strictly unseen. MIRepNet's *supervised* pretraining used labels from PhysionetMI, Dreyer2023, Lee2019 and Cho2017, all training-only for us; none of our 73 scored people (Yang2025, BNCI2014-001, Shin2017A) are in its pretraining list. The result writes this up either way.
 
+## Code review and implementation (13 Oct, before any run)
+**Downloads** (all checksums match the published ones; in the git-ignored `data/pretrained/`):
+- REVE-base weights at revision `dc2a075`.
+- The REVE position bank at `befa5b5`.
+- MIRepNet weights at `9bac043`.
+- Source to read: MIRepNet at `b35d113`, REVE's official repository at `06a7059` (MIT).
+
+**What REVE's code does:**
+- **Patches:** each channel is cut into 1-s patches (200 samples at 200 Hz, 0.1-s overlap). A 2-s window gives 2 patches per channel.
+- **Positions:** each patch gets a 4-D position embedding: Fourier features of the electrode's x, y, z (metres) and the patch's time.
+  - REVE's position bank is identical to MNE's standard 10-05 montage (148 of 148 names to 1e-8 m). So we ship our own table generated from MNE (`src/neuros/models/positions_1005.json`) and don't depend on theirs.
+- **Transformer:** a 22-layer transformer (RMS norm, gated GELU, no biases) over all channel × patch tokens. There's no final norm.
+- **Size:** 69,189,632 parameters, encoder only. No decoder was published, so the masked-reconstruction check isn't possible.
+- **Dependencies:** `transformers`, `einops` and optionally `flash_attn`. Our port needs only torch.
+- **The authors' imagined-movement recipe** (BCI IV-2a): CAR, 0.3–50 Hz, 0–4 s after the cue (the class is on screen), µV/100, resampled to 200 Hz.
+  - **Their split:** 5 training people, 2 validation, **2 test** (A08, A09). So REVE's headline 64.0% is cross-person, but on two people, with the cue on screen. That's weaker evidence than it looked.
+  - **Pretraining:** z-scored, clipped at 15 SD, 0.5–99.5 Hz.
+
+**Our implementation** (`src/neuros/models/pretrained.py`; no downloaded code is imported or run):
+- **Weights:** both models are re-implemented in torch; only the published weights are loaded, strictly (every name and shape must match).
+  - REVE's come from safetensors, read as a JSON header plus raw tensors.
+  - MIRepNet's come from a pickle opened with `weights_only=True`.
+- **REVE:**
+  - an attention-pooled linear head (the authors' "last" pooling), so it doesn't depend on the channel count;
+  - **absent channels are left out of attention.** A test proves a zero-filled channel gives exactly the output of a layout without it.
+- **MIRepNet:** absent channels are filled by its own inverse-distance interpolation onto its 45-channel template, after alignment, as its pipeline does.
+- **Resampling:** both resample internally (FFT) from our 128 Hz.
+- **What differs from pretraining:** our windows are 8–30 Hz and Euclidean-aligned (roughly unit variance, like z-scoring). REVE was pretrained on broadband signals, so this is a shift that fine-tuning has to absorb. It keeps the windows identical to E2's, which the paired comparison needs.
+- **Latency on the founders' laptop** (16 threads, one 2-s window): MIRepNet p99 8.9 ms, REVE p99 33.8 ms, EEGNet 1.1 ms. **Both pass the < 50 ms bar** (`scripts/analysis/a6_latency.py`).
+
+**The fine-tuning recipes** (inside E2's: AdamW, label smoothing 0.1, SWA, early stopping on validation people):
+- **MIRepNet** (`configs/a6_mirepnet.yaml`): its own `finetune.py`, all weights at lr 1e-3; up to 40 epochs, patience 10.
+- **REVE** (`configs/a6_reve.yaml`): the authors' approach.
+  - The encoder is frozen for 2 epochs (a linear probe), then fine-tuned at 0.1× the head's 1e-3.
+  - Dropout 0.5, weight decay 0.01, up to 15 epochs, patience 5.
+  - Their mixup and LoRA aren't used.
+
+**Port check (engineering, before the A6 runs).** On a 10-person-per-dataset subset, with the encoder frozen throughout (a linear probe), the pretrained REVE must beat the same architecture with **random weights** by at least 5 points of validation accuracy. If it doesn't, the port is suspect and A6 stops until it's found.
+
 ## Cost
 - **Downloads (permission needed; sizes from Hugging Face on 12 Oct):**
   - `MIRepNet.pth`, 27.0 MB, from huggingface.co/starself/MIRepNet (MIT), plus its model code from github.com/staraink/MIRepNet.
