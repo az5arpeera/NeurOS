@@ -104,6 +104,19 @@ If both pass, the larger gain wins; within 1 point of each other, the smaller mo
 - **Expected to pass.** MIRepNet was pretrained with left/right labels on our own preprocessing (8–30 Hz, Euclidean alignment).
 - **Caveat:** some validation people may come from datasets MIRepNet was pretrained on with labels (PhysionetMI, Dreyer2023, Lee2019, Cho2017). That can flatter the pretrained arm, so a pass here shows the port works, not that it transfers. The scorer also prints held-out people by dataset as context. The A6 bar itself scores only Yang2025, BNCI2014-001 and Shin2017A, none of which MIRepNet saw.
 
+**If MIRepNet passes A6: bundle and replay (written 12 Oct, during the full run, before any bundle or replay).** The founders asked: "if it passes run the latency checks and bundle it".
+- **Latency** (criterion 3) was measured during the run, as fixed above: three runs on the laptop on mains power. MIRepNet's p99 was 9.0, 9.3 and 10.7 ms, a median of **9.3 ms** (`results/a6/latency-laptop-20261012-*`). Timing depends only on the architecture, not the trained weights.
+- **The bundle:** `neuros bundle --experiment configs/a6_mirepnet.yaml --out /mnt/neuros/bundles/mvp-v1` (bundle version 2). It's MIRepNet's A6 recipe on all 339 development people, with E2's validation split for early stopping, run by `scripts/aws/bundle-replay-queue.sh mvp-v1 configs/a6_mirepnet.yaml`.
+- **The replay check is the 10 Oct bar, unchanged:**
+  - the same 34 never-seen people (BNCI2014-004 and GuttmannFlury2025), first session;
+  - the same scorer (`scripts/analysis/replay_bar.py`);
+  - the same reference (`results/aws/e2/e2-20261009T224245Z.json`), so criterion 2 stays at **57.2%**;
+  - **all four must hold:** 34/34 finish; committed balanced accuracy ≥ 57.2%; each class ≥ 30% of commands, with ≥ 20% of task decisions committed; p99 < 50 ms.
+- **Also reported, not the bar:**
+  - the same scorer against MIRepNet's own offline scores for these people (the A6 run): does the engine keep this model's accuracy?
+  - the difference from `mvp-v0`'s replay (61.4% committed).
+- **Pass:** `mvp-v1` is the freeze candidate for 24 Oct. **Fail:** `mvp-v0` stays.
+
 ## Cost
 - **Downloads (permission needed; sizes from Hugging Face on 12 Oct):**
   - `MIRepNet.pth`, 27.0 MB, from huggingface.co/starself/MIRepNet (MIT), plus its model code from github.com/staraink/MIRepNet.
