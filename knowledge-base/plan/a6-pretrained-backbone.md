@@ -1,6 +1,6 @@
 # A6: does a pretrained encoder beat our from-scratch EEGNet?
 
-**Written:** Mon 12 Oct 2026, before any code, download or run. **Status:** **approved 12 Oct with both downloads** ([D-043](../decisions/decision-log.md)); work starts 13 Oct.
+**Written:** Mon 12 Oct 2026, before any code, download or run. **Status:** **approved 12 Oct with both downloads** ([D-043](../decisions/decision-log.md)); work started 12 Oct. **REVE's port check failed 12 Oct** ([result](../results/2026-10-12-a6-port-check.md)): its arm stops; MIRepNet awaits a founder decision.
 
 **From:** the founder's question "do we really have to train from scratch?" and the [pretrained-model review](../research/pretrained-eeg-models-2026.md).
 

@@ -50,7 +50,7 @@
 
 | ID | Decision | Bar | Waiting for | Plan |
 |---|---|---|---|---|
-| A6 | Freeze our from-scratch EEGNet (mvp-v0) or a fine-tuned pretrained encoder (MIRepNet, REVE-base)? | On E2's folds and 73 cue-free people at 120 s: mean ≥ E2 + 3 points (p < 0.05), no dataset below E2, p99 latency < 50 ms on the laptop, licence allows shipping | **Approved 12 Oct (D-043)** with both downloads; code from 13 Oct, then GPU on AWS | [plan](plan/a6-pretrained-backbone.md) |
+| A6 | Freeze our from-scratch EEGNet (mvp-v0) or a fine-tuned pretrained encoder (MIRepNet, REVE-base)? | On E2's folds and 73 cue-free people at 120 s: mean ≥ E2 + 3 points (p < 0.05), no dataset below E2, p99 latency < 50 ms on the laptop, licence allows shipping | **Port check FAIL for REVE** (12 Oct): frozen pretrained 54.7% vs random 52.6%, +2.2 points (bar +5); code review found no port difference. REVE arm stopped; MIRepNet not yet run (founder decision) | [plan](plan/a6-pretrained-backbone.md), [port check](results/2026-10-12-a6-port-check.md) |
 | Headset self-test | Is the YC demo video a live headset session or a labelled replay? | At least one founder: ≥ 70% of answered doors right (p < 0.05), with at least half the doors answered | The founders' session on the Ganglion, and their call on which doors the bar scores (zero calibration recommended) | [plan](plan/headset-self-test.md) |
 
 ## In the sprint, bar not yet written (before the 24 Oct freeze)
