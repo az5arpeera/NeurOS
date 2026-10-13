@@ -2,8 +2,9 @@
 
 A bundle holds:
 
-- the trained EEGNet (``model.pt``: weights only, loaded with ``weights_only=True``, so a
-  bundle can't run code) and its configuration;
+- the trained model (``model.pt``: weights only, loaded with ``weights_only=True``, so a
+  bundle can't run code) and its configuration: EEGNet, or (version 2) an A6 pretrained
+  encoder fine-tuned with a new head, with the licence a shipped copy must carry;
 - the input layout, the scored classes and the input scale (the RMS of the training windows);
 - the signal contract it was trained with (band, rate, window, hop, reference);
 - **per training person, their mean covariance of the raw layout channels they recorded**.
@@ -15,6 +16,9 @@ A bundle holds:
 - provenance: datasets, people, git state, experiment hash.
 
 ``bundle.json`` records the SHA-256 of ``model.pt``; loading checks it.
+
+Versions: 2 adds ``backbone`` (``null`` for EEGNet), its licence and ``model_sfreq``.
+Version 1 bundles (``mvp-v0``) are EEGNet and still load.
 """
 
 from __future__ import annotations
@@ -30,13 +34,14 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
-from neuros.config.experiment import EEGNetConfig
+from neuros.config.experiment import BackboneConfig, EEGNetConfig
 from neuros.config.schemas import SignalContract
 from neuros.engine.pipeline import EngineConfig
 from neuros.errors import NeurOSConfigError, NeurOSDataError
 from neuros.signal.windows import WindowSet
 
-BUNDLE_VERSION = 1
+BUNDLE_VERSION = 2
+READABLE_VERSIONS = (1, 2)
 MODEL_FILE = "model.pt"
 META_FILE = "bundle.json"
 
@@ -82,7 +87,8 @@ def person_covariances(windows: WindowSet, layout: Sequence[str]) -> list[Person
 
 
 class TorchDecoder:
-    """The engine's ``Decoder`` for a trained ``EEGNetClassifier`` (CPU, evaluation mode).
+    """The engine's ``Decoder`` for a trained classifier with ``EEGNetClassifier``'s interface
+    (EEGNet or an A6 pretrained encoder; CPU, evaluation mode).
 
     With extra trained classes (D-039), only the scored classes' logits are read, as in
     evaluation: a left/right app is never answered "feet".
@@ -115,14 +121,15 @@ class TorchDecoder:
 class ModelBundle:
     """A trained model and what the engine needs to run it (see the module docs)."""
 
-    model: Any  # EEGNetClassifier (torch imported lazily)
-    model_config: EEGNetConfig
+    model: Any  # EEGNetClassifier or an A6 pretrained classifier (torch imported lazily)
+    model_config: EEGNetConfig  # EEGNet's settings (unused when ``backbone`` is set)
     layout: tuple[str, ...]
     classes: tuple[str, ...]
     input_scale: float
     contract: SignalContract
     people_covariances: tuple[PersonCovariance, ...]
     provenance: dict[str, Any] = field(default_factory=dict)
+    backbone: BackboneConfig | None = None  # A6: the pretrained encoder; None = EEGNet
 
     def __post_init__(self) -> None:
         if not (math.isfinite(self.input_scale) and self.input_scale > 0):
@@ -194,11 +201,19 @@ class ModelBundle:
             raise NeurOSDataError(f"{folder} already holds a bundle")
         folder.mkdir(parents=True, exist_ok=True)
         model_path = folder / MODEL_FILE
+        from neuros.models.factory import BACKBONE_LICENCES
+
         torch.save(self.model.state_dict(), model_path)
         meta = {
             "bundle_version": BUNDLE_VERSION,
             "model_sha256": _sha256(model_path),
             "model_config": self.model_config.model_dump(mode="json"),
+            "backbone": None if self.backbone is None else self.backbone.model_dump(mode="json"),
+            "backbone_licence": (
+                None if self.backbone is None else BACKBONE_LICENCES[self.backbone.name]
+            ),
+            # The rate the model's windows arrive at (a pretrained encoder resamples inside).
+            "model_sfreq": float(getattr(self.model, "sfreq", self.contract.sfreq)),
             "n_samples": int(self.model.n_samples),
             "model_classes": list(self.model.classes),
             "layout": list(self.layout),
@@ -222,25 +237,40 @@ class ModelBundle:
         """
         import torch
 
-        from neuros.models.eegnet import EEGNetClassifier
+        from neuros.models.factory import build_model
 
         meta_path = folder / META_FILE
         model_path = folder / MODEL_FILE
         if not meta_path.is_file() or not model_path.is_file():
             raise NeurOSDataError(f"{folder}: no bundle ({META_FILE} and {MODEL_FILE} needed)")
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        if meta.get("bundle_version") != BUNDLE_VERSION:
+        if meta.get("bundle_version") not in READABLE_VERSIONS:
             raise NeurOSDataError(
                 f"{folder}: bundle version {meta.get('bundle_version')}, this code reads "
-                f"{BUNDLE_VERSION}"
+                f"{list(READABLE_VERSIONS)}"
             )
         if _sha256(model_path) != meta["model_sha256"]:
             raise NeurOSDataError(f"{model_path}: SHA-256 doesn't match {META_FILE}")
         config = EEGNetConfig.model_validate(meta["model_config"])
+        raw_backbone = meta.get("backbone")  # absent in version 1: EEGNet
+        backbone = None if raw_backbone is None else BackboneConfig.model_validate(raw_backbone)
+        contract = SignalContract.model_validate(meta["contract"])
         layout = tuple(meta["layout"])
-        model = EEGNetClassifier(len(layout), int(meta["n_samples"]), meta["model_classes"], config)
+        # The bundle's own state replaces every weight, so the published file isn't needed.
+        model = build_model(
+            config,
+            backbone,
+            layout,
+            int(meta["n_samples"]),
+            meta["model_classes"],
+            float(meta.get("model_sfreq", contract.sfreq)),
+            load_weights=False,
+        )
         state = torch.load(model_path, map_location="cpu", weights_only=True)
-        model.load_state_dict(state)
+        try:
+            model.load_state_dict(state)  # strict: every name and shape must match
+        except RuntimeError as error:
+            raise NeurOSDataError(f"{model_path} doesn't fit the bundled model: {error}") from error
         model.eval()
         return cls(
             model=model,
@@ -248,12 +278,13 @@ class ModelBundle:
             layout=layout,
             classes=tuple(meta["classes"]),
             input_scale=float(meta["input_scale"]),
-            contract=SignalContract.model_validate(meta["contract"]),
+            contract=contract,
             people_covariances=tuple(
                 PersonCovariance(p["person"], tuple(p["channels"]), np.asarray(p["matrix"]))
                 for p in meta["people_covariances"]
             ),
             provenance=dict(meta.get("provenance", {})),
+            backbone=backbone,
         )
 
 
@@ -291,6 +322,7 @@ def train_bundle(
     device: str,
     provenance: Mapping[str, Any],
     progress: Any = None,
+    backbone: BackboneConfig | None = None,
 ) -> ModelBundle:
     """Train the deployable model on every development person of ``task_windows`` (E1's
     recipe and placement), with ``validation_fraction`` of them for early stopping, and bundle it.
@@ -298,13 +330,17 @@ def train_bundle(
     There are no test people: the numbers that describe this model's accuracy are E1/E2's
     cross-validated ones (same recipe), and the locked test set at the freeze.
 
+    ``backbone`` (A6) fine-tunes that pretrained encoder, starting from its published weights,
+    instead of training EEGNet from scratch. The model is built exactly as the pooled
+    evaluation builds it (``models.factory.build_model``).
+
     Raises:
         NeurOSDataError: on windows that can't be placed, or labels outside ``classes``.
     """
     import torch
 
     from neuros.eval.pooled import _gather, _rms, assemble, split_validation
-    from neuros.models.eegnet import EEGNetClassifier
+    from neuros.models.factory import build_model
     from neuros.train.data import TensorData
     from neuros.train.device import configure_determinism, resolve_device
     from neuros.train.trainer import train_classifier
@@ -335,8 +371,8 @@ def train_bundle(
 
     target = resolve_device(device)
     configure_determinism(target, True)
-    torch.manual_seed(seed)  # weight initialisation
-    model = EEGNetClassifier(len(layout), pooled.n_samples, classes, model_config)
+    torch.manual_seed(seed)  # weight initialisation (EEGNet, or a pretrained encoder's new head)
+    model = build_model(model_config, backbone, layout, pooled.n_samples, classes, pooled.sfreq)
     result = train_classifier(
         model,
         tensors(rows_train),
@@ -353,6 +389,10 @@ def train_bundle(
     )
     record = result.to_dict()
     record.pop("history", None)  # epoch by epoch is in the run log; the bundle keeps the outcome
+    started_from: dict[str, Any] = {}
+    if backbone is not None and backbone.weights is not None:
+        # Which published weights the fine-tuning started from (provenance and licence).
+        started_from = {"pretrained_weights_sha256": _sha256(Path(backbone.weights))}
     return ModelBundle(
         model=model,
         model_config=model_config,
@@ -368,5 +408,7 @@ def train_bundle(
             "validation_people": list(validation_people),
             "seed": seed,
             "training": record,
-        },
+        }
+        | started_from,
+        backbone=backbone,
     )

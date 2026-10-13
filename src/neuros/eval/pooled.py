@@ -1007,26 +1007,9 @@ def build_classifier(
         NeurOSConfigError: if the weights file is missing or the layout has no positions.
         NeurOSDataError: if the published weights don't match the implementation.
     """
-    if settings.backbone is None:
-        from neuros.models.eegnet import EEGNetClassifier
+    from neuros.models.factory import build_model
 
-        return EEGNetClassifier(len(layout), n_samples, tuple(classes), settings.model)
-    from pathlib import Path
-
-    from neuros.models.pretrained import MIRepNetClassifier, ReveClassifier
-
-    backbone = settings.backbone
-    model: ReveClassifier | MIRepNetClassifier
-    if backbone.name == "reve-base":
-        dropout = 0.3 if backbone.dropout is None else backbone.dropout
-        model = ReveClassifier(layout, n_samples, classes, sfreq=sfreq, dropout=dropout)
-    else:
-        model = MIRepNetClassifier(
-            layout, n_samples, classes, sfreq=sfreq, dropout=backbone.dropout
-        )
-    if backbone.weights is not None:  # None: the random-weights control
-        model.load_pretrained(Path(backbone.weights))
-    return model
+    return build_model(settings.model, settings.backbone, layout, n_samples, classes, sfreq)
 
 
 def run_task(

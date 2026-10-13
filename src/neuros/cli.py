@@ -823,6 +823,7 @@ def cmd_bundle(args: argparse.Namespace) -> int:
         device=args.device,
         provenance=_finished(provenance) | {"datasets": list(experiment.train_datasets)},
         progress=print,
+        backbone=experiment.backbone,  # A6: a pretrained encoder, fine-tuned; None = EEGNet
     )
     bundle.save(out)
     training = bundle.provenance["training"]

@@ -128,6 +128,73 @@ def test_a_bundle_drives_the_engine_on_a_new_person(bundle: ModelBundle) -> None
         bundle.engine_config(("Pz", "C3"), 250.0)
 
 
+def test_a_pretrained_encoder_bundle_round_trips_without_the_published_file(
+    tmp_path: Path,
+) -> None:
+    # A6 (mvp-v1): a MIRepNet bundle trains through the same path, records its backbone and
+    # licence, and reloads from its own model.pt alone (random weights stand in for the
+    # published file here: the bundle never needs it once trained).
+    from neuros.config.experiment import BackboneConfig
+    from neuros.models.pretrained import MIRepNetClassifier
+
+    windows = {"SynA": _dataset("SynA", range(1, 4), 10), "SynB": _dataset("SynB", range(1, 4), 50)}
+    backbone = BackboneConfig(name="mirepnet", weights=None)
+    trained = train_bundle(
+        windows,
+        LAYOUT,
+        classes=LABELS,
+        model_config=TINY_MODEL,
+        train_config=FAST_TRAIN.model_copy(update={"max_epochs": 1, "patience": None}),
+        contract=CONTRACT,
+        reference="car",
+        alignment="ea",
+        unit="session",
+        derived=None,
+        validation_fraction=0.34,
+        seed=3,
+        device="cpu",
+        provenance={"test": True},
+        backbone=backbone,
+    )
+    assert isinstance(trained.model, MIRepNetClassifier)
+    assert "pretrained_weights_sha256" not in trained.provenance  # random weights: no file
+    trained.save(tmp_path / "m")
+    meta = json.loads((tmp_path / "m" / "bundle.json").read_text(encoding="utf-8"))
+    assert meta["bundle_version"] == 2
+    assert meta["backbone"]["name"] == "mirepnet"
+    assert meta["backbone_licence"].startswith("MIT")
+    assert meta["model_sfreq"] == CONTRACT.sfreq
+    loaded = ModelBundle.load(tmp_path / "m")
+    assert isinstance(loaded.model, MIRepNetClassifier)
+    assert loaded.backbone == backbone
+    x = np.random.default_rng(1).normal(size=(4, len(LAYOUT), 256)).astype(np.float32)
+    np.testing.assert_allclose(
+        loaded.decoder().predict_proba(x), trained.decoder().predict_proba(x), rtol=1e-5
+    )
+    # A model.pt that doesn't fit the recorded architecture fails as a data error, not silently.
+    meta["backbone"] = None  # claim EEGNet; the MIRepNet weights can't load into it
+    (tmp_path / "m" / "bundle.json").write_text(json.dumps(meta), encoding="utf-8")
+    with pytest.raises(NeurOSDataError, match="doesn't fit"):
+        ModelBundle.load(tmp_path / "m")
+
+
+def test_version_1_bundles_still_load_as_eegnet(bundle: ModelBundle, tmp_path: Path) -> None:
+    # mvp-v0 was written before version 2 added the backbone fields.
+    bundle.save(tmp_path / "v1")
+    meta_path = tmp_path / "v1" / "bundle.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    for key in ("backbone", "backbone_licence", "model_sfreq"):
+        meta.pop(key)
+    meta["bundle_version"] = 1
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+    loaded = ModelBundle.load(tmp_path / "v1")
+    assert loaded.backbone is None
+    x = np.random.default_rng(2).normal(size=(3, len(LAYOUT), 256)).astype(np.float32)
+    np.testing.assert_allclose(
+        loaded.decoder().predict_proba(x), bundle.decoder().predict_proba(x), rtol=1e-6
+    )
+
+
 def test_decoder_reads_only_the_scored_classes(bundle: ModelBundle) -> None:
     probs = bundle.decoder().predict_proba(np.zeros((2, len(LAYOUT), 256), dtype=np.float32))
     assert probs.shape == (2, 2)
